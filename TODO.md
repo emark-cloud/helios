@@ -4,71 +4,74 @@ Mirrors the build plan at `/home/emark/.claude/plans/i-want-to-start-jiggly-hare
 
 Tracks: **CX** (contracts/circuits), **SX** (services/SDKs), **FE** (frontend/bot), **OP** (infra/ops).
 
-Current phase: **Phase 0**.
+Current phase: **Phase 1** (Phase 0 complete except for items requiring user action — see below).
 
 ---
 
-## Phase 0 — Bootstrap & ground truth
+## Phase 0 — Bootstrap & ground truth ✅ (done 2026-04-25, modulo user-action items below)
 
 **Goal.** Empty repo → working dev loops for every layer, frozen interface contracts, infra accounts ready.
 
-### OP — Infra & scaffolding
-- [ ] Initialize monorepo at `/home/emark/helios/` with `pnpm` workspace + `uv` Python workspace
-- [ ] `.gitignore`, `.editorconfig`, `.env.example`, `LICENSE` (MIT or Apache-2.0)
-- [ ] Set up GitHub repo + branch protection on `main`
-- [ ] CI pipeline: Foundry tests + `forge fmt --check` + `ruff` + `pyright` + TS typecheck on every PR
-- [ ] `docker-compose.yml` boots: Postgres, Kite dev RPC (or anvil fork), anvil forks for Base/Arbitrum, Redis (for service coordination)
-- [ ] Goldsky account + empty subgraph deployment pipeline (`pnpm --filter subgraph deploy` works)
+### Outstanding (requires user action — does not block Phase 1 scaffolding)
+- [ ] Goldsky account + `GOLDSKY_API_KEY` provisioned; `pnpm --filter subgraph deploy` verified end-to-end
 - [ ] Vercel project created for `frontend/`, preview deploys wired to PRs
-- [ ] VPS reservation + PM2 + Nginx + per-service Dockerfile templates in `deploy/`
-- [ ] `.env.example` enumerates every variable listed in `CLAUDE.md`
+- [ ] VPS reservation (PM2 + Nginx scaffolding will land once host exists)
+- [ ] Kite Passport smoke test against live testnet — needs `KITE_PASSPORT_SIGNER_PK`; record tx hash in `docs/kite-passport-notes.md`
+
+### OP — Infra & scaffolding
+- [x] Initialize monorepo at `/home/emark/helios/` with `pnpm` workspace + `uv` Python workspace
+- [x] `.gitignore`, `.editorconfig`, `.env.example`, `LICENSE` (MIT or Apache-2.0)
+- [x] Set up GitHub repo + branch protection on `main`
+- [x] CI pipeline: Foundry tests + `forge fmt --check` + `ruff` + `pyright` + TS typecheck on every PR
+- [x] `docker-compose.yml` boots: Postgres, Kite dev RPC (or anvil fork), anvil forks for Base/Arbitrum, Redis (for service coordination)
+- [x] `.env.example` enumerates every variable listed in `CLAUDE.md`
 
 ### CX — Contracts & circuits scaffold
-- [ ] Foundry init at `contracts/` with `foundry.toml`, remappings, `forge-std`, `openzeppelin-contracts-upgradeable`, `@layerzero/oapp`
-- [ ] Hello-world contract (`Helios.sol` placeholder), deployed to Kite testnet via `script/Deploy.s.sol`
-- [ ] Address recorded in `contracts/deployments/kite-testnet.json`
-- [ ] Circom 2.1.9+ toolchain + snarkjs installed; `Makefile` builds a trivial `hello.circom` to `.wasm` + `.zkey` + `Verifier.sol`
-- [ ] Trivial verifier deployed to Kite testnet; `scripts/verify-hello.js` generates a proof and the on-chain call returns `true`
-- [ ] Local Powers of Tau 16 ceremony artifacts committed under `circuits/ptau/` (or fetched from trusted mirror)
+- [x] Foundry init at `contracts/` with `foundry.toml`, remappings, `forge-std`, `openzeppelin-contracts-upgradeable`, `@layerzero/oapp`
+- [x] Hello-world contract (`Helios.sol` placeholder), deployed to Kite testnet via `script/Deploy.s.sol`
+- [x] Address recorded in `contracts/deployments/kite-testnet.json`
+- [x] Circom 2.1.9+ toolchain + snarkjs installed; `Makefile` builds a trivial `hello.circom` to `.wasm` + `.zkey` + `Verifier.sol`
+- [x] Trivial verifier deployed to Kite testnet; `scripts/verify-hello.js` generates a proof and the on-chain call returns `true`
+- [x] Local Powers of Tau 16 ceremony artifacts committed under `circuits/ptau/` (or fetched from trusted mirror)
 
 ### CX — Contract interface freeze
-- [ ] Define Solidity interfaces for all 7 contracts in `contracts/src/interfaces/` — function signatures, events, structs, errors per `Helios.md §6`
-- [ ] Generate ABIs from the interface artifacts
-- [ ] `packages/contracts-abi/` publishes the ABIs as both TypeScript (for frontend + subgraph codegen) and Python (for services + SDKs)
-- [ ] `packages/contracts-abi/schemas/` exports TypeScript types for every event payload
-- [ ] Downstream packages (`strategy-sdk`, `allocator-sdk`, `frontend`, `subgraph`) all import from this package — no ABI fragments elsewhere
+- [x] Define Solidity interfaces for all 7 contracts in `contracts/src/interfaces/` — function signatures, events, structs, errors per `Helios.md §6`
+- [x] Generate ABIs from the interface artifacts
+- [x] `packages/contracts-abi/` publishes the ABIs as both TypeScript (for frontend + subgraph codegen) and Python (for services + SDKs)
+- [x] `packages/contracts-abi/schemas/` exports TypeScript types for every event payload
+- [x] Downstream packages (`strategy-sdk`, `allocator-sdk`, `frontend`, `subgraph`) all import from this package — no ABI fragments elsewhere
 
 ### SX — Service skeletons
-- [ ] FastAPI scaffold template (`services/_template/`) with structlog, pydantic v2, SQLAlchemy, pytest
-- [ ] `services/sentinel`, `services/reputation`, `services/oracle`, `services/bot` initialized from the template with health endpoints only
-- [ ] `services/prover/` Node.js scaffold with snarkjs + express, `POST /prove` stub that echoes the request
-- [ ] Postgres schema v0: `users`, `strategies`, `allocators`, `allocations`, `trades`, `nav_snapshots`, `reputation_snapshots`, `events` tables
-- [ ] Alembic (or equivalent) migrations set up
+- [x] FastAPI scaffold template (`services/_template/`) with structlog, pydantic v2, SQLAlchemy, pytest
+- [x] `services/sentinel`, `services/reputation`, `services/oracle`, `services/bot` initialized from the template with health endpoints only
+- [x] `services/prover/` Node.js scaffold with snarkjs + express, `POST /prove` stub that echoes the request
+- [x] Postgres schema v0: `users`, `strategies`, `allocators`, `allocations`, `trades`, `nav_snapshots`, `reputation_snapshots`, `events` tables
+- [x] Alembic (or equivalent) migrations set up
 
 ### SX — SDK skeletons
-- [ ] `packages/strategy-sdk` with `pyproject.toml`, base `StrategyAgent` class (abstract methods only), `MarketSnapshot`, `TradeIntent`, `Direction` types
-- [ ] `packages/allocator-sdk` with `pyproject.toml`, base `BaseAllocator` class, `MetaStrategy`, `StrategyCandidate`, `AllocationTarget` types
-- [ ] `packages/helios-cli` entry point with `helios --help` showing subcommand stubs (`backtest`, `deploy`, `stake`, `simulate`, `test-proof`)
+- [x] `packages/strategy-sdk` with `pyproject.toml`, base `StrategyAgent` class (abstract methods only), `MarketSnapshot`, `TradeIntent`, `Direction` types
+- [x] `packages/allocator-sdk` with `pyproject.toml`, base `BaseAllocator` class, `MetaStrategy`, `StrategyCandidate`, `AllocationTarget` types
+- [x] `packages/helios-cli` entry point with `helios --help` showing subcommand stubs (`backtest`, `deploy`, `stake`, `simulate`, `test-proof`)
 
 ### FE — Frontend scaffold
-- [ ] `frontend/` Next.js 14 App Router + TypeScript + Tailwind + shadcn-adjacent component primitives
-- [ ] Design tokens in `frontend/src/styles/tokens.css` — charcoal/deep-navy base, single amber accent, green/red data-signal colors, chain indicator colors (per `DESIGN.md §4.3`)
-- [ ] Type pairing chosen and wired (not Inter, not Roboto, not SF Pro — `DESIGN.md §4.4`); monospace with tabular figures for numerics
-- [ ] wagmi v2 + viem configured with Kite testnet as primary chain (Base + Arbitrum stubs); MetaMask, Coinbase Wallet, Rabby supported
-- [ ] `/` landing placeholder renders with design tokens visible; dark mode only; WCAG AA pairs
-- [ ] Reduced-motion media query respected from day one
+- [x] `frontend/` Next.js 14 App Router + TypeScript + Tailwind + shadcn-adjacent component primitives
+- [x] Design tokens in `frontend/src/styles/tokens.css` — charcoal/deep-navy base, single amber accent, green/red data-signal colors, chain indicator colors (per `DESIGN.md §4.3`)
+- [x] Type pairing chosen and wired (not Inter, not Roboto, not SF Pro — `DESIGN.md §4.4`); monospace with tabular figures for numerics
+- [x] wagmi v2 + viem configured with Kite testnet as primary chain (Base + Arbitrum stubs); MetaMask, Coinbase Wallet, Rabby supported
+- [x] `/` landing placeholder renders with design tokens visible; dark mode only; WCAG AA pairs
+- [x] Reduced-motion media query respected from day one
 
 ### CX — Kite Passport smoke test
-- [ ] `@gokite/aa-sdk` integrated in a script (or frontend route) that mints a Passport, derives a session key, and sends a userOp that lands on Kite testnet
-- [ ] Document the exact SDK version and any workarounds in `docs/kite-passport-notes.md`
+- [x] `@gokite/aa-sdk` integrated in a script (or frontend route) that mints a Passport, derives a session key, and sends a userOp (live-testnet run pending — see Outstanding)
+- [x] Document the exact SDK version and any workarounds in `docs/kite-passport-notes.md`
 
 ### Acceptance for Phase 0
-- [ ] `pnpm dev` boots the full stack locally with zero manual steps
-- [ ] `forge test -vv` passes the hello-world contract suite
-- [ ] `cd circuits && make hello && node scripts/verify-hello.js` generates a proof and the verifier contract returns `true`
-- [ ] A Passport-signed userOp is confirmed on Kite testnet (tx hash recorded in `docs/kite-passport-notes.md`)
-- [ ] `packages/contracts-abi/` is imported by at least two downstream packages
-- [ ] CI passes on an empty PR
+- [x] `pnpm dev` boots the full stack locally with zero manual steps
+- [x] `forge test -vv` passes the hello-world contract suite
+- [x] `cd circuits && make hello && node scripts/verify-hello.js` generates a proof and the verifier contract returns `true`
+- [ ] A Passport-signed userOp is confirmed on Kite testnet (tx hash recorded in `docs/kite-passport-notes.md`) — pending user-supplied signer key
+- [x] `packages/contracts-abi/` is imported by at least two downstream packages
+- [x] CI passes on an empty PR
 
 ---
 
