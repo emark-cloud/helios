@@ -10,6 +10,10 @@
     "clean": "make clean"
   },
   "dependencies": {
+    "circomlib": "^2.0.5",
     "snarkjs": "^0.7.6"
+  },
+  "devDependencies": {
+    "circomlibjs": "^0.1.7"
   }
 }
