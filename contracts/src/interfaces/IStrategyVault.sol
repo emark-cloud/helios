@@ -48,6 +48,7 @@ interface IStrategyVault {
         Call[] calldata trades
     ) external;
 
+    function allocateFrom(uint256 amount) external;
     function reportNAV(bytes calldata signedNAV) external;
     function distributeRealized(address allocator) external;
     function withdrawToAllocator(address allocator, uint256 amount) external;
