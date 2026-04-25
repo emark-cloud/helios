@@ -45,6 +45,8 @@ contracts/cache/
 contracts/broadcast/*/dry-run/
 contracts/broadcast/**/run-*.json
 !contracts/broadcast/**/run-latest.json
+contracts/broadcast/**/31337/
+contracts/deployments/anvil*.json
 
 # ── Circom / snarkjs ────────────────────────────────────────
 circuits/build/
@@ -62,3 +64,6 @@ subgraph/build/
 docker-compose.override.yml
 .data/
 pg-data/
+
+# ── Claude Code session ─────────────────────────────────────
+.claude/

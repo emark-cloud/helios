@@ -36,6 +36,15 @@ function poseidonHash(inputs) {
   return F.toObject(poseidon(inputs.map((x) => BigInt(x)))).toString();
 }
 
+// Chained Poseidon: h0 = P(obs[0]); hi = P(h_{i-1}, obs[i]) for i in 1..15.
+function chainedPoseidon(observations) {
+  let h = poseidonHash([observations[0]]);
+  for (let i = 1; i < observations.length; i++) {
+    h = poseidonHash([h, observations[i]]);
+  }
+  return h;
+}
+
 function buildValidInput() {
   // Universe of 8 ERC-20 addresses (as field elements). Slot 0 = WKITE-ish.
   const universe = Array.from({ length: UNIVERSE_SIZE }, (_, i) => asField(0xaa00 + i));
@@ -53,10 +62,10 @@ function buildValidInput() {
   const block_window_start = "100";
   const block_window_end = "150"; // delta 50 ≤ 100
 
-  // Price observations: 16 monotonically rising bars (consistent with momentum).
+  // Monotonically rising bars: 1000, 1005, ..., 1075. Total 7.5% rise; with
+  // signal_threshold of 100 bps the long-entry excess is positive.
   const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
-  // oracle_root = Poseidon(observations) — matches the scaffold's binding.
-  const oracle_root = poseidonHash(price_observations);
+  const oracle_root = chainedPoseidon(price_observations);
 
   const declared_class = asField("0x1234");
   const trade_hash = poseidonHash([
@@ -86,10 +95,71 @@ function buildValidInput() {
     max_position_size,
     max_slippage_bps,
     position_state: "0",
-    signal_threshold: "10",
+    signal_threshold: "100", // 1.0% threshold
     price_observations,
     oracle_root,
+    // Direction selector (one-hot) — long entry.
+    is_long_entry: "1",
+    is_short_entry: "0",
+    is_exit: "0",
+    // Exit reason — both 0 because is_exit == 0.
+    is_signal_flip: "0",
+    is_stop_loss: "0",
+    stop_loss_price: "0",
   };
+}
+
+function buildValidExitInput() {
+  // Same universe + bookkeeping as the long-entry case, but a falling price
+  // series so the signal-flip exit predicate succeeds.
+  const input = buildValidInput();
+  // Reverse direction → exit (0); rebuild observations to fall by 7.5%.
+  const falling = Array.from({ length: 16 }, (_, i) => asField(1075 - i * 5));
+  input.price_observations = falling;
+  input.oracle_root = chainedPoseidon(falling);
+  input.trade_direction = "0";
+  input.is_long_entry = "0";
+  input.is_short_entry = "0";
+  input.is_exit = "1";
+  input.is_signal_flip = "1";
+  input.is_stop_loss = "0";
+  input.stop_loss_price = "0";
+  // Recompute trade_hash for the new direction.
+  input.trade_hash = poseidonHash([
+    input.declared_class,
+    input.asset_in,
+    input.asset_out,
+    input.amount_in,
+    input.min_amount_out,
+    input.trade_direction,
+    input.allocator_address,
+    input.nonce,
+  ]);
+  return input;
+}
+
+function buildValidStopLossInput() {
+  // Long-position holder hits a stop loss: exit triggered by stop-loss reason.
+  const input = buildValidInput();
+  input.trade_direction = "0";
+  input.is_long_entry = "0";
+  input.is_short_entry = "0";
+  input.is_exit = "1";
+  input.is_signal_flip = "0";
+  input.is_stop_loss = "1";
+  // Last observation is 1075; set stop_loss_price >= 1075 so price_last <= stop.
+  input.stop_loss_price = "1080";
+  input.trade_hash = poseidonHash([
+    input.declared_class,
+    input.asset_in,
+    input.asset_out,
+    input.amount_in,
+    input.min_amount_out,
+    input.trade_direction,
+    input.allocator_address,
+    input.nonce,
+  ]);
+  return input;
 }
 
 test("momentum_v1: valid witness generates", async () => {
@@ -143,5 +213,79 @@ test("momentum_v1: window > 100 blocks rejected", async () => {
 test("momentum_v1: trade_hash mismatch rejected", async () => {
   const input = buildValidInput();
   input.trade_hash = poseidonHash([1, 2, 3, 4, 5, 6, 7, 8]); // arbitrary wrong hash
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: oracle root mismatch rejected", async () => {
+  const input = buildValidInput();
+  input.oracle_root = "0"; // doesn't match the chained Poseidon of observations
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: long entry without sufficient momentum rejected", async () => {
+  const input = buildValidInput();
+  // Bump threshold above the 7.5% rise → long_excess_raw becomes negative.
+  input.signal_threshold = "10000"; // 100%
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: direction-selector mismatch rejected", async () => {
+  const input = buildValidInput();
+  // trade_direction stays 1 (long), but the witness claims short.
+  input.is_long_entry = "0";
+  input.is_short_entry = "1";
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: exit (signal flip) accepted on falling prices", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_momentum_witness.wtns";
+  await snarkjs.wtns.calculate(buildValidExitInput(), WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+test("momentum_v1: exit (signal flip) rejected when prices still rising", async () => {
+  const input = buildValidExitInput();
+  // Override observations back to the rising series so the flip predicate fails.
+  const rising = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  input.price_observations = rising;
+  input.oracle_root = chainedPoseidon(rising);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: exit (stop loss) accepted when stop above last price", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_momentum_witness.wtns";
+  await snarkjs.wtns.calculate(buildValidStopLossInput(), WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+test("momentum_v1: exit (stop loss) rejected when stop below last price", async () => {
+  const input = buildValidStopLossInput();
+  // Last observation is 1075; pick a stop below that to force the predicate to fail.
+  input.stop_loss_price = "500";
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: exit with neither flip nor stop-loss reason rejected", async () => {
+  const input = buildValidInput();
+  // Direction = exit but no reason flagged.
+  input.trade_direction = "0";
+  input.is_long_entry = "0";
+  input.is_short_entry = "0";
+  input.is_exit = "1";
+  input.is_signal_flip = "0";
+  input.is_stop_loss = "0";
+  input.stop_loss_price = "0";
+  input.trade_hash = poseidonHash([
+    input.declared_class,
+    input.asset_in,
+    input.asset_out,
+    input.amount_in,
+    input.min_amount_out,
+    input.trade_direction,
+    input.allocator_address,
+    input.nonce,
+  ]);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });

@@ -11,7 +11,11 @@ optimizer_runs = 200
 bytecode_hash = "none"
 cbor_metadata = false
 verbosity = 2
-fs_permissions = [{ access = "read-write", path = "./deployments" }, { access = "read", path = "./out" }]
+fs_permissions = [
+    { access = "read-write", path = "./deployments" },
+    { access = "read", path = "./out" },
+    { access = "read", path = "./test/fixtures" },
+]
 
 remappings = [
     "forge-std/=lib/forge-std/src/",

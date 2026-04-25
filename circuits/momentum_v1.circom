@@ -7,20 +7,18 @@ pragma circom 2.1.9;
 //   1. asset_in / asset_out are in the strategy's manifest universe
 //   2. amount_in <= max_position_size (operator-declared bound)
 //   3. min_amount_out respects manifest's max slippage
-//   4. price_observations Poseidon-chain to a committed oracle root        (TODO)
-//   5. direction-specific signal logic (long entry / short entry / exit)   (TODO)
+//   4. price_observations Poseidon-chain to a committed oracle root
+//   5. direction-specific signal logic (long entry / short entry / exit)
 //   6. block_window_end - block_window_start <= 100
-//   7. trade_hash matches Poseidon of the trade calldata public fields
-//
-// Scaffolding pass — constraints 1, 2, 3, 6, 7 implemented; 4 and 5 stubbed
-// with structural placeholders so constraint count is visible while the
-// signal/oracle subcomponents are being designed.
+//   7. exit conditions: signal-flip OR stop-loss
+//   8. trade_hash matches Poseidon of the trade calldata public fields
 //
 // Public input order MUST match the Solidity verifier's publicInputs[] indexing
 // in `TradeAttestationVerifier`. Do not reorder without updating both sides.
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/bitify.circom";
 
 // Asset universe size — manifest enforces this on-chain at registration.
 // Bumping this raises constraint count linearly via the membership checks.
@@ -32,7 +30,7 @@ template MomentumV1(UNIVERSE_SIZE) {
     signal input asset_out;
     signal input amount_in;
     signal input min_amount_out;
-    signal input trade_direction;       // 0=exit, 1=long, 2=short
+    signal input trade_direction;       // 0=exit, 1=long entry, 2=short entry
     signal input allocator_address;
     signal input nonce;
     signal input block_window_start;
@@ -42,10 +40,20 @@ template MomentumV1(UNIVERSE_SIZE) {
     signal input asset_universe[UNIVERSE_SIZE];     // operator's declared universe
     signal input max_position_size;                 // operator's declared cap
     signal input max_slippage_bps;                  // operator's declared slippage
-    signal input position_state;                    // current position (signed encoding)
-    signal input signal_threshold;                  // operator-chosen threshold
+    signal input position_state;                    // current position size (unsigned)
+    signal input signal_threshold;                  // operator-chosen threshold (bps)
     signal input price_observations[16];            // last 16 minute-bars
     signal input oracle_root;                       // committed price-oracle root
+
+    // Direction selector witness (one-hot, validated below).
+    signal input is_long_entry;
+    signal input is_short_entry;
+    signal input is_exit;
+
+    // Exit-reason selector witness (one-hot when is_exit, else both 0).
+    signal input is_signal_flip;
+    signal input is_stop_loss;
+    signal input stop_loss_price;                   // operator-declared stop level
 
     // ── Constraint 1: asset_in / asset_out in universe ──────────────
     component memberIn  = InUniverse(UNIVERSE_SIZE);
@@ -60,51 +68,79 @@ template MomentumV1(UNIVERSE_SIZE) {
     memberOut.found === 1;
 
     // ── Constraint 2: amount_in <= max_position_size ────────────────
-    component sizeOk = LessEqThan(128);             // 128-bit amounts
+    component sizeOk = LessEqThan(128);
     sizeOk.in[0] <== amount_in;
     sizeOk.in[1] <== max_position_size;
     sizeOk.out === 1;
 
     // ── Constraint 3: slippage bound ────────────────────────────────
     // min_amount_out * 10000 >= amount_in * (10000 - max_slippage_bps)
-    // Rearranged to avoid division.
-    signal lhs;
-    signal rhs;
-    lhs <== min_amount_out * 10000;
-    rhs <== amount_in * (10000 - max_slippage_bps);
+    signal slipLhs;
+    signal slipRhs;
+    slipLhs <== min_amount_out * 10000;
+    slipRhs <== amount_in * (10000 - max_slippage_bps);
     component slipOk = GreaterEqThan(160);
-    slipOk.in[0] <== lhs;
-    slipOk.in[1] <== rhs;
+    slipOk.in[0] <== slipLhs;
+    slipOk.in[1] <== slipRhs;
     slipOk.out === 1;
 
-    // ── Constraint 4: Poseidon-chain commitment to oracle root ──────
-    // TODO: chain Poseidon(prev || obs[i]) across price_observations and
-    // assert the final hash equals oracle_root. For this scaffold we just
-    // bind the witness with a single Poseidon over the array so the root
-    // is constrained to a deterministic function of the observations.
-    component poseidonChain = Poseidon(16);
-    for (var j = 0; j < 16; j++) {
-        poseidonChain.inputs[j] <== price_observations[j];
+    // ── Constraint 4: chained Poseidon commitment to oracle root ────
+    // h[0]   = Poseidon(obs[0])
+    // h[i]   = Poseidon(h[i-1], obs[i])  for i in 1..15
+    // h[15] === oracle_root
+    component pos0 = Poseidon(1);
+    pos0.inputs[0] <== price_observations[0];
+    signal h[16];
+    h[0] <== pos0.out;
+    component posChain[15];
+    for (var k = 1; k < 16; k++) {
+        posChain[k - 1] = Poseidon(2);
+        posChain[k - 1].inputs[0] <== h[k - 1];
+        posChain[k - 1].inputs[1] <== price_observations[k];
+        h[k] <== posChain[k - 1].out;
     }
-    poseidonChain.out === oracle_root;
+    h[15] === oracle_root;
 
     // ── Constraint 5: direction-specific signal logic ───────────────
-    // TODO: full implementation needs:
-    //   - N-period return computed from price_observations
-    //   - long entry: return > signal_threshold AND position_state <= 0
-    //   - short entry: return < -signal_threshold AND position_state >= 0
-    //   - exit: signal-flip OR stop-loss true
-    // For this scaffold we bind direction to 0/1/2 to expose the placeholder
-    // gate and let downstream logic plug in.
-    component dirRange = LessEqThan(8);
-    dirRange.in[0] <== trade_direction;
-    dirRange.in[1] <== 2;
-    dirRange.out === 1;
+    is_long_entry  * (1 - is_long_entry)  === 0;
+    is_short_entry * (1 - is_short_entry) === 0;
+    is_exit        * (1 - is_exit)        === 0;
+    is_long_entry + is_short_entry + is_exit === 1;
+    // Bind to trade_direction: 0=exit, 1=long, 2=short.
+    trade_direction === is_long_entry + 2 * is_short_entry;
 
-    // Reference the witness signals so they aren't optimized out before the
-    // real signal/threshold logic lands.
-    signal dirCheck;
-    dirCheck <== signal_threshold * trade_direction;
+    signal price_first;
+    signal price_last;
+    price_first <== price_observations[0];
+    price_last  <== price_observations[15];
+
+    // Pre-compute the signed momentum components, then mask by direction.
+    signal up_delta_x10k;
+    signal down_delta_x10k;
+    signal threshold_x_pf;
+    up_delta_x10k   <== (price_last - price_first) * 10000;
+    down_delta_x10k <== (price_first - price_last) * 10000;
+    threshold_x_pf  <== signal_threshold * price_first;
+
+    // long_excess_raw  = up_delta_x10k   - threshold_x_pf  (must be >= 0 for long entry)
+    // short_excess_raw = down_delta_x10k - threshold_x_pf  (must be >= 0 for short entry)
+    signal long_excess_raw;
+    signal short_excess_raw;
+    long_excess_raw  <== up_delta_x10k   - threshold_x_pf;
+    short_excess_raw <== down_delta_x10k - threshold_x_pf;
+
+    // Mask by direction: non-active branch carries 0 (always passes the check).
+    signal long_excess;
+    signal short_excess;
+    long_excess  <== is_long_entry  * long_excess_raw;
+    short_excess <== is_short_entry * short_excess_raw;
+
+    // Non-negativity via bit decomposition. 192b comfortably fits any realistic
+    // price * 10000 in BN254 — prices are 64-bit, x10000 adds ~14 bits.
+    component longNonNeg  = Num2Bits(192);
+    component shortNonNeg = Num2Bits(192);
+    longNonNeg.in  <== long_excess;
+    shortNonNeg.in <== short_excess;
 
     // ── Constraint 6: block window bound ────────────────────────────
     signal windowDelta;
@@ -114,7 +150,27 @@ template MomentumV1(UNIVERSE_SIZE) {
     windowOk.in[1] <== 100;
     windowOk.out === 1;
 
-    // ── Constraint 7: trade_hash binds public fields ────────────────
+    // ── Constraint 7: exit conditions (signal-flip OR stop-loss) ────
+    is_signal_flip * (1 - is_signal_flip) === 0;
+    is_stop_loss   * (1 - is_stop_loss)   === 0;
+    // When exit: exactly one reason. When not exit: both 0.
+    is_exit === is_signal_flip + is_stop_loss;
+
+    signal sf_excess_raw;
+    sf_excess_raw <== down_delta_x10k - threshold_x_pf;
+    signal sf_excess;
+    sf_excess <== is_signal_flip * sf_excess_raw;
+    component sfNonNeg = Num2Bits(192);
+    sfNonNeg.in <== sf_excess;
+
+    signal sl_excess_raw;
+    sl_excess_raw <== stop_loss_price - price_last;
+    signal sl_excess;
+    sl_excess <== is_stop_loss * sl_excess_raw;
+    component slNonNeg = Num2Bits(192);
+    slNonNeg.in <== sl_excess;
+
+    // ── Constraint 8: trade_hash binds public fields ────────────────
     component tradePoseidon = Poseidon(8);
     tradePoseidon.inputs[0] <== declared_class;
     tradePoseidon.inputs[1] <== asset_in;
@@ -147,8 +203,6 @@ template InUniverse(N) {
         matches[i] <== eq[i].out;
         sum += matches[i];
     }
-    // Exactly one match => candidate is in universe and unique.
-    // (At-least-one is enforced by manifest dedupe at registration.)
     component sumEq = IsEqual();
     sumEq.in[0] <== sum;
     sumEq.in[1] <== 1;

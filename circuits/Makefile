@@ -62,8 +62,12 @@ $(PTAU_FILE):
 # ────────────────────────────────────────────────────────────
 # Per-circuit build
 # ────────────────────────────────────────────────────────────
+# Convert snake_case to PascalCase for the Solidity verifier name:
+# momentum_v1 → MomentumV1, mean_reversion_v1 → MeanReversionV1.
+verifier_name = $(shell echo $(1) | python3 -c "import sys; print(''.join(p.capitalize() for p in sys.stdin.read().strip().split('_')))")Verifier
+
 define CIRCUIT_template
-$(1): $(BUILD_DIR)/$(1)/$(1).zkey $(BUILD_DIR)/$(1)/verification_key.json $(CONTRACTS_VERIFIERS_DIR)/$(shell echo $(1) | sed 's/.*/\u&/')Verifier.sol
+$(1): $(BUILD_DIR)/$(1)/$(1).zkey $(BUILD_DIR)/$(1)/verification_key.json $(CONTRACTS_VERIFIERS_DIR)/$(call verifier_name,$(1)).sol
 
 $(BUILD_DIR)/$(1)/$(1).r1cs $(BUILD_DIR)/$(1)/$(1).wasm: $(1).circom
 	@mkdir -p $(BUILD_DIR)/$(1)
@@ -81,13 +85,13 @@ $(BUILD_DIR)/$(1)/$(1).zkey: $(BUILD_DIR)/$(1)/$(1).r1cs $(PTAU_FILE)
 $(BUILD_DIR)/$(1)/verification_key.json: $(BUILD_DIR)/$(1)/$(1).zkey
 	$(SNARKJS) zkey export verificationkey $(BUILD_DIR)/$(1)/$(1).zkey $(BUILD_DIR)/$(1)/verification_key.json
 
-$(CONTRACTS_VERIFIERS_DIR)/$(shell echo $(1) | sed 's/.*/\u&/')Verifier.sol: $(BUILD_DIR)/$(1)/$(1).zkey
+$(CONTRACTS_VERIFIERS_DIR)/$(call verifier_name,$(1)).sol: $(BUILD_DIR)/$(1)/$(1).zkey
 	@mkdir -p $(CONTRACTS_VERIFIERS_DIR)
 	$(SNARKJS) zkey export solidityverifier $(BUILD_DIR)/$(1)/$(1).zkey \
-		$(CONTRACTS_VERIFIERS_DIR)/$(shell echo $(1) | sed 's/.*/\u&/')Verifier.sol
+		$(CONTRACTS_VERIFIERS_DIR)/$(call verifier_name,$(1)).sol
 	@# snarkjs names the contract "Groth16Verifier"; rename for clarity.
-	@sed -i 's/contract Groth16Verifier/contract $(shell echo $(1) | sed 's/.*/\u&/')Verifier/' \
-		$(CONTRACTS_VERIFIERS_DIR)/$(shell echo $(1) | sed 's/.*/\u&/')Verifier.sol
+	@sed -i 's/contract Groth16Verifier/contract $(call verifier_name,$(1))/' \
+		$(CONTRACTS_VERIFIERS_DIR)/$(call verifier_name,$(1)).sol
 endef
 
 $(foreach circuit,$(CIRCUITS),$(eval $(call CIRCUIT_template,$(circuit))))
