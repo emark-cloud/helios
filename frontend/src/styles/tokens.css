@@ -1,0 +1,98 @@
+/**
+ * Helios design tokens. Single source of truth.
+ *
+ * Per DESIGN.md §4 — charcoal & deep navy base, single amber accent
+ * (~2–5% of pixels), green/red as data-signal only. Dark-mode only.
+ *
+ * Tailwind reads these via tailwind.config.ts. Never hardcode color
+ * values in JSX — if a token is missing, add it here AND in the
+ * Tailwind config.
+ */
+
+:root {
+  /* ── Surface (charcoal & deep navy, never pure black) ───── */
+  --surface-base:   #0b1018;  /* page background */
+  --surface-1:      #11182280;  /* shifted variants for dim surfaces */
+  --surface-panel:  #131b27;  /* card / panel */
+  --surface-elev:   #1a2433;  /* row / hovered panel */
+  --surface-hover:  #213049;  /* hover state */
+  --surface-line:   #1f2a3a;  /* hairline divider */
+  --surface-line-strong: #2c3a52;
+
+  /* ── Foreground (typographic hierarchy) ──────────────────── */
+  --fg-primary:   #e8edf5;    /* body / numerics */
+  --fg-secondary: #b3becf;    /* secondary text */
+  --fg-muted:     #7886a0;    /* labels, axis ticks */
+  --fg-disabled:  #4a5468;
+
+  /* ── Accent — amber. THE ONLY non-neutral color. ────────── */
+  /* Used for: active states, selected rows, primary CTAs,    */
+  /* focus rings, verified-proof badges, "Official Reference" */
+  /* badges, user's capital threads in the sunburst.          */
+  --accent-amber:        #d99a2b;
+  --accent-amber-bright: #f0b248;  /* hovered amber */
+  --accent-amber-dim:    #8a6420;  /* pressed / muted variants */
+  --accent-amber-glow:   rgba(217, 154, 43, 0.16);  /* focus ring fill */
+
+  /* ── Data signal — green/red ONLY for numeric direction ── */
+  /* Calm green, warm red. Never used on buttons or decorations. */
+  --signal-positive:        #4f9d6e;
+  --signal-positive-strong: #66b585;
+  --signal-positive-dim:    #2d5841;
+  --signal-negative:        #c8503f;
+  --signal-negative-strong: #de6957;
+  --signal-negative-dim:    #6e2d24;
+
+  /* ── Chain indicators (muted, low-saturation) ───────────── */
+  --chain-kite:     #d99a2b;  /* Kite borrows the amber — Kite is home */
+  --chain-base:     #4d7cd1;
+  --chain-arbitrum: #5396b8;
+
+  /* ── Typography ────────────────────────────────────────── */
+  --font-sans: "JetBrains Sans", "Söhne", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Söhne Mono", "SF Mono", "Menlo", monospace;
+  --font-display: var(--font-sans);  /* same as sans by default; can swap */
+
+  /* tabular numerics — every numeric column applies this */
+  --font-numeric-features: "tnum" 1, "lnum" 1, "ss01" 1;
+
+  /* ── Spacing rhythm ────────────────────────────────────── */
+  /* Page-level: generous (calm at the page level).            */
+  /* Component-level: tight (Bloomberg density inside cards).  */
+  --space-row-tight:   6px;
+  --space-row-default: 10px;
+  --space-row-loose:   14px;
+
+  /* ── Borders / radii ───────────────────────────────────── */
+  --border-subtle:  1px solid var(--surface-line);
+  --border-strong:  1px solid var(--surface-line-strong);
+  --border-active:  1px solid var(--accent-amber);
+  --border-defund:  3px solid var(--signal-negative);  /* auto-defund row marker */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  /* ── Motion ───────────────────────────────────────────── */
+  /* Mechanical, not smooth. Stepwise on anything mapping     */
+  /* to a discrete on-chain event. See DESIGN.md §13.        */
+  --tick-step:    30ms;   /* per-digit NAV tick */
+  --tick-segment: 300ms;  /* sunburst segment resize, total */
+  --tick-cascade: 100ms;  /* per-stage cascade reveal */
+
+  /* ── Z-layers ──────────────────────────────────────────── */
+  --z-base: 0;
+  --z-elev: 1;
+  --z-overlay: 50;
+  --z-modal: 100;
+  --z-toast: 200;
+}
+
+/* Reduced motion respects user preference. All signature
+   interactions reduce to instant transitions. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tick-step: 0ms;
+    --tick-segment: 0ms;
+    --tick-cascade: 0ms;
+  }
+}

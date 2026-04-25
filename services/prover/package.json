@@ -1,0 +1,22 @@
+{
+  "name": "@helios/prover",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Helios prover — Node.js HTTP wrapper around snarkjs that generates Groth16 proofs for trade attestations.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test src/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "snarkjs": "^0.7.6",
+    "pino": "^9.5.0",
+    "pino-http": "^10.3.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}

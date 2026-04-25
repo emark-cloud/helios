@@ -1,0 +1,34 @@
+[project]
+name = "helios-service-template"
+version = "0.1.0"
+description = "Shared FastAPI service base for Helios off-chain components."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+    "httpx>=0.27",
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.14",
+    "tenacity>=9.0",
+    "websockets>=13.1",
+    "helios-contracts-abi",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "pyright>=1.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/_template"]

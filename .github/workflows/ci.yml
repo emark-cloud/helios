@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: contracts (foundry)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Check formatting
+        run: forge fmt --check
+      - name: Build
+        run: forge build --sizes
+      - name: Test
+        run: forge test -vv
+      - name: Coverage summary
+        run: forge coverage --report summary
+
+  circuits:
+    name: circuits (circom + snarkjs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install circom 2.1.9
+        run: |
+          curl -L https://github.com/iden3/circom/releases/download/v2.1.9/circom-linux-amd64 -o /usr/local/bin/circom
+          chmod +x /usr/local/bin/circom
+          circom --version
+      - name: Install snarkjs
+        run: npm install -g snarkjs@0.7.6
+      - name: Install circuits deps
+        run: npm install --no-audit --no-fund
+        working-directory: circuits
+      - name: Build + verify hello circuit
+        run: make test
+        working-directory: circuits
+
+  frontend:
+    name: frontend + packages (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Foundry (for ABI artifacts)
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install pnpm deps
+        run: pnpm install --frozen-lockfile
+      - name: Build contracts
+        run: forge build
+        working-directory: contracts
+      - name: Generate ABI bindings
+        run: pnpm --filter @helios/contracts-abi build
+      - name: Typecheck TS workspaces
+        run: pnpm --if-present -r typecheck
+      - name: Lint frontend
+        run: pnpm --filter @helios/frontend lint
+      - name: Build frontend
+        run: pnpm --filter @helios/frontend build
+
+  python:
+    name: python (uv + ruff + pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: uv sync
+        run: uv sync --all-extras
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Pyright
+        run: uv run pyright

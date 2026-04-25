@@ -1,0 +1,29 @@
+{
+  "name": "@helios/contracts-abi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared ABIs + TypeScript bindings for all Helios contracts. The single source of truth imported by services, subgraph, and frontend.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./abis/*": "./dist/abis/*.js",
+    "./addresses": {
+      "import": "./dist/addresses.js",
+      "types": "./dist/addresses.d.ts"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "node scripts/generate.mjs && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist src/abis"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

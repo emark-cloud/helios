@@ -1,0 +1,55 @@
+@import "./tokens.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    background-color: var(--surface-base);
+    color: var(--fg-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numerics use the mono face with tabular figures, by default. */
+  .num,
+  [data-numeric="true"] {
+    font-family: var(--font-mono);
+    font-feature-settings: var(--font-numeric-features);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Amber-toned focus rings — never browser default. */
+  *:focus-visible {
+    outline: 2px solid var(--accent-amber);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Auto-defund row indicator (DESIGN.md §10.2). */
+  [data-defund-state="breaching"] {
+    border-left: var(--border-defund);
+  }
+
+  /* Active / selected row indicator. */
+  [aria-selected="true"],
+  [data-active="true"] {
+    border-left: var(--border-active);
+  }
+
+  ::selection {
+    background: var(--accent-amber-glow);
+    color: var(--fg-primary);
+  }
+}
+
+@layer utilities {
+  .border-subtle {
+    border: var(--border-subtle);
+  }
+  .border-strong {
+    border: var(--border-strong);
+  }
+}

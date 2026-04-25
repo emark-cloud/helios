@@ -1,0 +1,64 @@
+# ── OS / editor ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+!.vscode/settings.example.json
+
+# ── Env & secrets ───────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Node / TypeScript / pnpm ────────────────────────────────
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+.pnpm-store/
+coverage/
+*.log
+.eslintcache
+.tsbuildinfo
+
+# ── Python / uv ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.venv*/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.pytest_cache/
+*.egg-info/
+dist-py/
+
+# ── Foundry / Solidity ──────────────────────────────────────
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/dry-run/
+contracts/broadcast/**/run-*.json
+!contracts/broadcast/**/run-latest.json
+
+# ── Circom / snarkjs ────────────────────────────────────────
+circuits/build/
+circuits/ptau/*.ptau
+!circuits/ptau/README.md
+*.r1cs
+*.wtns
+*.zkey.tmp
+
+# ── Subgraph ────────────────────────────────────────────────
+subgraph/generated/
+subgraph/build/
+
+# ── Docker / runtime ────────────────────────────────────────
+docker-compose.override.yml
+.data/
+pg-data/

@@ -1,0 +1,22 @@
+[project]
+name = "helios-sentinel"
+version = "0.1.0"
+description = "Helios Sentinel — the reference allocator agent. The simple, legible baseline that competing allocators aim to beat."
+requires-python = ">=3.11"
+dependencies = [
+    "helios-service-template",
+    "helios-allocator-sdk",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1"]
+
+[project.scripts]
+sentinel = "sentinel.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sentinel"]

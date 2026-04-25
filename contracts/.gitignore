@@ -1,0 +1,8 @@
+out/
+cache/
+broadcast/*/*/dry-run/
+broadcast/**/run-[0-9]*.json
+!broadcast/**/run-latest.json
+
+# Foundry libs are checked in as submodules; don't ignore.
+!lib/

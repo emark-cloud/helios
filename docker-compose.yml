@@ -1,0 +1,99 @@
+# Helios — full-stack local boot.
+#
+# `pnpm dev` runs `docker compose up -d` + the frontend dev server.
+# Phase 0 provides Postgres + Redis + per-chain anvil forks so services
+# can develop against reproducible local RPC endpoints. As contract
+# deploys land (Phase 1+), anvil forks get seeded with initial state.
+
+name: helios
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: helios
+      POSTGRES_PASSWORD: helios
+      POSTGRES_DB: helios
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helios"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+
+  # Kite testnet fork. Kite has 1-second block times; we mirror that locally
+  # so the auto-defund demo timing matches production expectations.
+  anvil-kite:
+    image: ghcr.io/foundry-rs/foundry:latest
+    restart: unless-stopped
+    command: >
+      anvil
+      --host 0.0.0.0
+      --chain-id 2368
+      --block-time 1
+      ${KITE_RPC_URL:+--fork-url ${KITE_RPC_URL}}
+    ports:
+      - "8545:8545"
+
+  # Base Sepolia fork — Phase 5 uses this for cross-chain strategies.
+  anvil-base:
+    image: ghcr.io/foundry-rs/foundry:latest
+    restart: unless-stopped
+    command: >
+      anvil
+      --host 0.0.0.0
+      --chain-id 84532
+      --block-time 2
+      ${BASE_SEPOLIA_RPC_URL:+--fork-url ${BASE_SEPOLIA_RPC_URL}}
+    ports:
+      - "8546:8545"
+
+  # Arbitrum Sepolia fork — Phase 5.
+  anvil-arbitrum:
+    image: ghcr.io/foundry-rs/foundry:latest
+    restart: unless-stopped
+    command: >
+      anvil
+      --host 0.0.0.0
+      --chain-id 421614
+      --block-time 2
+      ${ARBITRUM_SEPOLIA_RPC_URL:+--fork-url ${ARBITRUM_SEPOLIA_RPC_URL}}
+    ports:
+      - "8547:8545"
+
+  prover:
+    build:
+      context: ./services/prover
+    restart: unless-stopped
+    environment:
+      PROVER_HTTP_PORT: "8004"
+      LOG_LEVEL: info
+    volumes:
+      - ./circuits/build:/app/circuits/build:ro
+    ports:
+      - "8004:8004"
+
+  # Python services — Phase 0 ships health-only; Phase 1+ fills behavior.
+  # These containers are commented out until each service has a real Dockerfile.
+  # For Phase 0, run them locally via `uv run --package helios-sentinel python -m sentinel`.
+  # sentinel:
+  #   build: { context: ./services/sentinel }
+  #   environment:
+  #     DATABASE_URL: postgres://helios:helios@postgres:5432/helios
+  #     KITE_RPC_URL: http://anvil-kite:8545
+  #   depends_on: [postgres, anvil-kite]
+  #   ports: ["8001:8001"]
+
+volumes:
+  pg-data:

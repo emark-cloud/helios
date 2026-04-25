@@ -1,0 +1,15 @@
+{
+  "name": "@helios/circuits",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "description": "Helios ZK circuit build & test harness (Circom + snarkjs).",
+  "scripts": {
+    "build": "make all",
+    "test": "make test",
+    "clean": "make clean"
+  },
+  "dependencies": {
+    "snarkjs": "^0.7.6"
+  }
+}

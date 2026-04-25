@@ -1,0 +1,25 @@
+[project]
+name = "helios-reputation"
+version = "0.1.0"
+description = "Reputation Engine — consumes Goldsky events, computes scores per Helios.md §8, posts signed updates to ReputationAnchor."
+requires-python = ">=3.11"
+dependencies = [
+    "helios-service-template",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "eth-account>=0.13",
+    "web3>=7.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1"]
+
+[project.scripts]
+reputation = "reputation.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reputation"]

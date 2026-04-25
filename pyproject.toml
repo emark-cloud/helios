@@ -1,0 +1,86 @@
+[project]
+name = "helios-workspace"
+version = "0.1.0"
+description = "Helios monorepo workspace root (non-publishable)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Keep the root project empty — all code lives in members.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pyright>=1.1",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.uv]
+managed = true
+package = false
+default-groups = ["dev"]
+
+[tool.uv.workspace]
+members = [
+    "packages/strategy-sdk",
+    "packages/allocator-sdk",
+    "packages/helios-cli",
+    "packages/contracts-abi-py",
+    "services/_template",
+    "services/sentinel",
+    "services/helix",
+    "services/reputation",
+    "services/oracle",
+    "services/bot",
+]
+exclude = ["reference-strategies/*"]
+
+[tool.uv.sources]
+helios-strategy-sdk = { workspace = true }
+helios-allocator-sdk = { workspace = true }
+helios-cli = { workspace = true }
+helios-contracts-abi = { workspace = true }
+helios-service-template = { workspace = true }
+helios-sentinel = { workspace = true }
+helios-helix = { workspace = true }
+helios-reputation = { workspace = true }
+helios-oracle = { workspace = true }
+helios-bot = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["**/__pycache__", "**/.venv", "contracts", "circuits", "frontend", "subgraph"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "SIM", "PL", "RUF"]
+ignore = [
+    "PLR0913",  # too many args — not useful for config classes
+    "PLR2004",  # magic numbers — fine for BPS constants etc
+    "RUF002",   # ambiguous unicode in docstrings (en-dash in specs)
+    "RUF003",   # ambiguous unicode in comments
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's documented idiom requires function-call defaults.
+"packages/helios-cli/**/*.py" = ["B008"]
+# Alembic uses its own migrations DSL.
+"services/*/migrations/*.py" = ["E402", "F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["packages", "services", "reference-strategies"]
+exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "services", "reference-strategies"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"

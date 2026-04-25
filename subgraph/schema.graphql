@@ -1,0 +1,130 @@
+# Helios subgraph schema — Phase 0 skeleton aligned to the event shapes in
+# contracts/src/interfaces/. The Reputation Engine, Sentinel, Helix, and the
+# frontend all read from this. Phase 1 fills mappings against the deployed
+# vault + registry contracts.
+
+type User @entity {
+  id: Bytes!                      # user address
+  createdAt: BigInt!
+  metaStrategyHash: Bytes
+  allocator: Allocator
+  deposits: [Deposit!]! @derivedFrom(field: "user")
+  allocations: [Allocation!]! @derivedFrom(field: "user")
+}
+
+type Deposit @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  user: User!
+  asset: Bytes!
+  amount: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type Allocator @entity {
+  id: Bytes!                      # allocator contract address
+  name: String!
+  operator: Bytes!
+  feeRateBps: Int!
+  stakeAmount: BigInt!
+  isReferenceBrand: Boolean!
+  active: Boolean!
+  registeredAt: BigInt!
+  totalUsers: Int!
+  totalCapitalManaged: BigInt!
+  currentReputation: BigInt!
+  users: [User!]! @derivedFrom(field: "allocator")
+  allocations: [Allocation!]! @derivedFrom(field: "allocator")
+}
+
+type Strategy @entity {
+  id: Bytes!                      # strategy contract address
+  operator: Bytes!
+  declaredClass: String!
+  chainId: Int!
+  stakeAmount: BigInt!
+  feeRateBps: Int!
+  maxCapacity: BigInt!
+  active: Boolean!
+  registeredAt: BigInt!
+  currentReputation: BigInt!
+  totalRealizedPnL: BigInt!
+  totalAttestedTrades: Int!
+  maxDrawdownBps: Int!
+  trades: [Trade!]! @derivedFrom(field: "strategy")
+  navSnapshots: [NAVSnapshot!]! @derivedFrom(field: "strategy")
+  allocations: [Allocation!]! @derivedFrom(field: "strategy")
+}
+
+type Allocation @entity {
+  id: Bytes!                      # keccak(user + allocator + strategy)
+  user: User!
+  allocator: Allocator!
+  strategy: Strategy!
+  capitalDeployed: BigInt!
+  strategyHighWaterMark: BigInt!
+  lastRebalanceAt: BigInt!
+  defundedAt: BigInt
+  defundReason: String
+}
+
+type Trade @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  strategy: Strategy!
+  allocator: Allocator!
+  chainId: Int!
+  declaredClass: String!
+  tradeHash: Bytes!
+  proofValid: Boolean!
+  assetIn: Bytes!
+  assetOut: Bytes!
+  amountIn: BigInt!
+  minAmountOut: BigInt!
+  direction: Int!
+  blockWindowStart: BigInt!
+  blockWindowEnd: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type NAVSnapshot @entity(immutable: true) {
+  id: Bytes!
+  strategy: Strategy!
+  totalNAV: BigInt!
+  timestamp: BigInt!
+}
+
+type ReputationSnapshot @entity(immutable: true) {
+  id: Bytes!
+  actor: Bytes!
+  actorType: String!             # "STRATEGY" | "ALLOCATOR"
+  score: BigInt!
+  totalAttestedTrades: BigInt!
+  totalRealizedPnL: BigInt!
+  maxDrawdownBps: Int!
+  proofValidityRateBps: Int!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type DefundEvent @entity(immutable: true) {
+  id: Bytes!
+  user: User!
+  strategy: Strategy!
+  reason: String!
+  triggeredBy: Bytes!            # whoever called the permissionless defund
+  capitalRecovered: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+type CrossChainReputationMessage @entity(immutable: true) {
+  id: Bytes!                      # LayerZero GUID
+  srcEid: Int!
+  dstEid: Int!
+  actor: Bytes!
+  actorType: String!
+  score: BigInt!
+  sentAt: BigInt!
+  receivedAt: BigInt
+}

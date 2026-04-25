@@ -1,0 +1,20 @@
+{
+  "name": "@helios/subgraph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Goldsky subgraph indexing Helios contract events across Kite, Base, and Arbitrum.",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "test": "graph test",
+    "deploy": "goldsky subgraph deploy helios/v0.1.0 --path .",
+    "create-local": "graph create --node http://localhost:8020/ helios",
+    "remove-local": "graph remove --node http://localhost:8020/ helios",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 helios"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.92.0",
+    "@graphprotocol/graph-ts": "^0.36.0",
+    "matchstick-as": "^0.6.0"
+  }
+}

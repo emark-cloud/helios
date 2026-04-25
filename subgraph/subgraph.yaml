@@ -1,0 +1,36 @@
+specVersion: 1.0.0
+description: Helios — programmatic capital market for AI trading agents on Kite.
+repository: https://github.com/helios-market/helios
+schema:
+  file: ./schema.graphql
+
+# Phase 0 scaffolding.
+#
+# Phase 1 wires the real datasources for Kite testnet (StrategyRegistry,
+# AllocatorRegistry, ReputationAnchor, AllocatorVault) and their event handlers.
+# Phase 5 adds Base Sepolia + Arbitrum Sepolia datasources.
+#
+# When contracts land, each entry follows:
+#   - kind: ethereum
+#     name: StrategyRegistry
+#     network: kite-testnet
+#     source:
+#       address: "0x..."
+#       abi: IStrategyRegistry
+#       startBlock: <deploy block>
+#     mapping:
+#       kind: ethereum/events
+#       apiVersion: 0.0.9
+#       language: wasm/assemblyscript
+#       file: ./src/strategy-registry.ts
+#       entities: [Strategy, ReputationSnapshot]
+#       abis:
+#         - name: IStrategyRegistry
+#           file: ./abis/IStrategyRegistry.json
+#       eventHandlers:
+#         - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
+#           handler: handleStrategyRegistered
+#         - event: ReputationUpdated(indexed address,int256,int256)
+#           handler: handleReputationUpdated
+
+dataSources: []

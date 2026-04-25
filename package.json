@@ -1,0 +1,35 @@
+{
+  "name": "helios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Programmatic capital market for AI trading agents on Kite.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "docker compose up -d && pnpm --filter frontend dev",
+    "dev:stop": "docker compose down",
+    "build": "pnpm -r --filter './packages/**' --filter './frontend' build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "format": "pnpm -r --if-present format",
+    "contracts:build": "forge build --root contracts",
+    "contracts:test": "forge test --root contracts -vv",
+    "contracts:coverage": "forge coverage --root contracts",
+    "circuits:build": "make -C circuits all",
+    "circuits:test": "make -C circuits test",
+    "services:sentinel": "uv run --package helios-sentinel python -m sentinel",
+    "services:reputation": "uv run --package helios-reputation python -m reputation",
+    "services:oracle": "uv run --package helios-oracle python -m oracle",
+    "services:bot": "uv run --package helios-bot python -m bot",
+    "services:prover": "pnpm --filter @helios/prover dev"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}
