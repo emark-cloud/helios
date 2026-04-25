@@ -146,12 +146,16 @@ Four near-independent services. Spread across parallel agent contexts or build i
 
 ### Oracle service Phase 1 minimum (`services/oracle/`)
 
-- Polls a price source for WKITE / USDC.e / WETH at 1-min cadence
-  - **Open question for user**: which source — Algebra Integral pool reads on Kite, or external (Pyth/Chainlink) feed?
+**Decision (2026-04-25):** Kite docs show no on-chain oracle (Pyth/Chainlink/RedStone) on mainnet or testnet, and no documented Algebra DEX deployment on testnet to read TWAPs from. So the Phase 1 oracle service signs snapshots from an **off-chain price source** (Binance public REST API as primary, Coingecko free tier as fallback) — both are free and need no auth. The on-chain anchor still holds: snapshots are Poseidon-chained and the root is committed periodically.
+
+When Kite testnet gets either Algebra deployment or a real oracle, the price source plugs in behind the same `oracle.sources` interface — service contract doesn't change.
+
+- Pulls 1-min OHLC bars for KITE/USDT, ETH/USDT (BTC/USDT later if used) at 1-min cadence
 - Signs each snapshot with `ORACLE_SIGNER_PK`
 - In-memory Poseidon chain; `GET /snapshots/recent?n=N` and `GET /snapshots/root`
 - On-chain anchor: simple `OraclePriceAnchor` contract committing root every 5 min (or piggyback on `Helios.sol` heartbeat for Phase 1; full circuit-committed root in Phase 2)
 - `SCENARIO_MODE=1` → reads `scenarios/phase1-drawdown.json` instead of polling
+- Source-abstraction layer (`oracle/sources/binance.py`, `oracle/sources/coingecko.py`, `oracle/sources/scenario.py`, `oracle/sources/algebra.py` (stub for Phase 2)) so swapping later is a config flip
 
 ### Reputation engine v1 (`services/reputation/`)
 
@@ -236,8 +240,12 @@ Four near-independent services. Spread across parallel agent contexts or build i
 
 ### DEX integration
 
-- Algebra Integral router on Kite testnet — **need to verify calldata format against an existing pool early** (Phase 1 task day 1 of WS2.D)
+**Decision (2026-04-25):** Kite docs list Algebra Integral on mainnet only (factory `0x10253594…`, router `0x03f8B4b1…`, NPM `0xD637cbc2…`). No testnet Algebra deployment is documented. For Phase 1 we deploy a **`MockSwapRouter` + `MockPool`** on Kite testnet to give trades something to settle against. The proof + verifier path stays real; only the DEX layer is mocked. Real Algebra integration is a Phase 2 task — at which point we either get testnet support from the Kite team or move the demo to mainnet.
+
+- `contracts/src/mocks/MockSwapRouter.sol` + `MockPool.sol`: minimal swap interface (token-in → token-out at the oracle's signed price ± configured slippage), emits `Swap` event in the same shape as Algebra
+- Strategy builds calldata against `MockSwapRouter` ABI; same calldata structure ports to Algebra later
 - Trade slippage cap from manifest; sign as part of public inputs
+- **Action item for user:** ping Kite Discord/team to confirm testnet Algebra status — could unblock real DEX integration in WS2.D and skip the mock entirely
 
 ### Deploy
 
@@ -351,12 +359,16 @@ Wk4  WS3 scenario+e2e ███   WS5 acceptance ██   buffer ██
 | Snarkjs proof gen too slow on Servarica | Low | Acceptance fails | Benchmark on local (4-core dev box) first; if Servarica is materially slower, add second prover process |
 | Permissionless-defund path silently broken | Medium | Demo-critical scenario fails on stage | Explicit non-allocator caller in e2e test; not just "alloctor calls defund" |
 
-## Open questions for user
+## Resolved (2026-04-25)
 
-1. **Oracle price source** — Algebra Integral pool reads on Kite, or external feed (Pyth/Chainlink) bridged in? Phase 1 spec is vague.
-2. **Kite testnet deployer key** — need a non-Passport EOA with testnet KITE for `forge script ... --broadcast`. `cast wallet new`, fund from Kite faucet, paste back as `DEPLOYER_PK`.
-3. **Sentinel default fee rate** — Phase 1 spec doesn't pin it; I'm proposing 400 bps (4% perf fee). OK or adjust?
-4. **Reserved Algebra Integral router address on Kite testnet** — I'll find it from Kite docs but a confirm would speed WS2.D.
+1. **Oracle price source** — Kite has no documented on-chain oracle and no documented testnet DEX. Phase 1 oracle service uses Binance public REST (Coingecko fallback) as off-chain source, signs Poseidon-chained snapshots, anchors root on-chain.
+2. **Sentinel default fee rate** — 400 bps (4% perf fee) approved.
+3. **DEX target** — `MockSwapRouter` + `MockPool` deployed on Kite testnet; real Algebra integration deferred to Phase 2 unless Kite team confirms testnet deployment.
+
+## Open
+
+1. **`DEPLOYER_PK`** — user to provide a fresh EOA funded from the Kite faucet. Needed to `forge script ... --broadcast`.
+2. **Confirm testnet Algebra status with Kite team** — one Discord message could let us drop the mock router entirely.
 
 ## Branch + PR convention
 
