@@ -367,8 +367,11 @@ Wk4  WS3 scenario+e2e ███   WS5 acceptance ██   buffer ██
 
 ## Open
 
-1. **`DEPLOYER_PK`** — user to provide a fresh EOA funded from the Kite faucet. Needed to `forge script ... --broadcast`.
-2. **Confirm testnet Algebra status with Kite team** — one Discord message could let us drop the mock router entirely.
+1. **Confirm testnet Algebra status with Kite team** — one Discord message could let us drop the mock router entirely.
+
+## Resolved (2026-04-25, cont.)
+
+4. **`DEPLOYER_PK`** — provided. Address `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`, balance 0.5 KITE on testnet, gas price ~0.001 gwei → plenty of headroom for full Phase 1 deploys + iterative redeploys.
 
 ## Branch + PR convention
 
