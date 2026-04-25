@@ -134,6 +134,7 @@ Secrets never go in the repo. Use `.env` for local, Vercel/VPS env for prod.
 Deployed contract addresses per chain live in `contracts/deployments/*.json`, auto-written by deploy scripts. Frontend and services read from these files — no hardcoded addresses elsewhere. Current snapshot:
 
 - **Kite testnet (2368)**: *(scaffolded in Phase 0, populated in Phase 1)*
+- **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
 

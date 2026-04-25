@@ -341,7 +341,18 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 ## Phase 6 — Audit surface, polish, security hardening
 
-**Goal.** Judge-ready, defensible under scrutiny.
+**Goal.** Judge-ready, defensible under scrutiny. Includes promotion to Kite mainnet per `docs/deployment-strategy.md` (hybrid testnet→mainnet).
+
+### Mainnet promotion (decided 2026-04-25)
+- [ ] Confirm hackathon allows mainnet submission + Passport is live on mainnet (gating questions)
+- [ ] Acquire KITE for deploys + demo capital (~$100–500 demo float)
+- [ ] Slither / Mythril / Echidna **clean** on every Phase 1 contract before any mainnet tx
+- [ ] `contracts/script/DeployMainnet.s.sol`; populate `contracts/deployments/kite-mainnet.json`
+- [ ] Swap `MockSwapRouter` calls for real Algebra Integral router on mainnet
+- [ ] Swap `oracle/sources/binance.py` for `oracle/sources/algebra.py` (TWAP from real pools)
+- [ ] Mainnet subgraph deployed alongside testnet (separate Goldsky version)
+- [ ] Frontend chain switcher (testnet = staging, mainnet = demo)
+- [ ] `/judge` page links to live mainnet contracts + the deployment-strategy doc
 
 ### FE — Judge + audit surfaces
 - [ ] `/judge` complete per `DESIGN.md §9.8` — press-kit styling, no marketing copy
