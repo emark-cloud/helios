@@ -13,24 +13,15 @@ interface IAllocatorVault {
     }
 
     event AllocationCreated(
-        address indexed user,
-        address indexed strategy,
-        uint256 amount,
-        uint32 chainId
+        address indexed user, address indexed strategy, uint256 amount, uint32 chainId
     );
     event AllocationIncreased(address indexed user, address indexed strategy, uint256 delta);
     event AllocationDecreased(address indexed user, address indexed strategy, uint256 delta);
     event StrategyDefunded(
-        address indexed user,
-        address indexed strategy,
-        string reason,
-        address indexed triggeredBy
+        address indexed user, address indexed strategy, string reason, address indexed triggeredBy
     );
     event StrategyFeeSettled(
-        address indexed user,
-        address indexed strategy,
-        uint256 feeAmount,
-        uint256 newHighWaterMark
+        address indexed user, address indexed strategy, uint256 feeAmount, uint256 newHighWaterMark
     );
     event AllocatorFeesWithdrawn(address indexed allocator, uint256 amount);
 
@@ -40,17 +31,14 @@ interface IAllocatorVault {
 
     function allocateToStrategy(address user, address strategy, uint256 amount) external;
     function defundStrategy(address user, address strategy, string calldata reason) external;
-    function rebalance(
-        address user,
-        address[] calldata strategies,
-        uint256[] calldata weightsBps
-    ) external;
+    function rebalance(address user, address[] calldata strategies, uint256[] calldata weightsBps)
+        external;
     function settleStrategyFee(address user, address strategy) external;
     function withdrawAllocatorFees() external;
 
-    function allocationOf(
-        address user,
-        address strategy
-    ) external view returns (AllocationRecord memory);
+    function allocationOf(address user, address strategy)
+        external
+        view
+        returns (AllocationRecord memory);
     function accruedFees() external view returns (uint256);
 }

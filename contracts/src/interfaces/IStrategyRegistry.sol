@@ -21,11 +21,7 @@ interface IStrategyRegistry {
         uint256 stakeAmount
     );
     event StakeToppedUp(address indexed strategyId, uint256 amount);
-    event StakeWithdrawalInitiated(
-        address indexed strategyId,
-        uint256 amount,
-        uint64 unlockAt
-    );
+    event StakeWithdrawalInitiated(address indexed strategyId, uint256 amount, uint64 unlockAt);
     event StakeWithdrawn(address indexed strategyId, uint256 amount);
     event StrategyDeactivated(address indexed strategyId);
     event ReputationUpdated(address indexed strategyId, int256 delta, int256 newScore);
@@ -35,11 +31,9 @@ interface IStrategyRegistry {
     error NotReputationAnchor();
     error NotOperator();
 
-    function registerStrategy(
-        address vault,
-        bytes32 declaredClass,
-        uint256 stakeAmount
-    ) external returns (address strategyId);
+    function registerStrategy(address vault, bytes32 declaredClass, uint256 stakeAmount)
+        external
+        returns (address strategyId);
 
     function topUpStake(address strategyId, uint256 amount) external;
     function initiateStakeWithdrawal(address strategyId, uint256 amount) external;

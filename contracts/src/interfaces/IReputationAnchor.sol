@@ -11,26 +11,20 @@ interface IReputationAnchor {
     }
 
     struct ReputationData {
-        int256 currentScore;             // e.g., [-10_000, +10_000]
+        int256 currentScore; // e.g., [-10_000, +10_000]
         uint256 lastUpdateBlock;
-        uint256 totalAttestedTrades;    // strategies: trades; allocators: rebalance ops
-        uint256 totalRealizedPnL;       // strategies: own P&L; allocators: aggregate user P&L
+        uint256 totalAttestedTrades; // strategies: trades; allocators: rebalance ops
+        uint256 totalRealizedPnL; // strategies: own P&L; allocators: aggregate user P&L
         uint256 maxDrawdownBps;
-        uint256 proofValidityRateBps;   // strategies only; always 10_000 for allocators
+        uint256 proofValidityRateBps; // strategies only; always 10_000 for allocators
         ActorType actorType;
     }
 
     event ReputationPosted(
-        address indexed actor,
-        ActorType indexed actorType,
-        int256 newScore,
-        uint256 blockNumber
+        address indexed actor, ActorType indexed actorType, int256 newScore, uint256 blockNumber
     );
     event CrossChainReputationPosted(
-        address indexed actor,
-        ActorType indexed actorType,
-        uint32 srcEid,
-        int256 newScore
+        address indexed actor, ActorType indexed actorType, uint32 srcEid, int256 newScore
     );
 
     error InvalidSigner();
@@ -43,11 +37,8 @@ interface IReputationAnchor {
         bytes calldata signerSignature
     ) external;
 
-    function postCrossChainUpdate(
-        address actor,
-        ActorType actorType,
-        ReputationData calldata data
-    ) external;
+    function postCrossChainUpdate(address actor, ActorType actorType, ReputationData calldata data)
+        external;
 
     function reputationOf(address actor) external view returns (ReputationData memory);
 }

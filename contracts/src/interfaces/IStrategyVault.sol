@@ -11,7 +11,7 @@ interface IStrategyVault {
     }
 
     struct StrategyManifest {
-        bytes32 declaredClass;          // keccak256("momentum_v1") etc.
+        bytes32 declaredClass; // keccak256("momentum_v1") etc.
         address[] assetUniverse;
         uint256 maxCapacity;
         uint16 feeRateBps;
@@ -33,11 +33,7 @@ interface IStrategyVault {
         uint64 blockWindowEnd
     );
     event NAVReported(address indexed strategy, uint256 totalNAV, uint64 timestamp);
-    event RealizedDistributed(
-        address indexed strategy,
-        address indexed allocator,
-        uint256 amount
-    );
+    event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
 
     error InvalidProof();
