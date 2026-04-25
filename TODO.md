@@ -14,7 +14,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 ### Outstanding (requires user action — does not block Phase 1 scaffolding)
 - [x] Goldsky account + `GOLDSKY_API_KEY` provisioned; CLI pinned in `subgraph/package.json`, project "Helios" reachable. Full `pnpm --filter subgraph deploy` runs in Phase 1 once `subgraph.yaml` has datasources.
-- [ ] Vercel project created for `frontend/`, preview deploys wired to PRs
+- [x] Vercel project `helios-frontend` linked to `emark-cloud/helios` (root `frontend/`, production = `main`); preview deploys auto-fire on PRs. `VERCEL_TOKEN` in `.env`. See `deploy/vercel-notes.md`.
 - [ ] VPS reservation (PM2 + Nginx scaffolding will land once host exists)
 - [ ] Kite Passport smoke test against live testnet — needs `KITE_PASSPORT_SIGNER_PK`; record tx hash in `docs/kite-passport-notes.md`
 
