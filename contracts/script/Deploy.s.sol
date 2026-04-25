@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {Helios} from "../src/Helios.sol";
+import { Script, console2 } from "forge-std/Script.sol";
+import { Helios } from "../src/Helios.sol";
 
 /// @notice Phase 0 deploy: confirms the deploy pipeline against Kite testnet.
 ///         Records the deployed address under deployments/<chain>.json.
@@ -17,9 +17,12 @@ contract Deploy is Script {
         console2.log("Chain id:", block.chainid);
 
         string memory json = string.concat(
-            '{\n  "chainId": ', vm.toString(block.chainid),
-            ',\n  "helios": "', vm.toString(address(helios)),
-            '",\n  "deployedAt": ', vm.toString(block.timestamp),
+            '{\n  "chainId": ',
+            vm.toString(block.chainid),
+            ',\n  "helios": "',
+            vm.toString(address(helios)),
+            '",\n  "deployedAt": ',
+            vm.toString(block.timestamp),
             "\n}\n"
         );
 

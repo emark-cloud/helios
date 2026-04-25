@@ -45,6 +45,9 @@ contracts/cache/
 contracts/broadcast/*/dry-run/
 contracts/broadcast/**/run-*.json
 !contracts/broadcast/**/run-latest.json
+contracts/broadcast/**/31337/
+contracts/deployments/anvil*.json
+contracts/cache/
 
 # ── Circom / snarkjs ────────────────────────────────────────
 circuits/build/

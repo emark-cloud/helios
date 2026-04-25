@@ -8,6 +8,7 @@ solc_version = "0.8.28"
 evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
+via_ir = true
 bytecode_hash = "none"
 cbor_metadata = false
 verbosity = 2

@@ -8,11 +8,10 @@ interface ITradeAttestationVerifier {
 
     error UnknownClass();
 
-    function verify(
-        bytes32 declaredClass,
-        bytes calldata proof,
-        uint256[] calldata publicInputs
-    ) external view returns (bool);
+    function verify(bytes32 declaredClass, bytes calldata proof, uint256[] calldata publicInputs)
+        external
+        view
+        returns (bool);
 
     function verifierOf(bytes32 declaredClass) external view returns (address);
     function registerVerifier(bytes32 declaredClass, address verifier) external;

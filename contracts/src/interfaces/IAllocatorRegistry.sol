@@ -32,17 +32,11 @@ interface IAllocatorRegistry {
     );
     event AllocatorStakeToppedUp(address indexed allocatorId, uint256 amount);
     event AllocatorStakeWithdrawalInitiated(
-        address indexed allocatorId,
-        uint256 amount,
-        uint64 unlockAt
+        address indexed allocatorId, uint256 amount, uint64 unlockAt
     );
     event AllocatorStakeWithdrawn(address indexed allocatorId, uint256 amount);
     event AllocatorDeactivated(address indexed allocatorId);
-    event AllocatorReputationUpdated(
-        address indexed allocatorId,
-        int256 delta,
-        int256 newScore
-    );
+    event AllocatorReputationUpdated(address indexed allocatorId, int256 delta, int256 newScore);
     event AllocatorSlashed(address indexed allocatorId, uint256 amount, string reason);
     event NameReserved(string name);
     event ReferenceBrandAssigned(address indexed allocatorId);

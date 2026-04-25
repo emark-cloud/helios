@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IReputationAnchor} from "./IReputationAnchor.sol";
+import { IReputationAnchor } from "./IReputationAnchor.sol";
 
 /// @notice LayerZero OApp for cross-chain reputation + capital bridging hooks.
 ///         Kite is canonical; Base/Arbitrum are execution venues.
@@ -33,9 +33,8 @@ interface IHeliosOApp {
         bytes calldata options
     ) external payable;
 
-    function quote(
-        uint32 dstEid,
-        bytes calldata payload,
-        bytes calldata options
-    ) external view returns (MessagingFee memory);
+    function quote(uint32 dstEid, bytes calldata payload, bytes calldata options)
+        external
+        view
+        returns (MessagingFee memory);
 }
