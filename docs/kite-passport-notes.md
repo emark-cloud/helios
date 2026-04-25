@@ -25,13 +25,43 @@ Each layer is BIP-32 hierarchical — compromising a strategy session affects
 only that strategy's allocation; compromising the allocator session stays
 bounded by the user's meta-strategy constraints (enforced on-chain).
 
-## Phase 0 smoke test
+## Status (2026-04-25): BLOCKED on public Passport access
+
+Kite team announcement: Passport public launch pending; hackathon deadline
+extended by at least 2 weeks. We cannot run the smoke test or wire any
+Passport-signed flow against live testnet until access lands. **This block is
+external, not a user-action item.**
+
+In the meantime, Phase 1 builds with EOA signatures as Passport stubs at every
+touchpoint, then swaps to real Passport calls when access is available. See
+"Passport swap-in checklist" below.
+
+## Passport swap-in checklist (run when access lands)
+
+When Kite enables Passport publicly:
+
+1. Pin the exact `@gokite/aa-sdk` version in this doc; install in `frontend/`
+   and `scripts/kite-passport-smoke.mjs`.
+2. Run `scripts/kite-passport-smoke.mjs` end-to-end; record tx hash, gas, and
+   SDK version in the "Run log" section below.
+3. Replace EOA-signature stub at `UserVault.setMetaStrategy` integration —
+   change client signing from `wallet.signTypedData` to Passport-derived
+   signature; on-chain side already supports EIP-1271 (verify this in §3 of the
+   open questions list).
+4. Replace allocator session-key stub with Passport BIP-32 child derivation.
+5. Replace strategy operator submission EOA with paymaster-sponsored
+   gasless userOp per `docs.gokite.ai/kite-chain/9-gasless-integration`.
+6. Re-run `scripts/e2e-scenario.sh` and confirm the Phase 1 vertical slice
+   still passes end-to-end.
+7. Tick the Passport item in `TODO.md` Phase 0 outstanding section.
+
+## Phase 0 smoke test (deferred)
 
 **Goal.** Confirm the SDK can mint a Passport, derive a session, and send a
-userOp to Kite testnet. Failure here blocks Phase 1.
+userOp to Kite testnet.
 
-Location: `scripts/kite-passport-smoke.mjs` (to be written once the team has a
-testnet `DEPLOYER_PK` and `KITE_PASSPORT_SIGNER_PK` in `.env`).
+Location: `scripts/kite-passport-smoke.mjs` (scaffold present; concrete SDK
+calls fill in once access lands).
 
 Shape:
 

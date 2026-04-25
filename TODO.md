@@ -16,7 +16,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] Goldsky account + `GOLDSKY_API_KEY` provisioned; CLI pinned in `subgraph/package.json`, project "Helios" reachable. Full `pnpm --filter subgraph deploy` runs in Phase 1 once `subgraph.yaml` has datasources.
 - [x] Vercel project `helios-frontend` linked to `emark-cloud/helios` (root `frontend/`, production = `main`); preview deploys auto-fire on PRs. `VERCEL_TOKEN` in `.env`. See `deploy/vercel-notes.md`.
 - [ ] VPS reservation — Servarica Montreal (8 GB / 2 dedicated cores / 250 GB NVMe, Ubuntu 24.04). `deploy/` scaffolding (bootstrap.sh, docker-compose.prod.yml, ecosystem.config.cjs, per-service Dockerfile templates, nginx config) is in place; awaiting box + SSH string to provision.
-- [ ] Kite Passport smoke test against live testnet — needs `KITE_PASSPORT_SIGNER_PK`; record tx hash in `docs/kite-passport-notes.md`
+- [ ] **BLOCKED (external)** — Kite Passport smoke test against live testnet. Public launch of Passport pending per Kite team announcement (2026-04-25); hackathon deadline extended ≥2 weeks. Phase 1 work proceeds with EOA-signature stubs at every Passport touchpoint (see `docs/kite-passport-notes.md` for the swap-in checklist).
 
 ### OP — Infra & scaffolding
 - [x] Initialize monorepo at `/home/emark/helios/` with `pnpm` workspace + `uv` Python workspace
