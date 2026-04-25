@@ -13,7 +13,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 **Goal.** Empty repo → working dev loops for every layer, frozen interface contracts, infra accounts ready.
 
 ### Outstanding (requires user action — does not block Phase 1 scaffolding)
-- [ ] Goldsky account + `GOLDSKY_API_KEY` provisioned; `pnpm --filter subgraph deploy` verified end-to-end
+- [x] Goldsky account + `GOLDSKY_API_KEY` provisioned; CLI pinned in `subgraph/package.json`, project "Helios" reachable. Full `pnpm --filter subgraph deploy` runs in Phase 1 once `subgraph.yaml` has datasources.
 - [ ] Vercel project created for `frontend/`, preview deploys wired to PRs
 - [ ] VPS reservation (PM2 + Nginx scaffolding will land once host exists)
 - [ ] Kite Passport smoke test against live testnet — needs `KITE_PASSPORT_SIGNER_PK`; record tx hash in `docs/kite-passport-notes.md`
