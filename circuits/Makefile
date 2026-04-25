@@ -23,7 +23,7 @@ PTAU_POWER  ?= 12
 PTAU_FILE   := $(PTAU_DIR)/pot$(PTAU_POWER)_final.ptau
 
 # Circuits shipped by Helios. Each name matches the .circom file name (without .circom).
-CIRCUITS := hello
+CIRCUITS := hello momentum_v1
 
 # ────────────────────────────────────────────────────────────
 # High-level targets
@@ -36,8 +36,13 @@ clean:
 	rm -rf $(BUILD_DIR)
 	find $(CONTRACTS_VERIFIERS_DIR) -name 'HelloVerifier.sol' -delete 2>/dev/null || true
 
-test: all
+test: all test-momentum
 	$(NODE) scripts/verify-hello.js
+
+# Witness-generation tests for momentum_v1. Builds .wasm only (skips zkey/PTAU
+# so this runs fast in CI before the full PTAU 16 ceremony is needed).
+test-momentum: $(BUILD_DIR)/momentum_v1/momentum_v1.wasm
+	$(NODE) --test test/momentum_v1.test.js
 
 # ────────────────────────────────────────────────────────────
 # Powers of Tau
@@ -62,7 +67,7 @@ $(1): $(BUILD_DIR)/$(1)/$(1).zkey $(BUILD_DIR)/$(1)/verification_key.json $(CONT
 
 $(BUILD_DIR)/$(1)/$(1).r1cs $(BUILD_DIR)/$(1)/$(1).wasm: $(1).circom
 	@mkdir -p $(BUILD_DIR)/$(1)
-	$(CIRCOM) $(1).circom --r1cs --wasm --sym -o $(BUILD_DIR)/$(1)
+	$(CIRCOM) $(1).circom --r1cs --wasm --sym -l node_modules -o $(BUILD_DIR)/$(1)
 	mv $(BUILD_DIR)/$(1)/$(1)_js/$(1).wasm $(BUILD_DIR)/$(1)/$(1).wasm
 	rm -rf $(BUILD_DIR)/$(1)/$(1)_js
 
