@@ -15,7 +15,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 ### Outstanding (requires user action — does not block Phase 1 scaffolding)
 - [x] Goldsky account + `GOLDSKY_API_KEY` provisioned; CLI pinned in `subgraph/package.json`, project "Helios" reachable. Full `pnpm --filter subgraph deploy` runs in Phase 1 once `subgraph.yaml` has datasources.
 - [x] Vercel project `helios-frontend` linked to `emark-cloud/helios` (root `frontend/`, production = `main`); preview deploys auto-fire on PRs. `VERCEL_TOKEN` in `.env`. See `deploy/vercel-notes.md`.
-- [ ] VPS reservation — Servarica Montreal (8 GB / 2 dedicated cores / 250 GB NVMe, Ubuntu 24.04). `deploy/` scaffolding (bootstrap.sh, docker-compose.prod.yml, ecosystem.config.cjs, per-service Dockerfile templates, nginx config) is in place; awaiting box + SSH string to provision.
+- [x] VPS reservation — Servarica Montreal (8 GB / 2 dedicated cores / 250 GB NVMe, Ubuntu 24.04.4 LTS) at `helios@38.49.216.27`. Bootstrap complete: Docker 29.4 / Node 20.20 / PM2 5.4 / nginx 1.24 installed; helios user created with sudo+docker; UFW restricts to 22/80/443; 2 GB swap; sshd hardened to key-only auth (password auth blocked at protocol level). SSH key at `~/.ssh/helios_vps`. Deploy services via `pm2 start deploy/ecosystem.config.cjs` once Phase 1 services are ready.
 - [ ] **BLOCKED (external)** — Kite Passport smoke test against live testnet. Public launch of Passport pending per Kite team announcement (2026-04-25); hackathon deadline extended ≥2 weeks. Phase 1 work proceeds with EOA-signature stubs at every Passport touchpoint (see `docs/kite-passport-notes.md` for the swap-in checklist).
 
 ### OP — Infra & scaffolding
