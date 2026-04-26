@@ -21,6 +21,13 @@ jobs:
         with:
           submodules: recursive
       - name: Install Foundry
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
@@ -64,12 +71,17 @@ jobs:
         with:
           node-version: 20
       - name: Install Foundry (for ABI artifacts)
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - name: Install pnpm deps
         run: pnpm install --frozen-lockfile
       - name: Build contracts
@@ -96,10 +108,12 @@ jobs:
         with:
           version: "latest"
       - name: uv sync
-        run: uv sync --all-extras
+        run: uv sync --all-packages --all-extras
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
         run: uv run ruff format --check .
       - name: Pyright
         run: uv run pyright
+      - name: Pytest
+        run: uv run pytest

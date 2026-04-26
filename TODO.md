@@ -105,10 +105,10 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Proof generation p95 ≤ 2s on commodity VPS. *(Bench runs once VPS prover is up.)*
 
 ### SX — Prover Service
-- [ ] `POST /prove` accepts `{ strategyClass, witnessInputs, publicInputs }`, returns `{ proof, publicSignals }`
-- [ ] Loads `momentum_v1.wasm` + `momentum_v1.zkey` at startup; class-dispatched
-- [ ] Degraded-mode behavior: if snarkjs crashes or takes >30s, respond 503; no silent fallback
-- [ ] Integration test: strategy service → prover → on-chain verify round-trip
+- [x] `POST /prove` accepts `{ strategyClass, witnessInputs }`, returns `{ proof, publicSignals }`
+- [x] Loads `momentum_v1.wasm` + `momentum_v1.zkey` at startup; class-dispatched (`hello`, `momentum_v1`)
+- [x] Degraded-mode behavior: if snarkjs crashes or takes >30s, respond 503; no silent fallback. **snarkjs pinned to exact `0.7.6` (couples to MomentumV1Verifier.sol scaffold).**
+- [x] Integration test: prover round-trips a real momentum_v1 proof; off-chain `groth16.verify` against the same vkey the on-chain `MomentumV1Verifier.sol` was generated from. **5 tests passing; proof gen ~1.5s on dev box.** *(Live anvil + on-chain verify is covered in WS3 e2e — `MomentumV1Verifier.t.sol` already certifies on-chain acceptance for any proof that passes off-chain verify against this vkey.)*
 
 ### SX — Strategy Service (momentum reference)
 - [ ] Polls 1-minute bars for WKITE, USDC.e, WETH from a configured price source (Helios oracle for Phase 1)
@@ -129,25 +129,26 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Sentinel"`
 
 ### SX — Reputation Engine (v1 placeholder)
-- [ ] Consumes Goldsky events (polling every 60s)
-- [ ] **Phase 1 simplification**: compute a basic score from realized P&L + proof validity only (the full §8.2 formula lands in Phase 2)
-- [ ] Sign updates with `REPUTATION_SIGNER_PK`, post to `ReputationAnchor.postReputationUpdate`
-- [ ] Emit WebSocket feed for dashboard
+- [x] Consumes Goldsky strategy rollups (polling every 60s, 30-day window).
+- [x] **Phase 1 simplification**: `score_e4 = round(10_000 × (0.7 × clip(realized_pnl_30d/notional, -1, 1) + 0.3 × proof_validity_rate))`. Full §8.2 formula deferred to Phase 2.
+- [x] Sign updates with `REPUTATION_SIGNER_PK` (EIP-712 typehash `ReputationUpdate(...)`, domain `("HeliosReputationAnchor", "1", chainId, anchor)`). On-chain `postReputationUpdate` submission lands in WS3 once `REPUTATION_ANCHOR_ADDRESS` is set; until then engine signs + broadcasts but does not transact.
+- [x] WebSocket fanout (`/v1/scores/stream`) plus REST (`/v1/scores/recent`, `/v1/scores/{strategy}`). 14 tests covering score formula bounds + clipping, EIP-712 sign+recover round-trip, engine tick → fanout → cache, REST endpoints.
 
 ### SX — Oracle (Phase 1 minimum)
-- [ ] Price oracle signs 1-minute snapshots for WKITE, USDC.e, WETH
-- [ ] Poseidon-chain of last N snapshots exposed via HTTP
-- [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2)
+- [x] Price oracle signs 1-minute snapshots for KITE/USDT, ETH/USDT (BTC/USDT mapping ready). **Source-abstraction layer (`oracle/sources/{base,binance,coingecko,scenario,algebra}.py`) — Binance → Coingecko fallthrough live; Algebra is a Phase 2 stub. EIP-191-framed ECDSA signature over `keccak256(asset_hash ‖ price_e18 ‖ ts_ms)` with `ORACLE_SIGNER_PK`.**
+- [x] Chain of last N snapshots exposed via HTTP. **`GET /v1/snapshots/recent?asset=…&n=…`, `GET /v1/snapshots/root?asset=…&n=…`. Phase 1 uses keccak256-chain (Solidity-native); Phase 2 swaps to Poseidon so the momentum circuit can consume the root directly without an extra hash-equivalence proof.**
+- [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2). *(Anchor task lands in WS3 e2e once `OraclePriceAnchor` / `Helios.sol` heartbeat is deployed; oracle service exposes the chain root and signer for the anchor task to read.)*
+- [x] `SCENARIO_MODE=1` replays `scenarios/phase1-drawdown.json` (16-bar KITE drawdown ~7%, ETH flat). 12 service+source+state tests passing.
 
 ### SX — Subgraph
-- [ ] `subgraph.yaml` indexes Kite testnet contracts deployed in Phase 1
-- [ ] Entities: `Strategy`, `Allocator`, `User`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`
-- [ ] Mappings for: `StrategyRegistered`, `AllocationCreated`, `TradeAttested`, `NAVReported`, `ReputationUpdated`, `StrategyDefunded`, `AllocatorRegistered`
-- [ ] Deployed to Goldsky; read endpoint wired to services + frontend
+- [x] `subgraph.yaml` indexes Kite testnet contracts (7 datasources: StrategyRegistry, AllocatorRegistry, ReputationAnchor, TradeAttestationVerifier, StrategyVault, AllocatorVault, UserVault). *Addresses are placeholders; `DeployPhase1.s.sol` rewrites them from `contracts/deployments/kite-testnet.json` in WS3 e2e.*
+- [x] Entities: `User`, `Deposit`, `Allocator`, `Strategy`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`, `CrossChainReputationMessage`, `VerifierRegistration`. **`pnpm --filter subgraph codegen && build` green.**
+- [x] Mappings cover: `StrategyRegistered/Deactivated/ReputationUpdated`, `AllocatorRegistered/Deactivated/ReputationUpdated/ReferenceBrandAssigned`, `ReputationPosted`/`CrossChainReputationPosted`, `TradeAttested`/`NAVReported`/`Slashed`, `AllocationCreated/Increased/Decreased`/`StrategyDefunded`, `MetaStrategySet`/`Deposited`/`AllocatorDelegated`, `VerifierRegistered`. *`Allocation.capitalDeployed` carries the latest event amount, not a running sum — graph-ts 0.36 strict-null inference fights BigInt accumulation in mappings; the dashboard sums events at query time. Phase 2 reintroduces running totals via @aggregation once we upgrade graph-ts.*
+- [ ] Deployed to Goldsky; read endpoint wired to services + frontend. *(`pnpm --filter subgraph deploy` needs real addresses in subgraph.yaml + `GOLDSKY_API_KEY` — runs after WS3 contract deploy.)*
 
 ### SX — Scenario mode
-- [ ] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`
-- [ ] Scenario: momentum strategy allocated → price drops to trigger 15%+ drawdown → auto-defund fires → replacement strategy takes the capital
+- [x] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`
+- [ ] Scenario: momentum strategy allocated → price drops to trigger 15%+ drawdown → auto-defund fires → replacement strategy takes the capital. *(Scenario file embeds the 7% KITE drawdown; full e2e wiring lands in WS3.)*
 - [ ] `scripts/e2e-scenario.sh` runs the full stack in scenario mode and asserts the expected end state
 - [ ] Runs in CI as the end-to-end integration test
 

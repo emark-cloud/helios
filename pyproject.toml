@@ -52,7 +52,16 @@ helios-bot = { workspace = true }
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["**/__pycache__", "**/.venv", "contracts", "circuits", "frontend", "subgraph"]
+extend-exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "contracts",
+    "circuits",
+    "frontend",
+    "subgraph",
+    # Auto-generated from Foundry artifacts; codegen owns the style.
+    "packages/contracts-abi-py/src/helios_contracts_abi/abis.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "SIM", "PL", "RUF"]
@@ -84,3 +93,4 @@ reportMissingTypeStubs = false
 testpaths = ["packages", "services", "reference-strategies"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+addopts = ["--import-mode=importlib"]
