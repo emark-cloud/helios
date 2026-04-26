@@ -129,10 +129,10 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Sentinel"`
 
 ### SX — Reputation Engine (v1 placeholder)
-- [ ] Consumes Goldsky events (polling every 60s)
-- [ ] **Phase 1 simplification**: compute a basic score from realized P&L + proof validity only (the full §8.2 formula lands in Phase 2)
-- [ ] Sign updates with `REPUTATION_SIGNER_PK`, post to `ReputationAnchor.postReputationUpdate`
-- [ ] Emit WebSocket feed for dashboard
+- [x] Consumes Goldsky strategy rollups (polling every 60s, 30-day window).
+- [x] **Phase 1 simplification**: `score_e4 = round(10_000 × (0.7 × clip(realized_pnl_30d/notional, -1, 1) + 0.3 × proof_validity_rate))`. Full §8.2 formula deferred to Phase 2.
+- [x] Sign updates with `REPUTATION_SIGNER_PK` (EIP-712 typehash `ReputationUpdate(...)`, domain `("HeliosReputationAnchor", "1", chainId, anchor)`). On-chain `postReputationUpdate` submission lands in WS3 once `REPUTATION_ANCHOR_ADDRESS` is set; until then engine signs + broadcasts but does not transact.
+- [x] WebSocket fanout (`/v1/scores/stream`) plus REST (`/v1/scores/recent`, `/v1/scores/{strategy}`). 14 tests covering score formula bounds + clipping, EIP-712 sign+recover round-trip, engine tick → fanout → cache, REST endpoints.
 
 ### SX — Oracle (Phase 1 minimum)
 - [x] Price oracle signs 1-minute snapshots for KITE/USDT, ETH/USDT (BTC/USDT mapping ready). **Source-abstraction layer (`oracle/sources/{base,binance,coingecko,scenario,algebra}.py`) — Binance → Coingecko fallthrough live; Algebra is a Phase 2 stub. EIP-191-framed ECDSA signature over `keccak256(asset_hash ‖ price_e18 ‖ ts_ms)` with `ORACLE_SIGNER_PK`.**
