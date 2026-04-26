@@ -9,7 +9,6 @@ import os
 from logging.config import fileConfig
 
 from _template.db import Base as MetadataBase
-from _template.models import Base
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection

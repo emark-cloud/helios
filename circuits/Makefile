@@ -36,7 +36,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 	find $(CONTRACTS_VERIFIERS_DIR) -name 'HelloVerifier.sol' -delete 2>/dev/null || true
 
-test: all test-momentum
+test: hello test-momentum
 	$(NODE) scripts/verify-hello.js
 
 # Witness-generation tests for momentum_v1. Builds .wasm only (skips zkey/PTAU

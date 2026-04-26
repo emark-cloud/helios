@@ -5,9 +5,8 @@ The factory wires up structured logging, CORS for the frontend, a /health
 endpoint, and lifespan management for the database engine.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,8 +21,8 @@ def create_app(
     name: str,
     settings: BaseServiceSettings,
     routers: list[APIRouter] | None = None,
-    on_startup: list[Any] | None = None,
-    on_shutdown: list[Any] | None = None,
+    on_startup: list[Callable[[], Awaitable[None]]] | None = None,
+    on_shutdown: list[Callable[[], Awaitable[None]]] | None = None,
 ) -> FastAPI:
     """Build a FastAPI app with the Helios conventions baked in."""
     configure_logging(level=settings.log_level, json_output=settings.environment != "development")
@@ -35,12 +34,12 @@ def create_app(
         if settings.database_url:
             get_engine(settings.database_url)
         for hook in on_startup or []:
-            await hook() if callable(hook) else None
+            await hook()
         try:
             yield
         finally:
             for hook in on_shutdown or []:
-                await hook() if callable(hook) else None
+                await hook()
             log.info("service.stopping", name=name)
 
     app = FastAPI(title=f"Helios :: {name}", version="0.1.0", lifespan=lifespan)

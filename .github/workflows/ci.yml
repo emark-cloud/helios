@@ -82,8 +82,6 @@ jobs:
         with:
           version: stable
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - name: Install pnpm deps
         run: pnpm install --frozen-lockfile
       - name: Build contracts
