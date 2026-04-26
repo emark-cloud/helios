@@ -135,9 +135,10 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Emit WebSocket feed for dashboard
 
 ### SX — Oracle (Phase 1 minimum)
-- [ ] Price oracle signs 1-minute snapshots for WKITE, USDC.e, WETH
-- [ ] Poseidon-chain of last N snapshots exposed via HTTP
-- [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2)
+- [x] Price oracle signs 1-minute snapshots for KITE/USDT, ETH/USDT (BTC/USDT mapping ready). **Source-abstraction layer (`oracle/sources/{base,binance,coingecko,scenario,algebra}.py`) — Binance → Coingecko fallthrough live; Algebra is a Phase 2 stub. EIP-191-framed ECDSA signature over `keccak256(asset_hash ‖ price_e18 ‖ ts_ms)` with `ORACLE_SIGNER_PK`.**
+- [x] Chain of last N snapshots exposed via HTTP. **`GET /v1/snapshots/recent?asset=…&n=…`, `GET /v1/snapshots/root?asset=…&n=…`. Phase 1 uses keccak256-chain (Solidity-native); Phase 2 swaps to Poseidon so the momentum circuit can consume the root directly without an extra hash-equivalence proof.**
+- [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2). *(Anchor task lands in WS3 e2e once `OraclePriceAnchor` / `Helios.sol` heartbeat is deployed; oracle service exposes the chain root and signer for the anchor task to read.)*
+- [x] `SCENARIO_MODE=1` replays `scenarios/phase1-drawdown.json` (16-bar KITE drawdown ~7%, ETH flat). 12 service+source+state tests passing.
 
 ### SX — Subgraph
 - [ ] `subgraph.yaml` indexes Kite testnet contracts deployed in Phase 1
@@ -146,8 +147,8 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Deployed to Goldsky; read endpoint wired to services + frontend
 
 ### SX — Scenario mode
-- [ ] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`
-- [ ] Scenario: momentum strategy allocated → price drops to trigger 15%+ drawdown → auto-defund fires → replacement strategy takes the capital
+- [x] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`
+- [ ] Scenario: momentum strategy allocated → price drops to trigger 15%+ drawdown → auto-defund fires → replacement strategy takes the capital. *(Scenario file embeds the 7% KITE drawdown; full e2e wiring lands in WS3.)*
 - [ ] `scripts/e2e-scenario.sh` runs the full stack in scenario mode and asserts the expected end state
 - [ ] Runs in CI as the end-to-end integration test
 
