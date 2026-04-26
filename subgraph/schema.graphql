@@ -128,3 +128,11 @@ type CrossChainReputationMessage @entity(immutable: true) {
   sentAt: BigInt!
   receivedAt: BigInt
 }
+
+type VerifierRegistration @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  declaredClass: Bytes!           # bytes32 class id
+  verifier: Bytes!                # adapter address
+  registeredAt: BigInt!
+  txHash: Bytes!
+}

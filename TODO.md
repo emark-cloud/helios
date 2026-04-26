@@ -141,10 +141,10 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] `SCENARIO_MODE=1` replays `scenarios/phase1-drawdown.json` (16-bar KITE drawdown ~7%, ETH flat). 12 service+source+state tests passing.
 
 ### SX — Subgraph
-- [ ] `subgraph.yaml` indexes Kite testnet contracts deployed in Phase 1
-- [ ] Entities: `Strategy`, `Allocator`, `User`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`
-- [ ] Mappings for: `StrategyRegistered`, `AllocationCreated`, `TradeAttested`, `NAVReported`, `ReputationUpdated`, `StrategyDefunded`, `AllocatorRegistered`
-- [ ] Deployed to Goldsky; read endpoint wired to services + frontend
+- [x] `subgraph.yaml` indexes Kite testnet contracts (7 datasources: StrategyRegistry, AllocatorRegistry, ReputationAnchor, TradeAttestationVerifier, StrategyVault, AllocatorVault, UserVault). *Addresses are placeholders; `DeployPhase1.s.sol` rewrites them from `contracts/deployments/kite-testnet.json` in WS3 e2e.*
+- [x] Entities: `User`, `Deposit`, `Allocator`, `Strategy`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`, `CrossChainReputationMessage`, `VerifierRegistration`. **`pnpm --filter subgraph codegen && build` green.**
+- [x] Mappings cover: `StrategyRegistered/Deactivated/ReputationUpdated`, `AllocatorRegistered/Deactivated/ReputationUpdated/ReferenceBrandAssigned`, `ReputationPosted`/`CrossChainReputationPosted`, `TradeAttested`/`NAVReported`/`Slashed`, `AllocationCreated/Increased/Decreased`/`StrategyDefunded`, `MetaStrategySet`/`Deposited`/`AllocatorDelegated`, `VerifierRegistered`. *`Allocation.capitalDeployed` carries the latest event amount, not a running sum — graph-ts 0.36 strict-null inference fights BigInt accumulation in mappings; the dashboard sums events at query time. Phase 2 reintroduces running totals via @aggregation once we upgrade graph-ts.*
+- [ ] Deployed to Goldsky; read endpoint wired to services + frontend. *(`pnpm --filter subgraph deploy` needs real addresses in subgraph.yaml + `GOLDSKY_API_KEY` — runs after WS3 contract deploy.)*
 
 ### SX — Scenario mode
 - [x] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`

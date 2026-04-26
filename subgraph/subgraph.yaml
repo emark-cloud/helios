@@ -4,33 +4,193 @@ repository: https://github.com/helios-market/helios
 schema:
   file: ./schema.graphql
 
-# Phase 0 scaffolding.
+# Phase 1 datasources for Kite testnet.
 #
-# Phase 1 wires the real datasources for Kite testnet (StrategyRegistry,
-# AllocatorRegistry, ReputationAnchor, AllocatorVault) and their event handlers.
-# Phase 5 adds Base Sepolia + Arbitrum Sepolia datasources.
+# Addresses below are placeholders; `contracts/script/DeployPhase1.s.sol`
+# rewrites this manifest in WS3 e2e from `contracts/deployments/kite-testnet.json`.
+# Until then, `pnpm --filter subgraph codegen && pnpm --filter subgraph build`
+# verifies mapping/ABI shape against the placeholder addresses, and the deploy
+# step fails fast with a clear error.
 #
-# When contracts land, each entry follows:
-#   - kind: ethereum
-#     name: StrategyRegistry
-#     network: kite-testnet
-#     source:
-#       address: "0x..."
-#       abi: IStrategyRegistry
-#       startBlock: <deploy block>
-#     mapping:
-#       kind: ethereum/events
-#       apiVersion: 0.0.9
-#       language: wasm/assemblyscript
-#       file: ./src/strategy-registry.ts
-#       entities: [Strategy, ReputationSnapshot]
-#       abis:
-#         - name: IStrategyRegistry
-#           file: ./abis/IStrategyRegistry.json
-#       eventHandlers:
-#         - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
-#           handler: handleStrategyRegistered
-#         - event: ReputationUpdated(indexed address,int256,int256)
-#           handler: handleReputationUpdated
+# Phase 5 will add `kite-mainnet`, `base-sepolia`, `arbitrum-sepolia` copies of
+# each datasource plus the cross-chain `HeliosOApp` entry.
 
-dataSources: []
+dataSources:
+  - kind: ethereum
+    name: StrategyRegistry
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000001"
+      abi: StrategyRegistry
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/strategy-registry.ts
+      entities:
+        - Strategy
+      abis:
+        - name: StrategyRegistry
+          file: ./abis/StrategyRegistry.json
+      eventHandlers:
+        - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
+          handler: handleStrategyRegistered
+        - event: StrategyDeactivated(indexed address)
+          handler: handleStrategyDeactivated
+        - event: ReputationUpdated(indexed address,int256,int256)
+          handler: handleStrategyReputationUpdated
+
+  - kind: ethereum
+    name: AllocatorRegistry
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000002"
+      abi: AllocatorRegistry
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/allocator-registry.ts
+      entities:
+        - Allocator
+      abis:
+        - name: AllocatorRegistry
+          file: ./abis/AllocatorRegistry.json
+      eventHandlers:
+        - event: AllocatorRegistered(indexed address,string,indexed address,indexed address,bytes32,uint16,uint256)
+          handler: handleAllocatorRegistered
+        - event: AllocatorDeactivated(indexed address)
+          handler: handleAllocatorDeactivated
+        - event: AllocatorReputationUpdated(indexed address,int256,int256)
+          handler: handleAllocatorReputationUpdated
+        - event: ReferenceBrandAssigned(indexed address)
+          handler: handleReferenceBrandAssigned
+
+  - kind: ethereum
+    name: ReputationAnchor
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000003"
+      abi: ReputationAnchor
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/reputation-anchor.ts
+      entities:
+        - ReputationSnapshot
+        - Strategy
+        - Allocator
+      abis:
+        - name: ReputationAnchor
+          file: ./abis/ReputationAnchor.json
+      eventHandlers:
+        - event: ReputationPosted(indexed address,indexed uint8,int256,uint256)
+          handler: handleReputationPosted
+        - event: CrossChainReputationPosted(indexed address,indexed uint8,uint32,int256)
+          handler: handleCrossChainReputationPosted
+
+  - kind: ethereum
+    name: StrategyVault
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000004"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: AllocatorVault
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000005"
+      abi: AllocatorVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/allocator-vault.ts
+      entities:
+        - Allocation
+        - DefundEvent
+      abis:
+        - name: AllocatorVault
+          file: ./abis/AllocatorVault.json
+      eventHandlers:
+        - event: AllocationCreated(indexed address,indexed address,uint256,uint32)
+          handler: handleAllocationCreated
+        - event: AllocationIncreased(indexed address,indexed address,uint256)
+          handler: handleAllocationIncreased
+        - event: AllocationDecreased(indexed address,indexed address,uint256)
+          handler: handleAllocationDecreased
+        - event: StrategyDefunded(indexed address,indexed address,string,indexed address)
+          handler: handleStrategyDefunded
+
+  - kind: ethereum
+    name: UserVault
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000006"
+      abi: UserVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/user-vault.ts
+      entities:
+        - User
+        - Deposit
+      abis:
+        - name: UserVault
+          file: ./abis/UserVault.json
+      eventHandlers:
+        - event: MetaStrategySet(indexed address,indexed bytes32)
+          handler: handleMetaStrategySet
+        - event: Deposited(indexed address,indexed address,uint256)
+          handler: handleDeposited
+        - event: AllocatorDelegated(indexed address,indexed address,uint64,bytes32)
+          handler: handleAllocatorDelegated
+
+  - kind: ethereum
+    name: TradeAttestationVerifier
+    network: kite-testnet
+    source:
+      address: "0x0000000000000000000000000000000000000007"
+      abi: TradeAttestationVerifier
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/trade-attestation-verifier.ts
+      entities:
+        - VerifierRegistration
+      abis:
+        - name: TradeAttestationVerifier
+          file: ./abis/TradeAttestationVerifier.json
+      eventHandlers:
+        - event: VerifierRegistered(indexed bytes32,address)
+          handler: handleVerifierRegistered
