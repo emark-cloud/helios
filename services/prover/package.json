@@ -12,11 +12,12 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "snarkjs": "^0.7.6",
+    "snarkjs": "0.7.6",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0"
   },
   "devDependencies": {
+    "circomlibjs": "^0.1.7",
     "supertest": "^7.0.0"
   }
 }

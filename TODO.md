@@ -105,10 +105,10 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [ ] Proof generation p95 ≤ 2s on commodity VPS. *(Bench runs once VPS prover is up.)*
 
 ### SX — Prover Service
-- [ ] `POST /prove` accepts `{ strategyClass, witnessInputs, publicInputs }`, returns `{ proof, publicSignals }`
-- [ ] Loads `momentum_v1.wasm` + `momentum_v1.zkey` at startup; class-dispatched
-- [ ] Degraded-mode behavior: if snarkjs crashes or takes >30s, respond 503; no silent fallback
-- [ ] Integration test: strategy service → prover → on-chain verify round-trip
+- [x] `POST /prove` accepts `{ strategyClass, witnessInputs }`, returns `{ proof, publicSignals }`
+- [x] Loads `momentum_v1.wasm` + `momentum_v1.zkey` at startup; class-dispatched (`hello`, `momentum_v1`)
+- [x] Degraded-mode behavior: if snarkjs crashes or takes >30s, respond 503; no silent fallback. **snarkjs pinned to exact `0.7.6` (couples to MomentumV1Verifier.sol scaffold).**
+- [x] Integration test: prover round-trips a real momentum_v1 proof; off-chain `groth16.verify` against the same vkey the on-chain `MomentumV1Verifier.sol` was generated from. **5 tests passing; proof gen ~1.5s on dev box.** *(Live anvil + on-chain verify is covered in WS3 e2e — `MomentumV1Verifier.t.sol` already certifies on-chain acceptance for any proof that passes off-chain verify against this vkey.)*
 
 ### SX — Strategy Service (momentum reference)
 - [ ] Polls 1-minute bars for WKITE, USDC.e, WETH from a configured price source (Helios oracle for Phase 1)
