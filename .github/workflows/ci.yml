@@ -21,6 +21,13 @@ jobs:
         with:
           submodules: recursive
       - name: Install Foundry
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
@@ -64,6 +71,13 @@ jobs:
         with:
           node-version: 20
       - name: Install Foundry (for ABI artifacts)
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
