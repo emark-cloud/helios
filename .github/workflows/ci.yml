@@ -103,3 +103,5 @@ jobs:
         run: uv run ruff format --check .
       - name: Pyright
         run: uv run pyright
+      - name: Pytest
+        run: uv run pytest

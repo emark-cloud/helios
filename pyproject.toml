@@ -84,3 +84,4 @@ reportMissingTypeStubs = false
 testpaths = ["packages", "services", "reference-strategies"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+addopts = ["--import-mode=importlib"]
