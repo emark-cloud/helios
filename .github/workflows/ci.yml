@@ -96,7 +96,7 @@ jobs:
         with:
           version: "latest"
       - name: uv sync
-        run: uv sync --all-extras
+        run: uv sync --all-packages --all-extras
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
