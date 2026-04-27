@@ -1,6 +1,15 @@
 # Phase 1 — detailed execution plan
 
-Companion to `TODO.md` Phase 1 section and `Helios.md §6 / §9 / §11`. Read after both. Updated 2026-04-25.
+Companion to `TODO.md` Phase 1 section and `Helios.md §6 / §9 / §11`. Read after both. Updated 2026-04-27.
+
+## Status (2026-04-27)
+
+Backend vertical slice **complete**. WS1 + WS2.A–D + WS3 (including Track B live deploy to Kite testnet) all merged to `main`. Contracts live at the addresses in `contracts/deployments/kite-testnet.json` (chainId 2368, deployer `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`).
+
+Remaining for Phase 1 acceptance:
+- **WS4 frontend** — `/onboard`, `/dashboard`, `/strategies` (untouched)
+- **WS5 cleanup** — forge coverage ≥ 85% (currently dragged below by `HelloVerifier.sol` Phase 0 vestige + `DeployPhase1.s.sol`); Goldsky subgraph deploy against the testnet addresses; VPS service deploy from `deploy/docker-compose.prod.yml`
+- **External carry-over** — Passport smoke test (still BLOCKED per `docs/kite-passport-notes.md`)
 
 ## Phase 1 in one sentence
 
@@ -10,7 +19,7 @@ End-to-end vertical slice on Kite testnet: user signs a meta-strategy (EOA-stubb
 
 1. **Passport is blocked externally** (see `docs/kite-passport-notes.md`). Every Passport touchpoint stubs to EOA + EIP-712 signatures, marked `[PASSPORT-STUB]` in code with a pointer to the swap-in checklist.
 2. **Hackathon deadline extended ≥2 weeks.** Use the room to hit 85% coverage and a clean e2e — don't ship Phase 1 with corners cut.
-3. **VPS not yet live.** Local-first development on docker-compose; benchmarks move to Servarica box once provisioned.
+3. ~~**VPS not yet live.**~~ **VPS bootstrapped 2026-04-25** (Servarica Montreal `helios@38.49.216.27`); pm2/compose entry for sentinel + momentum still gated on WS5 deploy hardening, but the box is ready.
 4. **Goldsky + Vercel done.** Subgraph deploy and frontend preview pipelines work end-to-end.
 
 ## Workstream layout
@@ -358,40 +367,42 @@ Branch: `phase-1-frontend`. Starts as soon as ABIs are stable post-WS1 freeze. D
 
 ---
 
-## Calendar (rough)
+## Calendar (actual)
 
 ```
-Wk1  WS1 contracts ████████   WS2.A circuit ██████   WS4 FE scaffold ██
-Wk2  WS1 (deploy)  █████      WS2.A (verifier deploy) ██   WS2.B services ████   WS4 FE pages █████
-Wk3  WS2.C sentinel █████   WS2.D momentum strategy ███   WS4 FE wires to live data ████
-Wk4  WS3 scenario+e2e ███   WS5 acceptance ██   buffer ██
+Wk1  WS1 contracts ████████ ✅   WS2.A circuit ██████ ✅
+Wk2  WS1 (deploy) ✅              WS2.A (verifier) ✅              WS2.B services ████ ✅
+Wk3  WS2.C sentinel █████ ✅      WS2.D momentum ███ ✅
+Wk4  WS3 scenario+e2e ███ ✅      WS5 acceptance ░░ (open)         WS4 FE ░░░░ (open)
 ```
 
-~4 weeks. Comfortably within the extended hackathon window with buffer for Phase 2 onward.
+Backend tracks landed inside the calendar window. WS4 frontend slipped (parallel work was deferred while backend cleared); WS5 acceptance gates carry forward as a slim closing pass. Buffer remains for Phase 2 onward.
 
-## Risks & mitigations
+## Risks & mitigations (open)
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Momentum circuit > 20k constraints | Medium | Pushes proof time > 2s, breaks acceptance | Profile after each component (day 2 of WS2.A); reduce Poseidon arity or split circuit if needed |
-| Algebra Integral router calldata differs from vanilla | Medium | Strategy can't trade | Verify against existing pool day 1 of WS2.D before writing the rest |
-| Goldsky indexing lag spikes | Low | Reputation updates lag → wrong allocator decisions | Add RPC fallback for most-recent block; alert if lag > 60s |
-| Snarkjs proof gen too slow on Servarica | Low | Acceptance fails | Benchmark on local (4-core dev box) first; if Servarica is materially slower, add second prover process |
-| Permissionless-defund path silently broken | Medium | Demo-critical scenario fails on stage | Explicit non-allocator caller in e2e test; not just "alloctor calls defund" |
+| Goldsky indexing lag spikes | Low | Reputation updates lag → wrong allocator decisions | Add RPC fallback for most-recent block; alert if lag > 60s. *Still open — surfaces once subgraph deploys against testnet addresses.* |
+| Frontend slip eats WS5 buffer | Medium | Phase 1 acceptance pushes into Phase 2 calendar | Scope WS4 to the three pages on the acceptance list (`/onboard`, `/dashboard`, `/strategies`); defer sunburst + signature interactions to Phase 4 per existing plan |
 
-## Resolved (2026-04-25)
+## Resolved
 
-1. **Oracle price source** — Kite has no documented on-chain oracle and no documented testnet DEX. Phase 1 oracle service uses Binance public REST (Coingecko fallback) as off-chain source, signs Poseidon-chained snapshots, anchors root on-chain.
-2. **Sentinel default fee rate** — 400 bps (4% perf fee) approved.
-3. **DEX target** — `MockSwapRouter` + `MockPool` deployed on Kite testnet; real Algebra integration deferred to Phase 2 unless Kite team confirms testnet deployment.
+| Risk / question | Resolution |
+|---|---|
+| Momentum circuit > 20k constraints (was Medium) | **5378 non-linear constraints** (≈27% of ceiling) — well under budget. (WS2.A) |
+| Snarkjs proof gen too slow on commodity hardware (was Low) | **~1.5s on dev box**, well under 2s target. VPS bench will revisit but headroom is large. (WS2.B) |
+| Permissionless-defund path silently broken (was Medium) | **Hard-gated by WS3 e2e** — `StrategyDefunded` must be emitted by an EOA that is *not* Sentinel's operator, asserted via `eth_getLogs` in `scripts/e2e_scenario.py`. (WS3) |
+| Algebra Integral router calldata differs from vanilla (was Medium) | **Mooted for Phase 1.** No documented Algebra deployment on Kite testnet (memory: `reference_kite_contract_surface`). Phase 1 ships against `MockSwapRouter`; mainnet promotion in Phase 6 swaps in real router (`docs/deployment-strategy.md`). |
+| Oracle price source (open 2026-04-25) | Binance REST → Coingecko fallback; Phase 1 keccak256 chain (Solidity-native), Phase 2 swaps to Poseidon so the momentum circuit can consume the on-chain root directly. (WS2.B) |
+| Sentinel default fee rate (open 2026-04-25) | 400 bps (4% perf fee) approved. |
+| DEX target (open 2026-04-25) | `MockSwapRouter` + `MockPool` on testnet; real Algebra deferred to Phase 6 mainnet promotion. |
+| `DEPLOYER_PK` (open 2026-04-25) | Provided. Address `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`. Track B deploy 2026-04-27 spent ~0.000017 KITE of the 0.5 KITE budget — plenty of headroom for any redeploy or testnet ops. |
+| Live deploy to Kite testnet (gated on WS3) | **Track B sign-off 2026-04-27** — `contracts/deployments/kite-testnet.json` populated with real addresses; broadcast log preserved at `contracts/broadcast/DeployPhase1.s.sol/2368/run-latest.json`. Required `forge script --skip-simulation` (testnet RPC rejects pre-finality state queries). |
 
 ## Open
 
-1. **Confirm testnet Algebra status with Kite team** — one Discord message could let us drop the mock router entirely.
-
-## Resolved (2026-04-25, cont.)
-
-4. **`DEPLOYER_PK`** — provided. Address `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`, balance 0.5 KITE on testnet, gas price ~0.001 gwei → plenty of headroom for full Phase 1 deploys + iterative redeploys.
+- **Goldsky subgraph deploy** — `pnpm --filter subgraph deploy` against the Track B addresses. Documented as a Track B follow-up; not gated by CI (CI uses `eth_getLogs` directly).
+- **Confirm testnet Algebra status with Kite team** — still nice-to-have so we can drop the mock router earlier than Phase 6, but no longer blocking.
 
 ## Branch + PR convention
 
