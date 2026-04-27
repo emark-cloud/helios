@@ -1,36 +1,246 @@
-"""Sentinel service composition. Phase 0: health endpoint only.
+"""Sentinel allocator service composition.
 
-Phase 1 adds the six-step allocator loop from Helios.md §11.2:
-1. Discover & rank strategies (via Goldsky)
-2. Compute target allocation
-3. Diff against current allocations
-4. Drawdown check (highest priority)
-5. Apply diffs
-6. Fee crystallization
+Wires the decision loop, the in-memory store, the Goldsky client, and
+the on-chain runner into a FastAPI app.
+
+REST surface (`Helios.md §11.3`):
+  * `POST /v1/users/{user}/meta-strategy` — accept a signed meta-strategy
+  * `GET  /v1/users/{user}/dashboard`     — composite dashboard payload
+  * `GET  /v1/strategies`                 — public directory with filters
+  * `WS   /v1/users/{user}/events`        — per-user event stream
+
+`POST /v1/users/{user}/meta-strategy` is the user's entry point. The
+sigfield is stored verbatim — Phase 1 doesn't verify it (the user IS
+the caller off the AA stack, [PASSPORT-STUB]); it does the same forward
+preservation that `UserVault.setMetaStrategy` does.
 """
 
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import httpx
 from _template import BaseServiceSettings, create_app
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import Field
 from pydantic_settings import SettingsConfigDict
+
+from sentinel.allocator import SentinelAllocator
+from sentinel.goldsky import SentinelGoldsky
+from sentinel.loop import LoopConfig, SentinelLoop
+from sentinel.onchain import OnChainRunner
+from sentinel.schemas import (
+    AllocationView,
+    DashboardPayload,
+    MetaStrategyPayload,
+    StrategyDirectoryRow,
+)
+from sentinel.state import SentinelStore
 
 
 class Settings(BaseServiceSettings):
-    model_config = SettingsConfigDict(env_prefix="SENTINEL_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="SENTINEL_", env_file=".env", extra="ignore")
 
     name: str = "Helios Sentinel"
-    fee_rate_bps: int = 500  # 5% on user net realized profit above HWM
+    fee_rate_bps: int = 400  # phase1-plan.md §"Setup", confirmed 2026-04-25
+    drawdown_check_interval_sec: int = 60
+    rank_update_interval_sec: int = 300
+    fee_check_interval_sec: int = 300
+    operator_pk: str = Field(default="", validation_alias="SENTINEL_OPERATOR_PK")
+    allocator_vault_address: str = Field(
+        default="", validation_alias="SENTINEL_ALLOCATOR_VAULT_ADDRESS"
+    )
+    allocator_registry_address: str = Field(
+        default="", validation_alias="SENTINEL_ALLOCATOR_REGISTRY_ADDRESS"
+    )
+    http_port: int = 8001
 
 
-def build_app() -> FastAPI:
-    settings = Settings()  # type: ignore[call-arg]
+def build_app(settings: Settings | None = None) -> FastAPI:
+    cfg = settings or Settings()  # type: ignore[call-arg]
+
+    http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-sentinel/0.1"})
+    store = SentinelStore()
+    allocator = SentinelAllocator()
+    goldsky = SentinelGoldsky(
+        endpoint=cfg.goldsky_endpoint, chain_id=cfg.kite_chain_id, client=http_client
+    )
+    onchain = OnChainRunner(
+        rpc_url=cfg.kite_rpc_url,
+        operator_pk=cfg.operator_pk,
+        allocator_vault_address=cfg.allocator_vault_address,
+        allocator_registry_address=cfg.allocator_registry_address,
+        chain_id=cfg.kite_chain_id,
+    )
+    loop = SentinelLoop(
+        store=store,
+        allocator=allocator,
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            drawdown_check_interval_sec=cfg.drawdown_check_interval_sec,
+            rank_update_interval_sec=cfg.rank_update_interval_sec,
+            fee_check_interval_sec=cfg.fee_check_interval_sec,
+        ),
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        loop.start()
+        try:
+            yield
+        finally:
+            await loop.stop()
+            await http_client.aclose()
+
+    router = _make_router(cfg, store, loop, onchain, goldsky)
+
+    app = create_app(name="sentinel", settings=cfg, routers=[router])
+    app.router.lifespan_context = _compose_lifespans(app.router.lifespan_context, lifespan)
+    app.state.store = store  # type: ignore[attr-defined]
+    app.state.loop = loop  # type: ignore[attr-defined]
+    app.state.allocator = allocator  # type: ignore[attr-defined]
+    app.state.onchain = onchain  # type: ignore[attr-defined]
+    app.state.goldsky = goldsky  # type: ignore[attr-defined]
+    return app
+
+
+def _make_router(
+    cfg: Settings,
+    store: SentinelStore,
+    loop: SentinelLoop,
+    onchain: OnChainRunner,
+    goldsky: SentinelGoldsky,
+) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
     @router.get("/")
-    async def root() -> dict[str, str | int]:
+    async def root() -> dict[str, object]:
         return {
-            "service": settings.name,
-            "fee_rate_bps": settings.fee_rate_bps,
-            "scenario_mode": int(settings.scenario_mode),
+            "service": cfg.name,
+            "fee_rate_bps": cfg.fee_rate_bps,
+            "scenario_mode": int(cfg.scenario_mode),
+            "allocator_vault": cfg.allocator_vault_address,
+            "live_chain_io": onchain.live,
+            "candidates": len(loop.candidates),
+            "users": len(store.all_users()),
         }
 
-    return create_app(name="sentinel", settings=settings, routers=[router])
+    @router.post("/users/{user}/meta-strategy")
+    async def set_meta_strategy(user: str, payload: MetaStrategyPayload) -> dict[str, object]:
+        if user.lower() != payload.user_address.lower():
+            raise HTTPException(status_code=400, detail="path/body user mismatch")
+        meta = payload.to_sdk_meta()
+        store.upsert_user(meta)
+        u = store.get_user(meta.user_address)
+        return {
+            "ok": True,
+            "user": meta.user_address,
+            "delegated_capital_usd": u.delegated_capital_usd if u else 0,
+        }
+
+    @router.get("/users/{user}/dashboard")
+    async def dashboard(user: str) -> DashboardPayload:
+        state = store.get_user(user)
+        if state is None:
+            raise HTTPException(status_code=404, detail=f"no meta-strategy for {user}")
+        return _dashboard_for(state, cfg)
+
+    @router.get("/strategies")
+    async def list_strategies(
+        cls: str | None = None,
+        chain_id: int | None = None,
+        min_reputation: float | None = None,
+    ) -> list[StrategyDirectoryRow]:
+        rows = await goldsky.fetch_directory()
+        return _filter_directory(rows, cls=cls, chain_id=chain_id, min_reputation=min_reputation)
+
+    @router.websocket("/users/{user}/events")
+    async def user_events(ws: WebSocket, user: str) -> None:
+        await ws.accept()
+        q = store.subscribe(user)
+        try:
+            for e in store.recent_events(user, n=50):
+                await ws.send_json(e.to_dict())
+            while True:
+                event = await q.get()
+                await ws.send_json(event.to_dict())
+        except WebSocketDisconnect:
+            pass
+        finally:
+            store.unsubscribe(user, q)
+
+    return router
+
+
+def _dashboard_for(state, cfg: Settings) -> DashboardPayload:
+    allocations = [
+        AllocationView(
+            strategy_id=a.strategy_id,
+            chain_id=a.chain_id,
+            declared_class=a.declared_class,
+            capital_deployed_usd=a.capital_deployed_usd,
+            high_water_mark_usd=a.high_water_mark_usd,
+            current_nav_usd=a.nav_usd,
+            drawdown_bps=a.drawdown_bps,
+            defunded=a.defunded,
+            last_rebalance_ts=a.last_rebalance_ts,
+        )
+        for a in state.allocations.values()
+    ]
+    active = [a for a in state.allocations.values() if not a.defunded]
+    return DashboardPayload(
+        user_address=state.meta.user_address,
+        total_capital_usd=sum(a.capital_deployed_usd for a in active),
+        total_nav_usd=sum(a.nav_usd for a in active),
+        realized_pnl_usd=state.realized_pnl_usd,
+        fees_paid_usd=state.fees_paid_usd,
+        allocations=allocations,
+        allocator_name=cfg.name,
+        allocator_fee_rate_bps=cfg.fee_rate_bps,
+    )
+
+
+def _filter_directory(
+    rows,
+    *,
+    cls: str | None,
+    chain_id: int | None,
+    min_reputation: float | None,
+) -> list[StrategyDirectoryRow]:
+    out: list[StrategyDirectoryRow] = []
+    for r in rows:
+        if cls and r.declared_class != cls:
+            continue
+        if chain_id is not None and r.chain_id != chain_id:
+            continue
+        rep = max(0.0, r.reputation_score_e4 / 10_000.0)
+        if min_reputation is not None and rep < min_reputation:
+            continue
+        out.append(
+            StrategyDirectoryRow(
+                strategy_id=r.strategy_id,
+                declared_class=r.declared_class,
+                chain_id=r.chain_id,
+                operator=r.operator,
+                fee_rate_bps=r.fee_rate_bps,
+                stake_amount_usd=r.stake_amount_usd,
+                max_capacity_usd=r.max_capacity_usd,
+                current_allocations_usd=r.current_allocations_usd,
+                reputation_score=rep,
+                realized_volatility_30d=0.0,
+                sharpe_30d=0.0,
+                max_drawdown_30d_bps=0,
+            )
+        )
+    return out
+
+
+def _compose_lifespans(outer, inner):
+    @asynccontextmanager
+    async def composed(app: FastAPI) -> AsyncIterator[None]:
+        async with outer(app), inner(app):
+            yield
+
+    return composed
