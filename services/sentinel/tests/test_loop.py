@@ -212,6 +212,106 @@ async def test_rebalance_skipped_within_cadence() -> None:
 
 
 @pytest.mark.asyncio
+async def test_full_scenario_allocate_drawdown_reallocate() -> None:
+    """Phase 1 acceptance scenario: user delegates capital → Sentinel
+    splits across two strategies → one breaches drawdown next tick →
+    Sentinel defunds the loser and redeploys the freed budget into
+    the survivor in the same tick."""
+    s1 = _candidate("0x" + "11" * 20, rep=0.9)
+    s2 = _candidate("0x" + "22" * 20, rep=0.5)
+
+    store = SentinelStore()
+    allocator = SentinelAllocator()
+    onchain = OnChainRunner(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+
+    class _DynamicGoldsky(SentinelGoldsky):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def fetch_candidates(self) -> list[StrategyCandidate]:  # type: ignore[override]
+            self.calls += 1
+            # Tick 1: both active. Tick 2+: s2 has dropped from the
+            # directory (subgraph reflects its losing streak).
+            return [s1, s2] if self.calls == 1 else [s1]
+
+        async def aclose(self) -> None:
+            return None
+
+    goldsky = _DynamicGoldsky()
+    loop = SentinelLoop(
+        store, allocator, goldsky, onchain, config=LoopConfig(rank_update_interval_sec=300)
+    )
+
+    user = store.upsert_user(
+        _user_meta(
+            drawdown_bps=1_500,
+            max_per_strategy_bps=10_000,
+            max_strategies_count=2,
+            rebalance_cadence_sec=900,
+        )
+    )
+    user.delegated_capital_usd = 10_000
+
+    q = store.subscribe(user.meta.user_address)
+
+    # ── Tick 1 (t=1_000): idle capital → two-strategy split ─────
+    await loop.tick_once(now=1_000)
+
+    initial_allocs = [c for c in onchain.pending if c.method == "allocateToStrategy"]
+    assert len(initial_allocs) == 2
+    s1_initial = next(c.amount for c in initial_allocs if c.strategy == s1.strategy_id)
+    s2_initial = next(c.amount for c in initial_allocs if c.strategy == s2.strategy_id)
+    assert s1_initial + s2_initial <= 10_000
+    assert s1_initial > s2_initial  # higher-rep strategy gets the larger slice
+
+    # Simulate market action between ticks: s2 craters, s1 holds.
+    user.allocations[s2.strategy_id].nav_usd = int(s2_initial * 0.80)  # -20% > 15% threshold
+    user.allocations[s1.strategy_id].nav_usd = s1_initial  # flat — no drawdown
+
+    # ── Tick 2 (t=2_000): drawdown defund + reallocation ────────
+    pre_pending = len(onchain.pending)
+    await loop.tick_once(now=2_000)
+    new_calls = onchain.pending[pre_pending:]
+
+    defunds = [c for c in new_calls if c.method == "defundStrategy"]
+    assert len(defunds) == 1
+    assert defunds[0].strategy == s2.strategy_id
+    assert defunds[0].reason == "DRAWDOWN_BREACH"
+    assert user.allocations[s2.strategy_id].defunded
+
+    # The freed budget redeploys into s1 — the only surviving candidate.
+    increases = [
+        c for c in new_calls if c.method == "allocateToStrategy" and c.strategy == s1.strategy_id
+    ]
+    assert len(increases) == 1
+    # Target for s1 is full capital (only candidate, max_per_strategy=100%);
+    # diff is target - current_active = 10_000 - s1_initial.
+    assert increases[0].amount == 10_000 - s1_initial
+    assert user.allocations[s1.strategy_id].capital_deployed_usd == 10_000
+    assert user.last_rebalance_ts == 2_000
+
+    # Event stream observed all three lifecycle events in order.
+    drained = []
+    while not q.empty():
+        drained.append(q.get_nowait())
+    kinds = [e.kind for e in drained]
+    assert kinds.count("ALLOCATION_CREATED") == 2  # tick 1
+    assert "STRATEGY_DEFUNDED" in kinds  # tick 2
+    assert kinds.count("ALLOCATION_INCREASED") == 1  # tick 2 reallocation
+    # Defund must be emitted before the reallocation event (drawdown step
+    # runs before the rebalance step inside _tick_user).
+    defund_idx = next(i for i, e in enumerate(drained) if e.kind == "STRATEGY_DEFUNDED")
+    realloc_idx = next(i for i, e in enumerate(drained) if e.kind == "ALLOCATION_INCREASED")
+    assert defund_idx < realloc_idx
+
+
+@pytest.mark.asyncio
 async def test_event_fanout_to_subscriber() -> None:
     s1 = _candidate("0x" + "11" * 20)
     loop, store, _ = _build([s1])
