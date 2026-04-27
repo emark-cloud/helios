@@ -284,6 +284,30 @@ WS3 has two tracks, sharing a single script:
 - **Oracle on-chain root anchor.** Phase 1 keccak256 chain is service-local; the momentum circuit doesn't consume the on-chain root yet (Phase 2 swaps in Poseidon and the circuit reads the committed root). `OraclePriceAnchor` deploy is decorative until then — defer to Phase 2.
 - **Goldsky deploy in the CI e2e.** CI uses `web3.py` `eth_getLogs` directly against anvil for event assertions — no external dep, no flake surface. Track B follows up with `pnpm --filter subgraph deploy` against the testnet contracts so the dashboard renders against real data; that step is documented but not gated by CI.
 
+### Goldsky verification checklist (post-deploy, 2026-04-27)
+
+Subgraph `helios/v0.1.0` deployed 2026-04-27 against the Track B addresses (network `kite-ai-testnet`, startBlock 21074384). Endpoint pinned in `.env.example` as `GOLDSKY_ENDPOINT` / `NEXT_PUBLIC_GOLDSKY_ENDPOINT`. Indexer was healthy + 0% synced at deploy time (deploy blocks not yet finalized — Kite RPC enforces finality strictly, same constraint that forced `forge script --skip-simulation` on the deploy).
+
+Three checks, cheapest first:
+
+1. **Sync progress.** `pnpm --filter @helios/subgraph exec goldsky subgraph list helios/v0.1.0`. Look for `Synced: 100.00%` (or any > 0%) and `Blocks indexed: 21074384 -> <recent>`. Right-hand side past `21074421` (last deploy block) means all deploy events have been processed.
+
+2. **GraphQL — entities should exist.**
+   ```bash
+   curl -s -X POST $GOLDSKY_ENDPOINT \
+     -H 'Content-Type: application/json' \
+     -d '{"query":"{ allocators { id name isReferenceBrand } strategies { id declaredClass } verifierRegistrations { strategyClass verifier } }"}' \
+     | python3 -m json.tool
+   ```
+   Expected once synced (from `DeployPhase1.s.sol`):
+   - **3 strategies** — `declaredClass` = keccak("momentum_v1"), keccak("mean_reversion_v1"), keccak("yield_rotation_v1")
+   - **1 allocator** — name `"Helios Sentinel-shadow"`, `isReferenceBrand: false` (the reserved `"Helios Sentinel"` is multi-sig only)
+   - **3 verifierRegistrations** — one per class, each pointing at a `MockGroth16Verifier` address
+
+   If those three queries return the expected counts, the subgraph is working end-to-end (manifest → ABI → mappings → entities).
+
+3. **If sync is still stuck after an hour, check logs.** `pnpm --filter @helios/subgraph exec goldsky subgraph log helios/v0.1.0 --since 1h --filter warn`. Likely failure mode is finality-related (`block not finalized` or RPC error). If that's what surfaces, options: (a) wait longer for natural finality, (b) ask Goldsky support whether their `kite-ai-testnet` integration uses a finalized-only RPC, (c) lower `startBlock` to a much earlier block to confirm the indexer can backfill at all.
+
 ### Six wiring pieces (all in scope, ordered by dependency)
 
 1. **`DeployPhase1.s.sol` writes to canonical path.** Today the script writes `./deployments/<chain>-phase1.json`; WS3 makes it write `contracts/deployments/<chain>.json` so services + subgraph + frontend pick it up unchanged. Default chain name keyed on `block.chainid` (`anvil-kite`, `kite-testnet`, `kite-mainnet`).
