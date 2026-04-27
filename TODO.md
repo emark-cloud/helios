@@ -79,6 +79,8 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 **Goal.** One full end-to-end thread: user signature → ZK-attested momentum trade → reputation update → scenario-driven drawdown → auto-defund → reallocation. Kite only. Momentum only. Sentinel only.
 
+**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), and WS3 (scenario + e2e, including Track B live deploy to Kite testnet) all merged to `main`. Remaining for Phase 1 acceptance: **WS4 frontend** (`/onboard`, `/dashboard`, `/strategies`); **WS5 cleanup** (forge coverage ≥ 85% — currently dragged below by `HelloVerifier.sol` + scripts; Goldsky subgraph deploy against testnet addresses; VPS service deploy from `deploy/docker-compose.prod.yml`); and the externally-blocked Passport smoke test (Outstanding Phase 0 carry-over).
+
 ### CX — Contracts ✅ (merged to main 2026-04-25 — WS1)
 - [x] `UserVault.sol` — MetaStrategy struct, `setMetaStrategy`, `deposit`, `delegateToAllocator(sessionTTL)`, `withdraw`, `settleAllocatorFee`. UUPS upgradeable.
 - [x] `AllocatorVault.sol` — AllocationRecord struct, `allocateToStrategy`, `defundStrategy` (permissionless when drawdown breached), `rebalance`, `settleStrategyFee`, `withdrawAllocatorFees`.
@@ -104,49 +106,49 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] `MomentumV1Verifier.sol` generated via snarkjs, on-chain verify proven via `MomentumV1VerifierAdapter`. *(Live deploy to Kite testnet + registration on `TradeAttestationVerifier` runs in WS3 e2e.)*
 - [ ] Proof generation p95 ≤ 2s on commodity VPS. *(Bench runs once VPS prover is up.)*
 
-### SX — Prover Service
+### SX — Prover Service ✅ (merged to main 2026-04-26 — WS2.B)
 - [x] `POST /prove` accepts `{ strategyClass, witnessInputs }`, returns `{ proof, publicSignals }`
 - [x] Loads `momentum_v1.wasm` + `momentum_v1.zkey` at startup; class-dispatched (`hello`, `momentum_v1`)
 - [x] Degraded-mode behavior: if snarkjs crashes or takes >30s, respond 503; no silent fallback. **snarkjs pinned to exact `0.7.6` (couples to MomentumV1Verifier.sol scaffold).**
 - [x] Integration test: prover round-trips a real momentum_v1 proof; off-chain `groth16.verify` against the same vkey the on-chain `MomentumV1Verifier.sol` was generated from. **5 tests passing; proof gen ~1.5s on dev box.** *(Live anvil + on-chain verify is covered in WS3 e2e — `MomentumV1Verifier.t.sol` already certifies on-chain acceptance for any proof that passes off-chain verify against this vkey.)*
 
-### SX — Strategy Service (momentum reference)
-- [ ] Polls 1-minute bars for WKITE, USDC.e, WETH from a configured price source (Helios oracle for Phase 1)
-- [ ] `on_bar(asset, snapshot)` implements momentum per `Helios.md §10.2`
-- [ ] Constructs trade calldata for the Algebra Integral DEX router
-- [ ] Calls prover, then `StrategyVault.executeWithProof`
-- [ ] Reports NAV every 5 minutes
-- [ ] Emits events consumed by subgraph
-- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`
+### SX — Strategy Service (momentum reference) ✅ (merged to main 2026-04-26 — WS2.D, live tx path wired in WS3)
+- [x] Polls 1-minute bars for WKITE, USDC.e, WETH from a configured price source (Helios oracle for Phase 1). **`runtime.py` ticks `oracle_client` per asset.**
+- [x] `on_bar(asset, snapshot)` implements momentum per `Helios.md §10.2`. **`strategy.py` — N-period return + threshold + flat/short precondition.**
+- [x] Constructs trade calldata for the Algebra Integral DEX router. *Phase 1 targets `MockSwapRouter` (Algebra not on Kite testnet — see memory `reference_kite_contract_surface`); same calldata shape, swap-in is a Phase 6 mainnet promotion concern.*
+- [x] Calls prover, then `StrategyVault.executeWithProof`. **`executor.py` live path landed in WS3 (web3.py + 256-byte proof bytes).**
+- [x] Reports NAV every 5 minutes. **`reportNAV(total_nav_e18, ts, sig)` live path also landed in WS3; OZ v5 ECDSA `v + 27` correction applied.**
+- [x] Emits events consumed by subgraph. **`TradeAttested` + `NAVReported` indexed in `subgraph/src/strategy-vault.ts`.**
+- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`. *(Container scaffolded in `deploy/services/python.Dockerfile`; pm2/compose entry commented out in `deploy/docker-compose.prod.yml` until WS5 / Phase 6 deploy hardening.)*
 
-### SX — Sentinel (reference allocator)
-- [ ] Loop implements the six-step decision cycle from `Helios.md §11.2`
-- [ ] Ranking function (`Helios.md §8.3`): `ReputationScore × CapacityFactor × FeeFactor × ClassFitFactor`
-- [ ] Drawdown check on 60s cadence
-- [ ] Rank update on 5-minute cadence; rebalance per user's `rebalanceCadenceSec`
-- [ ] Fee crystallization on NAV > HWM × (1 + FEE_THRESHOLD)
-- [ ] REST endpoints: `POST /v1/users/{user}/meta-strategy`, `GET /v1/users/{user}/dashboard`, `GET /v1/strategies`, `WS /v1/users/{user}/events`
-- [ ] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Sentinel"`
+### SX — Sentinel (reference allocator) ✅ (merged to main 2026-04-26 — WS2.C, live tx path wired in WS3)
+- [x] Loop implements the six-step decision cycle from `Helios.md §11.2`. **`loop.py` — read-state → drawdown-check → rank → diff → emit → submit.**
+- [x] Ranking function (`Helios.md §8.3`): `ReputationScore × CapacityFactor × FeeFactor × ClassFitFactor`. **`allocator.py`.**
+- [x] Drawdown check on 60s cadence. **`loop.py` 60s tick; permissionless-defund path certified by WS3 e2e hard gate.**
+- [x] Rank update on 5-minute cadence; rebalance per user's `rebalanceCadenceSec`.
+- [x] Fee crystallization on NAV > HWM × (1 + FEE_THRESHOLD). **`settle_fee` call wired through `onchain.py`.**
+- [x] REST endpoints: `POST /v1/users/{user}/meta-strategy`, `GET /v1/users/{user}/dashboard`, `GET /v1/strategies`, `WS /v1/users/{user}/events`. **`service.py` + `schemas.py`.**
+- [x] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Sentinel"`. *Phase 1 deploy registers as `"Helios Sentinel-shadow"` — the reserved name `"Helios Sentinel"` is multi-sig-only on the registry; shadow handle is the documented EOA-deployment alias and is wired in `DeployPhase1.s.sol`.*
 
-### SX — Reputation Engine (v1 placeholder)
+### SX — Reputation Engine (v1 placeholder) ✅ (merged to main 2026-04-26 — WS2.B, on-chain submission wired in WS3)
 - [x] Consumes Goldsky strategy rollups (polling every 60s, 30-day window).
 - [x] **Phase 1 simplification**: `score_e4 = round(10_000 × (0.7 × clip(realized_pnl_30d/notional, -1, 1) + 0.3 × proof_validity_rate))`. Full §8.2 formula deferred to Phase 2.
 - [x] Sign updates with `REPUTATION_SIGNER_PK` (EIP-712 typehash `ReputationUpdate(...)`, domain `("HeliosReputationAnchor", "1", chainId, anchor)`). On-chain `postReputationUpdate` submission lands in WS3 once `REPUTATION_ANCHOR_ADDRESS` is set; until then engine signs + broadcasts but does not transact.
 - [x] WebSocket fanout (`/v1/scores/stream`) plus REST (`/v1/scores/recent`, `/v1/scores/{strategy}`). 14 tests covering score formula bounds + clipping, EIP-712 sign+recover round-trip, engine tick → fanout → cache, REST endpoints.
 
-### SX — Oracle (Phase 1 minimum)
+### SX — Oracle (Phase 1 minimum) ✅ (merged to main 2026-04-26 — WS2.B; on-chain root anchor deferred to Phase 2 — see WS3 deferred list)
 - [x] Price oracle signs 1-minute snapshots for KITE/USDT, ETH/USDT (BTC/USDT mapping ready). **Source-abstraction layer (`oracle/sources/{base,binance,coingecko,scenario,algebra}.py`) — Binance → Coingecko fallthrough live; Algebra is a Phase 2 stub. EIP-191-framed ECDSA signature over `keccak256(asset_hash ‖ price_e18 ‖ ts_ms)` with `ORACLE_SIGNER_PK`.**
 - [x] Chain of last N snapshots exposed via HTTP. **`GET /v1/snapshots/recent?asset=…&n=…`, `GET /v1/snapshots/root?asset=…&n=…`. Phase 1 uses keccak256-chain (Solidity-native); Phase 2 swaps to Poseidon so the momentum circuit can consume the root directly without an extra hash-equivalence proof.**
 - [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2). *(Anchor task lands in WS3 e2e once `OraclePriceAnchor` / `Helios.sol` heartbeat is deployed; oracle service exposes the chain root and signer for the anchor task to read.)*
 - [x] `SCENARIO_MODE=1` replays `scenarios/phase1-drawdown.json` (16-bar KITE drawdown ~7%, ETH flat). 12 service+source+state tests passing.
 
-### SX — Subgraph
+### SX — Subgraph ✅ (merged to main 2026-04-26 — WS2.B; Goldsky deploy is a Track B follow-up)
 - [x] `subgraph.yaml` indexes Kite testnet contracts (7 datasources: StrategyRegistry, AllocatorRegistry, ReputationAnchor, TradeAttestationVerifier, StrategyVault, AllocatorVault, UserVault). *Addresses are placeholders; `DeployPhase1.s.sol` rewrites them from `contracts/deployments/kite-testnet.json` in WS3 e2e.*
 - [x] Entities: `User`, `Deposit`, `Allocator`, `Strategy`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`, `CrossChainReputationMessage`, `VerifierRegistration`. **`pnpm --filter subgraph codegen && build` green.**
 - [x] Mappings cover: `StrategyRegistered/Deactivated/ReputationUpdated`, `AllocatorRegistered/Deactivated/ReputationUpdated/ReferenceBrandAssigned`, `ReputationPosted`/`CrossChainReputationPosted`, `TradeAttested`/`NAVReported`/`Slashed`, `AllocationCreated/Increased/Decreased`/`StrategyDefunded`, `MetaStrategySet`/`Deposited`/`AllocatorDelegated`, `VerifierRegistered`. *`Allocation.capitalDeployed` carries the latest event amount, not a running sum — graph-ts 0.36 strict-null inference fights BigInt accumulation in mappings; the dashboard sums events at query time. Phase 2 reintroduces running totals via @aggregation once we upgrade graph-ts.*
 - [ ] Deployed to Goldsky; read endpoint wired to services + frontend. *(`pnpm --filter subgraph deploy` needs real addresses in subgraph.yaml + `GOLDSKY_API_KEY` — runs after WS3 contract deploy.)*
 
-### SX — Scenario mode + e2e (WS3)
+### SX — Scenario mode + e2e ✅ (merged to main 2026-04-27 — WS3, Track B sign-off 2026-04-27)
 
 WS3 direction (decided 2026-04-27, see `docs/phase1-plan.md` WS3 section): two tracks share one script. **Track A** (local anvil-kite) is canonical, gates CI, satisfies the 10-min cold-start acceptance bar. **Track B** (`RPC_URL=$KITE_RPC_URL ./scripts/e2e-scenario.sh`) broadcasts to Kite testnet once at sign-off, populates `contracts/deployments/kite-testnet.json`, gives judges live tx hashes per `Helios.md §6 / §9`.
 
