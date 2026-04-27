@@ -746,6 +746,19 @@ IAllocatorVault_ABI = [
 IStrategyVault_ABI = [
   {
     "type": "function",
+    "name": "allocateFrom",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "allocationOf",
     "inputs": [
       {
@@ -2535,59 +2548,6 @@ IHeliosOApp_ABI = [
         "type": "bytes32",
         "indexed": False,
         "internalType": "bytes32"
-      }
-    ],
-    "anonymous": False
-  }
-]
-
-Helios_ABI = [
-  {
-    "type": "constructor",
-    "inputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "VERSION",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "heartbeat",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "event",
-    "name": "HeliosDeployed",
-    "inputs": [
-      {
-        "name": "deployer",
-        "type": "address",
-        "indexed": True,
-        "internalType": "address"
-      },
-      {
-        "name": "timestamp",
-        "type": "uint256",
-        "indexed": False,
-        "internalType": "uint256"
       }
     ],
     "anonymous": False
