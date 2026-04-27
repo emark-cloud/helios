@@ -198,7 +198,16 @@ contract DeployPhase1 is Script {
     function _logAndPersist(Phase1Addresses memory a) internal {
         _logAddresses(a);
         string memory json = _buildJson(a);
-        string memory file = string.concat("./deployments/", _chainName(), "-phase1.json");
+        // Canonical path consumed by services (sentinel/momentum/reputation),
+        // subgraph datasource rewrite, and frontend address loader.
+        //
+        // `OUT_LABEL` lets the local docker-compose anvil-kite run (chainid
+        // 2368, mirrors Kite testnet) write to a *separate* file from a real
+        // testnet broadcast — Track A sets `OUT_LABEL=anvil-kite`, Track B
+        // leaves it unset and writes to `kite-testnet.json` (the file judges
+        // / Goldsky read).
+        string memory label = vm.envOr("OUT_LABEL", _chainName());
+        string memory file = string.concat("./deployments/", label, ".json");
         vm.writeFile(file, json);
         console2.log("wrote:", file);
     }

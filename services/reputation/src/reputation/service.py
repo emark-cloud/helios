@@ -22,6 +22,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisco
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
+from reputation.anchor import AnchorPoster
 from reputation.engine import EngineUpdate, ReputationEngine
 from reputation.goldsky import GoldskyClient
 from reputation.signer import ReputationSigner
@@ -49,6 +50,15 @@ def _serialize(update: EngineUpdate) -> dict[str, object]:
             "notional_e18": str(update.inputs.notional_e18),
             "proof_validity_rate_bps": update.inputs.proof_validity_rate_bps,
         },
+        "posted": (
+            None
+            if update.posted is None
+            else {
+                "submitted": update.posted.submitted,
+                "tx_hash": update.posted.tx_hash,
+                "error": update.posted.error,
+            }
+        ),
         "signed": {
             "signer": update.signed.signer,
             "signature": "0x" + update.signed.signature.hex(),
@@ -74,8 +84,20 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         chain_id=cfg.kite_chain_id,
         anchor_address=cfg.anchor_address or "0x" + "0" * 40,
     )
+    # Address-gated: empty `anchor_address` keeps the poster in dry-run mode
+    # (records what it would have submitted). Once WS3 / Track A or Track B
+    # populates it, scores reach `ReputationAnchor.postReputationUpdate`.
+    anchor = AnchorPoster(
+        rpc_url=cfg.kite_rpc_url,
+        signer_pk=cfg.signer_pk,
+        anchor_address=cfg.anchor_address,
+        chain_id=cfg.kite_chain_id,
+    )
     engine = ReputationEngine(
-        goldsky=goldsky, signer=signer, poll_interval_sec=cfg.poll_interval_sec
+        goldsky=goldsky,
+        signer=signer,
+        poll_interval_sec=cfg.poll_interval_sec,
+        anchor=anchor,
     )
 
     @asynccontextmanager

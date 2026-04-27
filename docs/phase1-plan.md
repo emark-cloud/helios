@@ -261,39 +261,59 @@ When Kite testnet gets either Algebra deployment or a real oracle, the price sou
 
 ## WS3 — Scenario mode + e2e (starts when WS2.C + WS2.D landable, est. 3 days)
 
+### Direction (decided 2026-04-27)
+
+WS3 has two tracks, sharing a single script:
+
+- **Track A — local anvil-kite (canonical, CI-gated).** Default target. Deterministic, reproducible, gates every PR, satisfies the "fresh clone + scenario in 10 min" Phase 1 acceptance bar. `scripts/e2e-scenario.sh` runs against the `anvil-kite` service in `docker-compose.yml`.
+- **Track B — live Kite testnet (one-shot, judge-facing).** Same script invoked as `RPC_URL=$KITE_RPC_URL ./scripts/e2e-scenario.sh`. Broadcasts to Kite testnet, populates `contracts/deployments/kite-testnet.json` with real addresses, gives Goldsky + frontend + judges live tx hashes to verify on OKLink. Run once at WS3 sign-off; **not** in CI.
+
+`Helios.md §6 / §9` stake the marketplace pitch on "go verify it yourself" — Track B is what makes those addresses real. Track A is what keeps the loop tight enough to ship.
+
+### Deferred from WS3 (with reason)
+
+- **Oracle on-chain root anchor.** Phase 1 keccak256 chain is service-local; the momentum circuit doesn't consume the on-chain root yet (Phase 2 swaps in Poseidon and the circuit reads the committed root). `OraclePriceAnchor` deploy is decorative until then — defer to Phase 2.
+- **Goldsky deploy in the CI e2e.** CI uses `web3.py` `eth_getLogs` directly against anvil for event assertions — no external dep, no flake surface. Track B follows up with `pnpm --filter subgraph deploy` against the testnet contracts so the dashboard renders against real data; that step is documented but not gated by CI.
+
+### Six wiring pieces (all in scope, ordered by dependency)
+
+1. **`DeployPhase1.s.sol` writes to canonical path.** Today the script writes `./deployments/<chain>-phase1.json`; WS3 makes it write `contracts/deployments/<chain>.json` so services + subgraph + frontend pick it up unchanged. Default chain name keyed on `block.chainid` (`anvil-kite`, `kite-testnet`, `kite-mainnet`).
+2. **Sentinel `services/sentinel/src/sentinel/onchain.py` — live tx path.** web3.py implementation of `allocateToStrategy` / `defundStrategy` / `settleStrategyFee` (and `rebalance` placeholder). `_live` branch currently raises `NotImplementedError`; WS3 wires it.
+3. **Momentum `reference-strategies/momentum_v1/src/momentum_v1/executor.py` — live tx path.** web3.py implementation of `executeWithProof` + `reportNAV` against `StrategyVault`. Same dry-run → live posture as Sentinel.
+4. **Reputation engine — on-chain submission.** Wire `REPUTATION_ANCHOR_ADDRESS` so signed scores reach `postReputationUpdate(strategy, score, sigComponents)`. Engine already signs; just needs the transact path.
+5. **`scripts/e2e-scenario.sh`** — boot, deploy, address-load, fund a `[PASSPORT-STUB]` user EOA + a *separate* non-allocator EOA (the permissionless-defund caller), drive the scenario through the drawdown, assert via `eth_getLogs`.
+6. **CI job in `.github/workflows/ci.yml`** — path-filtered to skip frontend/docs-only PRs, docker layer caching, ≤5 min wall-clock target.
+
 ### Scenario file (`scenarios/phase1-drawdown.json`)
 
-Deterministic price series shaped:
+Already committed in WS2.B (16-bar KITE drawdown ~7%, ETH flat). WS3 may extend if the existing series doesn't trip the default 15% drawdown threshold under the configured meta-strategy — adjustment is a config tweak, not a redesign.
 
-1. 10 bars flat at $1.00 (warmup)
-2. 10 bars rising 0.5% / bar (momentum entry triggers on bar ~15)
-3. 5 bars flat at peak (trade settled, allocation in place)
-4. 20 bars dropping ~1% / bar → 18% drawdown (breaches default 15% threshold mid-way)
-5. 5 bars flat at trough (defund + replacement allocation visible)
+### `scripts/e2e-scenario.sh` (Track A flow)
 
-### `scripts/e2e-scenario.sh`
-
-1. `docker compose up -d` with `SCENARIO_MODE=1`
-2. `forge script DeployPhase1.s.sol --rpc-url anvil-kite --broadcast`
-3. Update local `addresses.json`
-4. Sentinel registers + reads default meta-strategy
-5. Pretend-user: EOA `[PASSPORT-STUB]` signs meta-strategy + deposits 10k mock USDC
-6. Wait for first allocation event (timeout 30s)
-7. Wait for first `TradeAttested` event (timeout 30s)
-8. Continue scenario through drawdown
-9. Assert: `StrategyDefunded` event emitted by non-allocator EOA (permissionless path), replacement `AllocationCreated` follows, NAV trace matches expected
-10. Tear down
-
-### CI integration
-
-- New CI job `e2e` triggered on every PR
-- Skipped if only `frontend/`, `docs/`, `*.md` touched (path filter)
-- Caches docker layers
+1. `docker compose up -d postgres redis anvil-kite prover`
+2. `forge script DeployPhase1.s.sol --rpc-url $RPC_URL --broadcast` (defaults to `http://localhost:8545`)
+3. Read `contracts/deployments/<chain>.json`; export addresses as env vars consumed by services
+4. Boot oracle / sentinel / reputation / momentum-strategy as background processes (or pm2 / `uv run --package …`) with `SCENARIO_MODE=1` and the address env vars
+5. Sentinel registers itself on `AllocatorRegistry` (already in deploy script as `Helios Sentinel-shadow`); reads default meta-strategy from a fixture
+6. Pretend-user EOA `[PASSPORT-STUB]` signs meta-strategy + deposits 10k mock USDC + delegates capital to AllocatorVault
+7. `eth_getLogs` poll for first `AllocationCreated` (timeout 30s)
+8. `eth_getLogs` poll for first `TradeAttested` (timeout 60s — proof gen + tx confirm)
+9. Drive oracle scenario clock to the drawdown bars; wait for sentinel to detect breach OR call `defundStrategy` from a **non-allocator** EOA (test the permissionless path explicitly)
+10. Assert: `StrategyDefunded` event with `caller != AllocatorVault.operator`; replacement `AllocationCreated` follows within rebalance cadence
+11. Tear down
 
 ### Gates
 
-- e2e completes < 5 min wall-clock
-- Asserts cover both the happy path and the permissionless-defund path
+- e2e completes < 5 min wall-clock against Track A
+- **Permissionless-defund is a hard gate** (`Helios.md §6.3` keystone): the test must call `defundStrategy` from an EOA that is not Sentinel's operator and assert the tx lands. "Sentinel calls defund" is not sufficient.
+- Track B run produces a populated `contracts/deployments/kite-testnet.json` checked into the repo
+
+### CI integration
+
+- New `e2e` job in `.github/workflows/ci.yml` triggered on every PR
+- Skipped if only `frontend/`, `docs/`, `*.md` touched (path filter)
+- Caches docker layers
+- Runs Track A only — Track B is a manual sign-off step
 
 ---
 

@@ -10,6 +10,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'contracts/**'
+              - 'circuits/**'
+              - 'services/**'
+              - 'reference-strategies/**'
+              - 'packages/**'
+              - 'scripts/**'
+              - 'subgraph/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/**'
+
   contracts:
     name: contracts (foundry)
     runs-on: ubuntu-latest
@@ -117,3 +141,47 @@ jobs:
         run: uv run pyright
       - name: Pytest
         run: uv run pytest
+
+  e2e:
+    name: e2e (WS3 scenario, anvil-kite Track A)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: Install Foundry
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: uv sync
+        run: uv sync --all-packages --all-extras
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+      - name: Run WS3 e2e scenario
+        run: ./scripts/e2e-scenario.sh
+      - name: Upload anvil log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-log
+          path: |
+            /tmp/helios-e2e-anvil.log
+            /tmp/helios-e2e-deploy.log
+          if-no-files-found: ignore
