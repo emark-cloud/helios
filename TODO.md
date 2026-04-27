@@ -79,7 +79,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 **Goal.** One full end-to-end thread: user signature → ZK-attested momentum trade → reputation update → scenario-driven drawdown → auto-defund → reallocation. Kite only. Momentum only. Sentinel only.
 
-**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), and WS3 (scenario + e2e, including Track B live deploy to Kite testnet) all merged to `main`. Remaining for Phase 1 acceptance: **WS4 frontend** (`/onboard`, `/dashboard`, `/strategies`); **WS5 cleanup** (forge coverage ≥ 85% — currently dragged below by `HelloVerifier.sol` + scripts; Goldsky subgraph deploy against testnet addresses; VPS service deploy from `deploy/docker-compose.prod.yml`); and the externally-blocked Passport smoke test (Outstanding Phase 0 carry-over).
+**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI); Goldsky `helios/v0.1.1` synced 100% against Track B addresses. Remaining: fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; manual decision-cycle + motion-budget audit; release tag. **VPS service deploy deferred to Phase 6** (decision 2026-04-27 — TLS + signer-key registration + Dockerfile shims are Phase 6 deploy-hardening work). Externally-blocked Passport smoke test remains an Outstanding Phase 0 carry-over.
 
 ### CX — Contracts ✅ (merged to main 2026-04-25 — WS1)
 - [x] `UserVault.sol` — MetaStrategy struct, `setMetaStrategy`, `deposit`, `delegateToAllocator(sessionTTL)`, `withdraw`, `settleAllocatorFee`. UUPS upgradeable.
@@ -90,7 +90,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] `ReputationAnchor.sol` — `postReputationUpdate` (signer-gated), `postCrossChainUpdate` (OApp-gated, but OApp stub for now), `ActorType` enum.
 - [x] `TradeAttestationVerifier.sol` — registry of per-class verifier addresses, `verify(class, proof, publicInputs)`.
 - [x] Foundry tests per contract — happy paths, revert paths, out-of-bounds delegation, drawdown-breach permissionless defund, stake cooldown, reserved-name attempt → revert. **162 tests passing.**
-- [ ] Foundry coverage ≥ 85% across all Phase 1 contracts. *(Production contracts individually 76–87% branch / 91–100% line; aggregate dragged below 85% by `HelloVerifier.sol` Phase 0 vestige + `DeployPhase1.s.sol`. Resolve before WS5 acceptance — either retire HelloVerifier or exclude scripts/legacy from coverage.)*
+- [x] Foundry coverage ≥ 85% across all Phase 1 contracts. *(WS5 cleanup: HelloVerifier + Phase 0 `Helios.sol` placeholder retired; CI gates aggregate line coverage ≥85% via `forge coverage --no-match-coverage "(script|test)/"`. Current: 97.54% lines / 94.04% statements / 95.19% funcs / 74.69% branches.)*
 - [x] Deploy script `contracts/script/DeployPhase1.s.sol` + recorded addresses in `deployments/kite-testnet.json`. *(script written; live deploy to Kite testnet pending — runs as part of WS3 e2e.)*
 
 ### CX — Momentum circuit ✅ (merged to main 2026-04-25 — WS2.A)
@@ -119,7 +119,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] Calls prover, then `StrategyVault.executeWithProof`. **`executor.py` live path landed in WS3 (web3.py + 256-byte proof bytes).**
 - [x] Reports NAV every 5 minutes. **`reportNAV(total_nav_e18, ts, sig)` live path also landed in WS3; OZ v5 ECDSA `v + 27` correction applied.**
 - [x] Emits events consumed by subgraph. **`TradeAttested` + `NAVReported` indexed in `subgraph/src/strategy-vault.ts`.**
-- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`. *(Container scaffolded in `deploy/services/python.Dockerfile`; pm2/compose entry commented out in `deploy/docker-compose.prod.yml` until WS5 / Phase 6 deploy hardening.)*
+- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`. *Deferred to Phase 6 deploy-hardening (decision 2026-04-27, WS5): per-service Dockerfile shims, TLS termination, and signer-key registration on-chain are all genuinely Phase 6 work; hackathon judge surface doesn't need Helios services on a public box.*
 
 ### SX — Sentinel (reference allocator) ✅ (merged to main 2026-04-26 — WS2.C, live tx path wired in WS3)
 - [x] Loop implements the six-step decision cycle from `Helios.md §11.2`. **`loop.py` — read-state → drawdown-check → rank → diff → emit → submit.**
@@ -146,7 +146,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] `subgraph.yaml` indexes Kite testnet contracts (7 datasources: StrategyRegistry, AllocatorRegistry, ReputationAnchor, TradeAttestationVerifier, StrategyVault, AllocatorVault, UserVault). *Addresses are placeholders; `DeployPhase1.s.sol` rewrites them from `contracts/deployments/kite-testnet.json` in WS3 e2e.*
 - [x] Entities: `User`, `Deposit`, `Allocator`, `Strategy`, `Allocation`, `Trade`, `NAVSnapshot`, `ReputationSnapshot`, `DefundEvent`, `CrossChainReputationMessage`, `VerifierRegistration`. **`pnpm --filter subgraph codegen && build` green.**
 - [x] Mappings cover: `StrategyRegistered/Deactivated/ReputationUpdated`, `AllocatorRegistered/Deactivated/ReputationUpdated/ReferenceBrandAssigned`, `ReputationPosted`/`CrossChainReputationPosted`, `TradeAttested`/`NAVReported`/`Slashed`, `AllocationCreated/Increased/Decreased`/`StrategyDefunded`, `MetaStrategySet`/`Deposited`/`AllocatorDelegated`, `VerifierRegistered`. *`Allocation.capitalDeployed` carries the latest event amount, not a running sum — graph-ts 0.36 strict-null inference fights BigInt accumulation in mappings; the dashboard sums events at query time. Phase 2 reintroduces running totals via @aggregation once we upgrade graph-ts.*
-- [x] Deployed to Goldsky; read endpoint wired to services + frontend. *Deployed 2026-04-27 as `helios/v0.1.0` against Track B addresses, network `kite-ai-testnet`, startBlock 21074384. Endpoint in `.env.example` as `GOLDSKY_ENDPOINT` + `NEXT_PUBLIC_GOLDSKY_ENDPOINT`.*
+- [x] Deployed to Goldsky; read endpoint wired to services + frontend. *v0.1.0 deployed 2026-04-27 stuck at 0% sync (graph-ts 0.36 / `apiVersion: 0.0.9` emitted WASM with opcode 0xFC the Goldsky runtime rejected — `Failed to start subgraph, code: SubgraphStartFailure, error: "Unknown opcode 252"`). Re-deployed 2026-04-27 as `helios/v0.1.1` with graph-ts 0.31.0 / graph-cli 0.83.0 / `apiVersion: 0.0.7`; synced to 100% in <1m. v0.1.0 deleted. Endpoint pinned in `.env.example` as `helios/v0.1.1`. Indexed at deploy: 3 strategies, 1 allocator (`Helios Sentinel-shadow`), 3 verifier registrations.*
 
 ### SX — Scenario mode + e2e ✅ (merged to main 2026-04-27 — WS3, Track B sign-off 2026-04-27)
 
@@ -193,14 +193,14 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [x] No sunburst yet (Phase 4)
 
 **Gates:**
-- [ ] Lighthouse perf ≥ 85 on `/dashboard` against the local stack — measure once Sentinel + Goldsky run locally end-to-end (WS5 fresh-clone test).
+- [x] Lighthouse perf ≥ 85 on `/dashboard` against the local stack. *Measured 2026-04-27 (WS5): Perf 94 / FCP 0.8s / LCP 2.0s / TBT 250ms / CLS 0 / SI 0.8s on a warm `pnpm start` server, headless Chromium via Playwright cache. (Cold-start JIT inflates TBT to ~890ms on the first hit; warm-process measurement is the realistic one.) Phase 4 §14.5 will revisit when the sunburst lands — wagmi provider hydration is the dominant blocking work, candidate for lazy-loading on the wallet-touch path only.*
 - [x] Playwright signature-interaction smoke deferred to Phase 4 — Phase 1 just needs surfaces wired
 - [x] `pnpm --filter frontend typecheck` + `lint` + `next build` green
 
 ### Acceptance for Phase 1
 - [ ] Signature-to-first-trade in <60s in scenario mode
 - [ ] Auto-defund scenario runs end-to-end with no manual intervention: Passport signature → UserVault deploy → Sentinel allocation → momentum strategy executes `executeWithProof` with real Groth16 proof → `TradeAttested` emitted → Reputation Engine posts update → scenario drives drawdown → `defundStrategy` fires (permissionless path tested) → replacement allocation lands → dashboard reflects every step
-- [ ] `forge coverage` ≥ 85% on Phase 1 contracts
+- [x] `forge coverage` ≥ 85% on Phase 1 contracts (97.54% lines, gated in CI)
 - [ ] A fresh clone + `pnpm dev` + scenario run succeeds on a clean laptop within 10 minutes
 
 ---

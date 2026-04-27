@@ -1,8 +1,7 @@
 # Helios circuit build.
 #
 # Usage:
-#   make             # build every circuit (hello + phase-1 stubs)
-#   make hello       # build only the Phase 0 hello circuit
+#   make             # build every circuit
 #   make test        # run circuit unit tests via node
 #   make clean       # wipe build/
 #
@@ -16,14 +15,13 @@ BUILD_DIR   := build
 PTAU_DIR    := ptau
 CONTRACTS_VERIFIERS_DIR := ../contracts/src/verifiers
 
-# PTAU power. Phase 0 defaults to 12 (≈4k constraints, seconds to ceremony) so
-# the hello circuit test is fast in CI. Phase 1+ class circuits use PTAU 16
-# (≤65k constraints): build with `make PTAU_POWER=16 ptau` before those circuits.
-PTAU_POWER  ?= 12
+# PTAU power. Phase 1+ class circuits use PTAU 16 (≤65k constraints):
+# build with `make PTAU_POWER=16 ptau` before those circuits.
+PTAU_POWER  ?= 16
 PTAU_FILE   := $(PTAU_DIR)/pot$(PTAU_POWER)_final.ptau
 
 # Circuits shipped by Helios. Each name matches the .circom file name (without .circom).
-CIRCUITS := hello momentum_v1
+CIRCUITS := momentum_v1
 
 # ────────────────────────────────────────────────────────────
 # High-level targets
@@ -34,10 +32,8 @@ all: $(CIRCUITS)
 
 clean:
 	rm -rf $(BUILD_DIR)
-	find $(CONTRACTS_VERIFIERS_DIR) -name 'HelloVerifier.sol' -delete 2>/dev/null || true
 
-test: hello test-momentum
-	$(NODE) scripts/verify-hello.js
+test: test-momentum
 
 # Witness-generation tests for momentum_v1. Builds .wasm only (skips zkey/PTAU
 # so this runs fast in CI before the full PTAU 16 ceremony is needed).

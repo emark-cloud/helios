@@ -4,10 +4,9 @@ Holds a bounded ring of signed snapshots per asset. Two derived views:
 
   * `recent(asset, n)` — the last N snapshots (newest first).
   * `chain_root(asset, n)` — keccak256-chain over the last N snapshot
-    digests. Phase 1's on-chain anchor (`Helios.sol` heartbeat or a
-    standalone `OraclePriceAnchor`) commits this root every 5 min.
-    Phase 2 swaps this for a Poseidon-chain so the momentum circuit can
-    consume it directly without an extra hash-equivalence proof.
+    digests. Phase 2 will commit this via a standalone `OraclePriceAnchor`
+    every 5 min and swap to a Poseidon-chain so the momentum circuit can
+    consume the root directly without an extra hash-equivalence proof.
 """
 
 from __future__ import annotations

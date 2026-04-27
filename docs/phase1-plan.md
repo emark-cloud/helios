@@ -8,7 +8,7 @@ Backend vertical slice **complete**. WS1 + WS2.A–D + WS3 (including Track B li
 
 Remaining for Phase 1 acceptance:
 - **WS4 frontend** — `/onboard`, `/dashboard`, `/strategies` (untouched)
-- **WS5 cleanup** — forge coverage ≥ 85% (currently dragged below by `HelloVerifier.sol` Phase 0 vestige + `DeployPhase1.s.sol`); Goldsky subgraph deploy against the testnet addresses; VPS service deploy from `deploy/docker-compose.prod.yml`
+- **WS5 cleanup** — forge coverage ≥85% lines on Phase 1 contracts (✅ 97.54% via `--no-match-coverage "(script|test)/"`, gated in CI); Goldsky subgraph live + indexing Track B addresses (✅ `helios/v0.1.1` 100% synced, graph-ts pinned to 0.31.0); fresh-clone 10-min acceptance run; release tag. **VPS service deploy deferred to Phase 6 deploy-hardening** (decision 2026-04-27): hackathon judge surface (`/judge` → addresses + GitHub + verifiable proof + video) doesn't need Helios services on a public box; Vercel + Goldsky + Kite testnet RPC carry the demo. Standing up VPS services properly needs TLS (mixed-content blocks Vercel→HTTP fetches), real signer-key registration on `ReputationAnchor`, per-service Dockerfile shims (currently only `prover` is wired in compose), and monitoring — all genuinely Phase 6 work.
 - **External carry-over** — Passport smoke test (still BLOCKED per `docs/kite-passport-notes.md`)
 
 ## Phase 1 in one sentence
@@ -284,13 +284,13 @@ WS3 has two tracks, sharing a single script:
 - **Oracle on-chain root anchor.** Phase 1 keccak256 chain is service-local; the momentum circuit doesn't consume the on-chain root yet (Phase 2 swaps in Poseidon and the circuit reads the committed root). `OraclePriceAnchor` deploy is decorative until then — defer to Phase 2.
 - **Goldsky deploy in the CI e2e.** CI uses `web3.py` `eth_getLogs` directly against anvil for event assertions — no external dep, no flake surface. Track B follows up with `pnpm --filter subgraph deploy` against the testnet contracts so the dashboard renders against real data; that step is documented but not gated by CI.
 
-### Goldsky verification checklist (post-deploy, 2026-04-27)
+### Goldsky verification checklist (post-deploy, 2026-04-27 — v0.1.1)
 
-Subgraph `helios/v0.1.0` deployed 2026-04-27 against the Track B addresses (network `kite-ai-testnet`, startBlock 21074384). Endpoint pinned in `.env.example` as `GOLDSKY_ENDPOINT` / `NEXT_PUBLIC_GOLDSKY_ENDPOINT`. Indexer was healthy + 0% synced at deploy time (deploy blocks not yet finalized — Kite RPC enforces finality strictly, same constraint that forced `forge script --skip-simulation` on the deploy).
+Subgraph `helios/v0.1.1` is the live deploy. v0.1.0 was deployed first but the indexer rejected the WASM with `SubgraphStartFailure: Unknown opcode 252` (graph-ts 0.36 / `apiVersion: 0.0.9` emit opcode 0xFC bulk-memory ops the Goldsky runtime doesn't support). Pinning to graph-ts `0.31.0` + graph-cli `0.83.0` + `apiVersion: 0.0.7` produced WASM the runtime accepts; v0.1.1 hit 100% synced in <1m. v0.1.0 has been deleted. Endpoint pinned in `.env.example` as `GOLDSKY_ENDPOINT` / `NEXT_PUBLIC_GOLDSKY_ENDPOINT` → `helios/v0.1.1`.
 
 Three checks, cheapest first:
 
-1. **Sync progress.** `pnpm --filter @helios/subgraph exec goldsky subgraph list helios/v0.1.0`. Look for `Synced: 100.00%` (or any > 0%) and `Blocks indexed: 21074384 -> <recent>`. Right-hand side past `21074421` (last deploy block) means all deploy events have been processed.
+1. **Sync progress.** `pnpm --filter @helios/subgraph exec goldsky subgraph list helios/v0.1.1`. Look for `Synced: 100.00%` (or any > 0%) and `Blocks indexed: 21074384 -> <recent>`. Right-hand side past `21074421` (last deploy block) means all deploy events have been processed.
 
 2. **GraphQL — entities should exist.**
    ```bash
@@ -306,7 +306,7 @@ Three checks, cheapest first:
 
    If those three queries return the expected counts, the subgraph is working end-to-end (manifest → ABI → mappings → entities).
 
-3. **If sync is still stuck after an hour, check logs.** `pnpm --filter @helios/subgraph exec goldsky subgraph log helios/v0.1.0 --since 1h --filter warn`. Likely failure mode is finality-related (`block not finalized` or RPC error). If that's what surfaces, options: (a) wait longer for natural finality, (b) ask Goldsky support whether their `kite-ai-testnet` integration uses a finalized-only RPC, (c) lower `startBlock` to a much earlier block to confirm the indexer can backfill at all.
+3. **If sync is still stuck after an hour, check logs.** `pnpm --filter @helios/subgraph exec goldsky subgraph log helios/v0.1.1 --since 1h --filter warn`. Likely failure mode is finality-related (`block not finalized` or RPC error). If that's what surfaces, options: (a) wait longer for natural finality, (b) ask Goldsky support whether their `kite-ai-testnet` integration uses a finalized-only RPC, (c) lower `startBlock` to a much earlier block to confirm the indexer can backfill at all.
 
 ### Six wiring pieces (all in scope, ordered by dependency)
 
@@ -425,7 +425,7 @@ Backend tracks landed inside the calendar window. WS4 frontend slipped (parallel
 
 ## Open
 
-- **Goldsky subgraph deploy** — `pnpm --filter subgraph deploy` against the Track B addresses. Documented as a Track B follow-up; not gated by CI (CI uses `eth_getLogs` directly).
+- ~~**Goldsky subgraph deploy**~~ — Resolved 2026-04-27 (WS5). `helios/v0.1.1` synced 100% against Track B addresses; graph-ts pinned to 0.31.0 to dodge the apiVersion 0.0.9 opcode-252 incompatibility.
 - **Confirm testnet Algebra status with Kite team** — still nice-to-have so we can drop the mock router earlier than Phase 6, but no longer blocking.
 
 ## Branch + PR convention

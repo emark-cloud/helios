@@ -31,7 +31,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/strategy-registry.ts
       entities:
@@ -56,7 +56,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/allocator-registry.ts
       entities:
@@ -83,7 +83,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/reputation-anchor.ts
       entities:
@@ -108,7 +108,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/strategy-vault.ts
       entities:
@@ -135,7 +135,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/allocator-vault.ts
       entities:
@@ -163,7 +163,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/user-vault.ts
       entities:
@@ -189,7 +189,7 @@ dataSources:
       startBlock: 21074384
     mapping:
       kind: ethereum/events
-      apiVersion: 0.0.9
+      apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/trade-attestation-verifier.ts
       entities:

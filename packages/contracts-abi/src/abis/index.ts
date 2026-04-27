@@ -6,4 +6,3 @@ export { IAllocatorRegistryAbi } from "./IAllocatorRegistry.js";
 export { IReputationAnchorAbi } from "./IReputationAnchor.js";
 export { ITradeAttestationVerifierAbi } from "./ITradeAttestationVerifier.js";
 export { IHeliosOAppAbi } from "./IHeliosOApp.js";
-export { HeliosAbi } from "./Helios.js";

@@ -17,8 +17,8 @@ const FOUNDRY_OUT = path.resolve(ROOT, "..", "..", "contracts", "out");
 const TS_ABIS = path.join(ROOT, "src", "abis");
 const PY_PACKAGE = path.resolve(ROOT, "..", "contracts-abi-py", "src", "helios_contracts_abi");
 
-// Every contract whose ABI we publish. Phase 0 ships interfaces only; concrete
-// contracts land in Phase 1 and later phases regenerate from their artifacts.
+// Every contract whose ABI we publish. Phase 0 shipped interfaces only;
+// later phases regenerate from their artifacts.
 const CONTRACTS = [
   "IUserVault",
   "IAllocatorVault",
@@ -28,7 +28,6 @@ const CONTRACTS = [
   "IReputationAnchor",
   "ITradeAttestationVerifier",
   "IHeliosOApp",
-  "Helios", // Phase 0 placeholder
 ];
 
 async function loadArtifact(name) {
