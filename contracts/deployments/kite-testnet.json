@@ -1,0 +1,21 @@
+{
+  "chainId": 2368,
+  "deployedAt": 1777277331,
+  "phase": "1",
+  "addresses": {
+    "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
+    "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
+    "reputationAnchor": "0x51c07adf596b1e72697a9b8232d061ed006943dc",
+    "strategyRegistry": "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d",
+    "allocatorRegistry": "0xbfeba025ca32324a87c620a5c7c110c7666f417c",
+    "tradeAttestationVerifier": "0x743e1bd7e9795e78b10965eaeaa93bf215476c96",
+    "momentumVerifier": "0x65fa6993063b74dc66481b32baf7a6201c672204",
+    "meanReversionVerifier": "0x49588532a238c8fba81fb521478404eddd95c7e2",
+    "yieldRotationVerifier": "0x967f1c6eafbd79a148f174168d066a5a851354fa",
+    "userVault": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
+    "allocatorVault": "0xf3e4452fe17edbfa6833022b9c186aa14b98955d",
+    "strategyVaultMomentum": "0x818a782f040f09389e7c34b1e2e33188d473a950",
+    "strategyVaultMeanReversion": "0x6c1f9466db7bc2364b0bac051e73421d5b75354b",
+    "strategyVaultYieldRotation": "0xbfbf9fa82b5df3b080be27f64d650101ee69c36f"
+  }
+}

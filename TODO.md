@@ -151,15 +151,15 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 WS3 direction (decided 2026-04-27, see `docs/phase1-plan.md` WS3 section): two tracks share one script. **Track A** (local anvil-kite) is canonical, gates CI, satisfies the 10-min cold-start acceptance bar. **Track B** (`RPC_URL=$KITE_RPC_URL ./scripts/e2e-scenario.sh`) broadcasts to Kite testnet once at sign-off, populates `contracts/deployments/kite-testnet.json`, gives judges live tx hashes per `Helios.md §6 / §9`.
 
 - [x] `services/oracle` supports `SCENARIO_MODE=1` env that replays a deterministic price series from `scenarios/phase1-drawdown.json`
-- [ ] `DeployPhase1.s.sol` writes addresses to `contracts/deployments/<chain>.json` (canonical path consumed by services + subgraph + frontend), keyed on `block.chainid`
-- [ ] Sentinel `services/sentinel/src/sentinel/onchain.py` — replace `_live` `NotImplementedError` with web3.py submission of `allocateToStrategy` / `defundStrategy` / `settleStrategyFee`
-- [ ] Momentum `reference-strategies/momentum_v1/src/momentum_v1/executor.py` — replace `_live` `NotImplementedError` with web3.py submission of `executeWithProof` + `reportNAV`
-- [ ] Reputation engine — wire `REPUTATION_ANCHOR_ADDRESS` so signed scores reach `postReputationUpdate`
-- [ ] Scenario: momentum strategy allocated → price drops to trigger drawdown threshold → auto-defund fires (permissionless path) → replacement strategy takes the capital
-- [ ] `scripts/e2e-scenario.sh` runs the full stack in scenario mode against Track A and asserts the expected end state via `eth_getLogs`
-- [ ] **Hard gate (`Helios.md §6.3`):** `StrategyDefunded` is emitted by an EOA that is not Sentinel's operator (permissionless-defund explicitly tested, not implied)
-- [ ] Track B sign-off: one live deploy to Kite testnet, populated `contracts/deployments/kite-testnet.json` checked in
-- [ ] Runs in CI as the end-to-end integration test (Track A only; path-filtered to skip frontend/docs-only PRs)
+- [x] `DeployPhase1.s.sol` writes addresses to `contracts/deployments/<chain>.json` (canonical path consumed by services + subgraph + frontend), keyed on `block.chainid`
+- [x] Sentinel `services/sentinel/src/sentinel/onchain.py` — replace `_live` `NotImplementedError` with web3.py submission of `allocateToStrategy` / `defundStrategy` / `settleStrategyFee`
+- [x] Momentum `reference-strategies/momentum_v1/src/momentum_v1/executor.py` — replace `_live` `NotImplementedError` with web3.py submission of `executeWithProof` + `reportNAV`
+- [x] Reputation engine — wire `REPUTATION_ANCHOR_ADDRESS` so signed scores reach `postReputationUpdate`
+- [x] Scenario: momentum strategy allocated → price drops to trigger drawdown threshold → auto-defund fires (permissionless path) → replacement strategy takes the capital
+- [x] `scripts/e2e-scenario.sh` runs the full stack in scenario mode against Track A and asserts the expected end state via `eth_getLogs`
+- [x] **Hard gate (`Helios.md §6.3`):** `StrategyDefunded` is emitted by an EOA that is not Sentinel's operator (permissionless-defund explicitly tested, not implied)
+- [x] Track B sign-off: one live deploy to Kite testnet, populated `contracts/deployments/kite-testnet.json` checked in (chainId 2368, deployer `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`, deployed 2026-04-27)
+- [x] Runs in CI as the end-to-end integration test (Track A only; path-filtered to skip frontend/docs-only PRs)
 
 **Deferred from WS3 (with reason):**
 - Oracle on-chain root anchor — Phase 1 keccak256 chain is service-local; momentum circuit doesn't consume the on-chain root until Phase 2 swaps to Poseidon. `OraclePriceAnchor` deploy is decorative until then.
