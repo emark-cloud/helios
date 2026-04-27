@@ -167,13 +167,35 @@ WS3 direction (decided 2026-04-27, see `docs/phase1-plan.md` WS3 section): two t
 - Oracle on-chain root anchor — Phase 1 keccak256 chain is service-local; momentum circuit doesn't consume the on-chain root until Phase 2 swaps to Poseidon. `OraclePriceAnchor` deploy is decorative until then.
 - Goldsky subgraph deploy in the CI e2e — CI uses `eth_getLogs` directly. `pnpm --filter subgraph deploy` is a documented Track B follow-up so the dashboard renders against testnet, not a CI gate.
 
-### FE — Frontend minimum
-- [ ] `/onboard` — template picker (Conservative/Balanced/Aggressive), customization panel (asset universe, max per-strategy, drawdown threshold, max fee rate, rebalance cadence), plainspoken commitment summary, sign via Passport
-- [ ] `/dashboard` — top strip (total NAV, today's P&L, all-time P&L, fees-to-date), current allocator card, active allocations table, live activity rail (WebSocket), withdraw control always visible
-- [ ] `/strategies` — public directory table, sortable by every column, filter by class/chain/reputation
-- [ ] Activity rail renders `StrategyAllocated`, `TradeAttested` (with shield), `StrategyDefunded`, `RebalanceComplete` events with mechanical (not smooth) appearance
-- [ ] Row for a defunded strategy gets red left-border per `DESIGN.md §10.2` motion spec
-- [ ] No sunburst yet (Phase 4)
+### FE — Frontend minimum (WS4)
+
+Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Build order: shared chrome → `/strategies` (read-only, easiest) → `/onboard` (wallet sign) → `/dashboard` (most complex). Sunburst deferred to Phase 4 (confirmed 2026-04-27 — DESIGN.md §11 lists it on `/dashboard` but WS4's 6–8d budget can't absorb the bespoke d3/Nivo work; phase1-plan.md WS4 page list already omits it).
+
+**Shared chrome (WS4.0)** — prerequisite for every page:
+- [x] Top nav with `G D` / `G S` / `G O` hotkeys + `?` discoverability per `DESIGN.md §5.5`
+- [x] App shell layout: dark-mode-only, generous page margins, "four questions" header slot per `DESIGN.md §5.7`
+- [x] `ChainBadge`, `ProofBadge` (acknowledged-tier shield per `DESIGN.md §12`), `Numeric` formatter (mono + tabular figures), restyled inline-SVG icon set
+- [x] Goldsky GraphQL client over TanStack Query (reads `NEXT_PUBLIC_GOLDSKY_ENDPOINT`)
+- [x] Sentinel REST + WS client (reads `NEXT_PUBLIC_SENTINEL_URL`); graceful empty states when unreachable
+- [x] Address loader from `contracts/deployments/<chain>.json` (direct JSON import; the contracts-abi addresses module is empty until its generate step runs)
+
+**Pages:**
+- [x] `/strategies` — public directory table, sortable by every column, filter by class/chain; row click → OKLink address page (Phase 4 swaps to `/strategies/[id]`)
+- [x] `/onboard` — template picker (Conservative/Balanced/Aggressive), customization panel (asset universe, max per-strategy, drawdown threshold, max fee rate, rebalance cadence, max strategies), plainspoken commitment summary, EOA `personal_sign` tagged `[PASSPORT-STUB]` per `docs/kite-passport-notes.md`
+- [x] `/dashboard` — top strip (total NAV, capital deployed, all-time P&L, fees-to-date), current allocator card, active allocations table, live activity rail (WS to Sentinel), withdraw control always visible (button disabled — Phase 2 wires the tx)
+
+**Cross-cutting requirements:**
+- [x] Activity rail renders `ALLOCATION_CREATED` (with shield), `STRATEGY_DEFUNDED`, `REBALANCE_COMPLETE`, fee/meta events with mechanical motion (instant entry, 80ms stagger) per `DESIGN.md §13`
+- [x] Defunded row + defund-event gets red left-border per `DESIGN.md §10.2` (`[data-defund-state="breaching"]`)
+- [x] Reduced-motion media query collapses rail stagger to instant
+- [x] All Passport touchpoints comment-tagged `[PASSPORT-STUB]`
+- [x] Tokens-only — no hardcoded colors in JSX (per `CLAUDE.md` Tailwind rule)
+- [x] No sunburst yet (Phase 4)
+
+**Gates:**
+- [ ] Lighthouse perf ≥ 85 on `/dashboard` against the local stack — measure once Sentinel + Goldsky run locally end-to-end (WS5 fresh-clone test).
+- [x] Playwright signature-interaction smoke deferred to Phase 4 — Phase 1 just needs surfaces wired
+- [x] `pnpm --filter frontend typecheck` + `lint` + `next build` green
 
 ### Acceptance for Phase 1
 - [ ] Signature-to-first-trade in <60s in scenario mode
