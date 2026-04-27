@@ -6,23 +6,29 @@ schema:
 
 # Phase 1 datasources for Kite testnet.
 #
-# Addresses below are placeholders; `contracts/script/DeployPhase1.s.sol`
-# rewrites this manifest in WS3 e2e from `contracts/deployments/kite-testnet.json`.
-# Until then, `pnpm --filter subgraph codegen && pnpm --filter subgraph build`
-# verifies mapping/ABI shape against the placeholder addresses, and the deploy
-# step fails fast with a clear error.
+# Addresses bound 2026-04-27 from `contracts/deployments/kite-testnet.json`
+# (Track B sign-off — chainId 2368, deployer
+# 0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25). startBlock = 21074384, the
+# first block of the deploy broadcast (per
+# `contracts/broadcast/DeployPhase1.s.sol/2368/run-latest.json`). When
+# redeploying, regenerate from the deployments file and bump startBlock.
 #
-# Phase 5 will add `kite-mainnet`, `base-sepolia`, `arbitrum-sepolia` copies of
-# each datasource plus the cross-chain `HeliosOApp` entry.
+# StrategyVault datasource binds the *momentum* vault only — Phase 1
+# allocates exclusively to momentum; mean_reversion + yield_rotation
+# vaults exist on-chain (deploy script registers them) but are not
+# indexed until their reference strategies ship in Phase 2.
+#
+# Phase 5 will add `kite-mainnet`, `base-sepolia`, `arbitrum-sepolia`
+# copies of each datasource plus the cross-chain `HeliosOApp` entry.
 
 dataSources:
   - kind: ethereum
     name: StrategyRegistry
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000001"
+      address: "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d"
       abi: StrategyRegistry
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -43,11 +49,11 @@ dataSources:
 
   - kind: ethereum
     name: AllocatorRegistry
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000002"
+      address: "0xbfeba025ca32324a87c620a5c7c110c7666f417c"
       abi: AllocatorRegistry
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -70,11 +76,11 @@ dataSources:
 
   - kind: ethereum
     name: ReputationAnchor
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000003"
+      address: "0x51c07adf596b1e72697a9b8232d061ed006943dc"
       abi: ReputationAnchor
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -95,11 +101,11 @@ dataSources:
 
   - kind: ethereum
     name: StrategyVault
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000004"
+      address: "0x818a782f040f09389e7c34b1e2e33188d473a950"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -122,11 +128,11 @@ dataSources:
 
   - kind: ethereum
     name: AllocatorVault
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000005"
+      address: "0xf3e4452fe17edbfa6833022b9c186aa14b98955d"
       abi: AllocatorVault
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -150,11 +156,11 @@ dataSources:
 
   - kind: ethereum
     name: UserVault
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000006"
+      address: "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f"
       abi: UserVault
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -176,11 +182,11 @@ dataSources:
 
   - kind: ethereum
     name: TradeAttestationVerifier
-    network: kite-testnet
+    network: kite-ai-testnet
     source:
-      address: "0x0000000000000000000000000000000000000007"
+      address: "0x743e1bd7e9795e78b10965eaeaa93bf215476c96"
       abi: TradeAttestationVerifier
-      startBlock: 0
+      startBlock: 21074384
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
