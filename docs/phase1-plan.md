@@ -8,7 +8,7 @@ Backend vertical slice **complete**. WS1 + WS2.A–D + WS3 (including Track B li
 
 Remaining for Phase 1 acceptance:
 - **WS4 frontend** — `/onboard`, `/dashboard`, `/strategies` (untouched)
-- **WS5 cleanup** — forge coverage ≥85% lines on Phase 1 contracts (✅ 97.54% via `--no-match-coverage "(script|test)/"`, gated in CI); Goldsky subgraph live + indexing Track B addresses (✅ `helios/v0.1.1` 100% synced, graph-ts pinned to 0.31.0); VPS service deploy from `deploy/docker-compose.prod.yml`; fresh-clone 10-min acceptance run; release tag.
+- **WS5 cleanup** — forge coverage ≥85% lines on Phase 1 contracts (✅ 97.54% via `--no-match-coverage "(script|test)/"`, gated in CI); Goldsky subgraph live + indexing Track B addresses (✅ `helios/v0.1.1` 100% synced, graph-ts pinned to 0.31.0); fresh-clone 10-min acceptance run; release tag. **VPS service deploy deferred to Phase 6 deploy-hardening** (decision 2026-04-27): hackathon judge surface (`/judge` → addresses + GitHub + verifiable proof + video) doesn't need Helios services on a public box; Vercel + Goldsky + Kite testnet RPC carry the demo. Standing up VPS services properly needs TLS (mixed-content blocks Vercel→HTTP fetches), real signer-key registration on `ReputationAnchor`, per-service Dockerfile shims (currently only `prover` is wired in compose), and monitoring — all genuinely Phase 6 work.
 - **External carry-over** — Passport smoke test (still BLOCKED per `docs/kite-passport-notes.md`)
 
 ## Phase 1 in one sentence

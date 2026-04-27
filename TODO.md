@@ -79,7 +79,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 **Goal.** One full end-to-end thread: user signature → ZK-attested momentum trade → reputation update → scenario-driven drawdown → auto-defund → reallocation. Kite only. Momentum only. Sentinel only.
 
-**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI). Remaining: VPS service deploy from `deploy/docker-compose.prod.yml`; fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; release tag. Externally-blocked Passport smoke test remains an Outstanding Phase 0 carry-over.
+**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI); Goldsky `helios/v0.1.1` synced 100% against Track B addresses. Remaining: fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; manual decision-cycle + motion-budget audit; release tag. **VPS service deploy deferred to Phase 6** (decision 2026-04-27 — TLS + signer-key registration + Dockerfile shims are Phase 6 deploy-hardening work). Externally-blocked Passport smoke test remains an Outstanding Phase 0 carry-over.
 
 ### CX — Contracts ✅ (merged to main 2026-04-25 — WS1)
 - [x] `UserVault.sol` — MetaStrategy struct, `setMetaStrategy`, `deposit`, `delegateToAllocator(sessionTTL)`, `withdraw`, `settleAllocatorFee`. UUPS upgradeable.
@@ -119,7 +119,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] Calls prover, then `StrategyVault.executeWithProof`. **`executor.py` live path landed in WS3 (web3.py + 256-byte proof bytes).**
 - [x] Reports NAV every 5 minutes. **`reportNAV(total_nav_e18, ts, sig)` live path also landed in WS3; OZ v5 ECDSA `v + 27` correction applied.**
 - [x] Emits events consumed by subgraph. **`TradeAttested` + `NAVReported` indexed in `subgraph/src/strategy-vault.ts`.**
-- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`. *(Container scaffolded in `deploy/services/python.Dockerfile`; pm2/compose entry commented out in `deploy/docker-compose.prod.yml` until WS5 / Phase 6 deploy hardening.)*
+- [ ] Deploy to VPS via `deploy/services/strategy-momentum.Dockerfile`. *Deferred to Phase 6 deploy-hardening (decision 2026-04-27, WS5): per-service Dockerfile shims, TLS termination, and signer-key registration on-chain are all genuinely Phase 6 work; hackathon judge surface doesn't need Helios services on a public box.*
 
 ### SX — Sentinel (reference allocator) ✅ (merged to main 2026-04-26 — WS2.C, live tx path wired in WS3)
 - [x] Loop implements the six-step decision cycle from `Helios.md §11.2`. **`loop.py` — read-state → drawdown-check → rank → diff → emit → submit.**
