@@ -34,8 +34,8 @@ members = [
     "services/reputation",
     "services/oracle",
     "services/bot",
+    "reference-strategies/momentum_v1",
 ]
-exclude = ["reference-strategies/*"]
 
 [tool.uv.sources]
 helios-strategy-sdk = { workspace = true }
@@ -48,6 +48,7 @@ helios-helix = { workspace = true }
 helios-reputation = { workspace = true }
 helios-oracle = { workspace = true }
 helios-bot = { workspace = true }
+helios-reference-momentum-v1 = { workspace = true }
 
 [tool.ruff]
 line-length = 100

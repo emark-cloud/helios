@@ -18,6 +18,7 @@ members = [
     "helios-contracts-abi",
     "helios-helix",
     "helios-oracle",
+    "helios-reference-momentum-v1",
     "helios-reputation",
     "helios-sentinel",
     "helios-service-template",
@@ -1093,6 +1094,44 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "structlog", specifier = ">=24.4" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "helios-reference-momentum-v1"
+version = "0.1.0"
+source = { editable = "reference-strategies/momentum_v1" }
+dependencies = [
+    { name = "eth-account" },
+    { name = "eth-utils" },
+    { name = "helios-service-template" },
+    { name = "helios-strategy-sdk" },
+    { name = "httpx" },
+    { name = "structlog" },
+    { name = "web3" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "eth-account", specifier = ">=0.13" },
+    { name = "eth-utils", specifier = ">=4.1" },
+    { name = "helios-service-template", editable = "services/_template" },
+    { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "structlog", specifier = ">=24.4" },
+    { name = "web3", specifier = ">=7.4" },
 ]
 provides-extras = ["dev"]
 
