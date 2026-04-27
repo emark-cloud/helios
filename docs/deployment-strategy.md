@@ -1,6 +1,7 @@
 # Deployment strategy — hybrid testnet → mainnet
 
-Decided 2026-04-25. Read before any deployment-related work.
+Decided 2026-04-25. Updated 2026-04-27 (Phase 1 testnet live).
+Read before any deployment-related work.
 
 ## TL;DR
 
@@ -19,12 +20,12 @@ Hybrid lets us iterate cheaply for the long tail of development and ship a credi
 
 ## What this means per workstream
 
-### Phase 1 (current)
+### Phase 1 (current — backend live, frontend open)
 
-- All contracts deploy to Kite testnet only.
-- `MockSwapRouter` + `MockPool` live on testnet so trades have something to settle against.
-- Oracle service uses off-chain price source (Binance / Coingecko) — no on-chain Algebra TWAP available on testnet.
-- `contracts/deployments/kite-testnet.json` is the only addresses file.
+- ✅ All contracts deployed to Kite testnet (Track B sign-off 2026-04-27, chainId 2368, deployer `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`). `contracts/deployments/kite-testnet.json` is the only addresses file and it's populated with real addresses; broadcast log under `contracts/broadcast/DeployPhase1.s.sol/2368/run-latest.json`.
+- ✅ `MockSwapRouter` + `MockPool` live on testnet so trades have something to settle against. (Real Algebra still not documented on Kite testnet — memory `reference_kite_contract_surface`.)
+- ✅ Oracle service uses off-chain price source (Binance → Coingecko fallback) — no on-chain Algebra TWAP available on testnet.
+- Phase 1 keccak256 oracle chain is Solidity-native; Phase 2 swaps to Poseidon so the momentum circuit can consume the on-chain root directly.
 
 ### Phases 2–4
 
