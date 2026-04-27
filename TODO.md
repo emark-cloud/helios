@@ -79,7 +79,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 **Goal.** One full end-to-end thread: user signature → ZK-attested momentum trade → reputation update → scenario-driven drawdown → auto-defund → reallocation. Kite only. Momentum only. Sentinel only.
 
-**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), and WS3 (scenario + e2e, including Track B live deploy to Kite testnet) all merged to `main`. Remaining for Phase 1 acceptance: **WS4 frontend** (`/onboard`, `/dashboard`, `/strategies`); **WS5 cleanup** (forge coverage ≥ 85% — currently dragged below by `HelloVerifier.sol` + scripts; Goldsky subgraph deploy against testnet addresses; VPS service deploy from `deploy/docker-compose.prod.yml`); and the externally-blocked Passport smoke test (Outstanding Phase 0 carry-over).
+**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI). Remaining: VPS service deploy from `deploy/docker-compose.prod.yml`; fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; release tag. Externally-blocked Passport smoke test remains an Outstanding Phase 0 carry-over.
 
 ### CX — Contracts ✅ (merged to main 2026-04-25 — WS1)
 - [x] `UserVault.sol` — MetaStrategy struct, `setMetaStrategy`, `deposit`, `delegateToAllocator(sessionTTL)`, `withdraw`, `settleAllocatorFee`. UUPS upgradeable.
@@ -90,7 +90,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] `ReputationAnchor.sol` — `postReputationUpdate` (signer-gated), `postCrossChainUpdate` (OApp-gated, but OApp stub for now), `ActorType` enum.
 - [x] `TradeAttestationVerifier.sol` — registry of per-class verifier addresses, `verify(class, proof, publicInputs)`.
 - [x] Foundry tests per contract — happy paths, revert paths, out-of-bounds delegation, drawdown-breach permissionless defund, stake cooldown, reserved-name attempt → revert. **162 tests passing.**
-- [ ] Foundry coverage ≥ 85% across all Phase 1 contracts. *(Production contracts individually 76–87% branch / 91–100% line; aggregate dragged below 85% by `HelloVerifier.sol` Phase 0 vestige + `DeployPhase1.s.sol`. Resolve before WS5 acceptance — either retire HelloVerifier or exclude scripts/legacy from coverage.)*
+- [x] Foundry coverage ≥ 85% across all Phase 1 contracts. *(WS5 cleanup: HelloVerifier + Phase 0 `Helios.sol` placeholder retired; CI gates aggregate line coverage ≥85% via `forge coverage --no-match-coverage "(script|test)/"`. Current: 97.54% lines / 94.04% statements / 95.19% funcs / 74.69% branches.)*
 - [x] Deploy script `contracts/script/DeployPhase1.s.sol` + recorded addresses in `deployments/kite-testnet.json`. *(script written; live deploy to Kite testnet pending — runs as part of WS3 e2e.)*
 
 ### CX — Momentum circuit ✅ (merged to main 2026-04-25 — WS2.A)
@@ -200,7 +200,7 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 ### Acceptance for Phase 1
 - [ ] Signature-to-first-trade in <60s in scenario mode
 - [ ] Auto-defund scenario runs end-to-end with no manual intervention: Passport signature → UserVault deploy → Sentinel allocation → momentum strategy executes `executeWithProof` with real Groth16 proof → `TradeAttested` emitted → Reputation Engine posts update → scenario drives drawdown → `defundStrategy` fires (permissionless path tested) → replacement allocation lands → dashboard reflects every step
-- [ ] `forge coverage` ≥ 85% on Phase 1 contracts
+- [x] `forge coverage` ≥ 85% on Phase 1 contracts (97.54% lines, gated in CI)
 - [ ] A fresh clone + `pnpm dev` + scenario run succeeds on a clean laptop within 10 minutes
 
 ---

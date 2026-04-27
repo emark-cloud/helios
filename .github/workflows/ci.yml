@@ -61,8 +61,15 @@ jobs:
         run: forge build --sizes
       - name: Test
         run: forge test -vv
-      - name: Coverage summary
-        run: forge coverage --report summary
+      - name: Coverage gate (>=85% lines on Phase 1 contracts)
+        run: |
+          set -euo pipefail
+          OUTPUT=$(forge coverage --no-match-coverage "(script|test)/" --report summary)
+          echo "$OUTPUT"
+          LINES=$(echo "$OUTPUT" \
+            | awk -F '|' '/^\| Total/ { gsub(/[ %]/, "", $3); sub(/\(.*/, "", $3); print $3 }')
+          echo "Aggregate line coverage: ${LINES}%"
+          awk -v c="$LINES" 'BEGIN { exit !(c+0 >= 85.0) }'
 
   circuits:
     name: circuits (circom + snarkjs)

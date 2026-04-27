@@ -5,8 +5,8 @@ Sources are tried in declaration order — Binance → Coingecko → (Algebra
 in Phase 2). When `SCENARIO_MODE=1`, all live sources are bypassed and
 the scenario JSON drives the price series.
 
-The on-chain root anchor (5-min cadence to `OraclePriceAnchor` /
-`Helios.sol`) lives in WS3 — we expose the in-memory chain root via
+The on-chain root anchor (5-min cadence to a future `OraclePriceAnchor`)
+is deferred to Phase 2 — we expose the in-memory chain root via
 `GET /v1/snapshots/root` so the anchor task / strategies can read it.
 """
 
