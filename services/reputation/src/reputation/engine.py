@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from reputation.anchor import AnchorPoster, PostedUpdate
 from reputation.goldsky import GoldskyClient, StrategyRollup
 from reputation.score import ScoreInputs, ScoreOutputs, compute_phase1_score
 from reputation.signer import ActorType, ReputationSigner, ReputationUpdate, SignedUpdate
@@ -23,6 +24,7 @@ class EngineUpdate:
     inputs: ScoreInputs
     outputs: ScoreOutputs
     signed: SignedUpdate
+    posted: PostedUpdate | None = None
 
 
 class ReputationEngine:
@@ -31,9 +33,11 @@ class ReputationEngine:
         goldsky: GoldskyClient,
         signer: ReputationSigner,
         poll_interval_sec: int = 60,
+        anchor: AnchorPoster | None = None,
     ) -> None:
         self._goldsky = goldsky
         self._signer = signer
+        self._anchor = anchor
         self._interval = max(5, poll_interval_sec)
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -118,7 +122,10 @@ class ReputationEngine:
             proof_validity_rate_bps=proof_validity_bps,
         )
         signed = self._signer.sign_update(update)
-        return EngineUpdate(rollup=rollup, inputs=inputs, outputs=outputs, signed=signed)
+        posted = self._anchor.post(signed) if self._anchor is not None else None
+        return EngineUpdate(
+            rollup=rollup, inputs=inputs, outputs=outputs, signed=signed, posted=posted
+        )
 
     async def _fanout(self, update: EngineUpdate) -> None:
         dead: list[asyncio.Queue[EngineUpdate]] = []

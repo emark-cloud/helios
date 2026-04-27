@@ -17,22 +17,41 @@ Phase 1 ships an *address-gated* runner: when `ALLOCATOR_VAULT_ADDRESS`
 is unset (i.e. before WS3 e2e), the on-chain client is a no-op that
 records what it *would have* done. Same posture as the reputation
 engine's `REPUTATION_ANCHOR_ADDRESS` gate.
+
+WS3 wired live-mode submission via `web3.py`. The decision loop is
+sync at the call site (`_apply_diffs`); chain RPC happens inline.
+On local anvil this is sub-second; on Kite testnet (1s blocks) the
+worst case is a single-block confirm wait. The 60s drawdown tick
+gives ample headroom.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
+from eth_account import Account
+from helios_contracts_abi.abis import IAllocatorVault_ABI
+from web3 import Web3
+from web3.types import TxReceipt
 
 from sentinel.state import AllocationState
 
 _log = structlog.get_logger(__name__)
 
+# Confirmation timeout per call. Local anvil mines instantly; Kite testnet
+# mines every ~1s. 30s is generous without being silly.
+_RECEIPT_TIMEOUT_SEC = 30
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(slots=True)
 class OnChainCall:
-    """A planned chain call. The runner either submits or records it."""
+    """A planned (and possibly submitted) chain call.
+
+    Mutable so the live path can attach tx_hash / receipt status without
+    forcing the dry-run path to allocate a separate result type.
+    """
 
     method: str
     user: str
@@ -41,6 +60,9 @@ class OnChainCall:
     reason: str = ""
     weights_bps: tuple[int, ...] = ()
     strategies: tuple[str, ...] = ()
+    tx_hash: str = ""
+    submitted: bool = False
+    error: str = ""
 
 
 class OnChainRunner:
@@ -67,6 +89,12 @@ class OnChainRunner:
         self._chain_id = chain_id
         self._live = bool(rpc_url and operator_pk and allocator_vault_address)
         self.pending: list[OnChainCall] = []
+
+        # Live-mode handles initialised lazily on first submit so dry-run
+        # tests don't need to spin up an RPC client.
+        self._w3: Web3 | None = None
+        self._account: Any = None
+        self._vault_contract: Any = None
 
     @property
     def live(self) -> bool:
@@ -109,14 +137,33 @@ class OnChainRunner:
         """Mirror current on-chain allocation state.
 
         Phase 1 stub returns None when the runner is not live; the loop
-        falls back to its in-memory mirror. The real implementation
-        (web3.py call to `AllocatorVault.allocationOf` + `StrategyVault.
-        navOf`) lands in WS3 once contract addresses are wired.
+        falls back to its in-memory mirror. Live mode reads
+        `AllocatorVault.allocationOf(user, strategy)`.
         """
         if not self._live:
             return None
-        del user, strategy  # arguments will be wired through to web3 calls in WS3
-        raise NotImplementedError("live AllocatorVault reads are wired in WS3 e2e")
+        self._ensure_live()
+        assert self._vault_contract is not None
+        record = self._vault_contract.functions.allocationOf(
+            Web3.to_checksum_address(user), Web3.to_checksum_address(strategy)
+        ).call()
+        # Tuple matches IAllocatorVault.AllocationRecord. We only need
+        # capital_deployed + high_water_mark for the Phase 1 loop; rest
+        # land when the loop wants finer state. record[0]=strategy,
+        # [1]=capitalDeployed, [2]=highWaterMark, [3]=defundedAt, [4]=lastUpdate.
+        capital_deployed = int(record[1])
+        hwm = int(record[2])
+        defunded_at = int(record[3])
+        return AllocationState(
+            strategy_id=strategy,
+            chain_id=self._chain_id,
+            declared_class="",
+            capital_deployed_usd=capital_deployed,
+            high_water_mark_usd=hwm,
+            nav_usd=capital_deployed,  # NAV reads come from StrategyVault, wired in WS4
+            last_rebalance_ts=0,
+            defunded=defunded_at != 0,
+        )
 
     def _submit(self, call: OnChainCall) -> OnChainCall:
         if not self._live:
@@ -130,7 +177,100 @@ class OnChainRunner:
                 reason=call.reason,
             )
             return call
-        # WS3: encode + sign + submit. Tracked in TODO.md WS2.C gate
-        # ("Auto-defund test passes"). Until contract addresses are in
-        # `kite-testnet.json`, this branch is unreachable.
-        raise NotImplementedError("live tx submission lands in WS3 e2e")
+        try:
+            self._send_live(call)
+        except Exception as exc:
+            call.error = str(exc)
+            _log.error(
+                "sentinel.onchain.submit_failed",
+                method=call.method,
+                user=call.user,
+                strategy=call.strategy,
+                err=str(exc),
+            )
+        # Pending list mirrors *all* attempted calls so `/v1/users/.../events`
+        # consumers see the same surface in live + dry modes.
+        self.pending.append(call)
+        return call
+
+    # ── Live submission ───────────────────────────────────────
+    def _ensure_live(self) -> None:
+        if self._w3 is not None:
+            return
+        self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+        self._account = Account.from_key(self._operator_pk)
+        self._vault_contract = self._w3.eth.contract(
+            address=Web3.to_checksum_address(self._allocator_vault),
+            abi=IAllocatorVault_ABI,
+        )
+
+    def _send_live(self, call: OnChainCall) -> None:
+        self._ensure_live()
+        assert self._w3 is not None
+        assert self._account is not None
+        assert self._vault_contract is not None
+
+        fn = self._build_function(call)
+        tx = fn.build_transaction(
+            {
+                "from": self._account.address,
+                "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
+                "chainId": self._chain_id,
+                # Anvil + Kite both honour legacy gasPrice; explicit value avoids
+                # web3's EIP-1559 fee estimation hitting `eth_feeHistory` which
+                # some forks (and our anvil container) don't implement.
+                "gasPrice": self._w3.eth.gas_price,
+            }
+        )
+        signed = self._account.sign_transaction(tx)
+        tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
+        call.tx_hash = tx_hash.hex()
+        receipt: TxReceipt = self._w3.eth.wait_for_transaction_receipt(
+            tx_hash, timeout=_RECEIPT_TIMEOUT_SEC
+        )
+        if receipt["status"] != 1:
+            raise RuntimeError(f"tx reverted: {call.tx_hash}")
+        call.submitted = True
+        _log.info(
+            "sentinel.onchain.submitted",
+            method=call.method,
+            tx_hash=call.tx_hash,
+            block=receipt["blockNumber"],
+            gas_used=receipt["gasUsed"],
+        )
+
+    def _build_function(self, call: OnChainCall) -> Any:
+        assert self._vault_contract is not None
+        if call.method == "allocateToStrategy":
+            return self._vault_contract.functions.allocateToStrategy(
+                Web3.to_checksum_address(call.user),
+                Web3.to_checksum_address(_require_strategy(call)),
+                int(call.amount),
+            )
+        if call.method == "defundStrategy":
+            return self._vault_contract.functions.defundStrategy(
+                Web3.to_checksum_address(call.user),
+                Web3.to_checksum_address(_require_strategy(call)),
+                call.reason,
+            )
+        if call.method == "settleStrategyFee":
+            return self._vault_contract.functions.settleStrategyFee(
+                Web3.to_checksum_address(call.user),
+                Web3.to_checksum_address(_require_strategy(call)),
+            )
+        if call.method == "rebalance":
+            return self._vault_contract.functions.rebalance(
+                Web3.to_checksum_address(call.user),
+                [Web3.to_checksum_address(s) for s in call.strategies],
+                [int(w) for w in call.weights_bps],
+            )
+        raise ValueError(f"unknown onchain method: {call.method}")
+
+
+def _require_strategy(call: OnChainCall) -> str:
+    if not call.strategy:
+        raise ValueError(f"{call.method} requires a strategy address")
+    return call.strategy
+
+
+__all__ = ["OnChainCall", "OnChainRunner"]
