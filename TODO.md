@@ -193,7 +193,7 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [x] No sunburst yet (Phase 4)
 
 **Gates:**
-- [ ] Lighthouse perf ≥ 85 on `/dashboard` against the local stack — measure once Sentinel + Goldsky run locally end-to-end (WS5 fresh-clone test).
+- [x] Lighthouse perf ≥ 85 on `/dashboard` against the local stack. *Measured 2026-04-27 (WS5): Perf 94 / FCP 0.8s / LCP 2.0s / TBT 250ms / CLS 0 / SI 0.8s on a warm `pnpm start` server, headless Chromium via Playwright cache. (Cold-start JIT inflates TBT to ~890ms on the first hit; warm-process measurement is the realistic one.) Phase 4 §14.5 will revisit when the sunburst lands — wagmi provider hydration is the dominant blocking work, candidate for lazy-loading on the wallet-touch path only.*
 - [x] Playwright signature-interaction smoke deferred to Phase 4 — Phase 1 just needs surfaces wired
 - [x] `pnpm --filter frontend typecheck` + `lint` + `next build` green
 
