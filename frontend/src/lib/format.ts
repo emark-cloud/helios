@@ -6,6 +6,8 @@
  * figures live on the `<Numeric>` atom; this module only produces strings.
  */
 
+import { keccak256, toBytes } from "viem";
+
 const USD_FMT = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -87,14 +89,47 @@ export function formatTimestamp(tsSec: number): string {
   });
 }
 
-const CLASS_LABELS: Record<string, string> = {
+// Strategy classes are stored on-chain as `keccak256(<slug>)` — see
+// contracts/script/DeployPhase1.s.sol. The Goldsky subgraph emits the
+// raw bytes32 hash; the frontend filter chips emit slugs. Bridge both
+// here so callers don't have to care which form they hold.
+const SLUG_TO_LABEL: Record<string, string> = {
   momentum_v1: "Momentum",
   mean_reversion_v1: "Mean reversion",
   yield_rotation_v1: "Yield rotation",
 };
 
+const CLASS_SLUGS = Object.keys(SLUG_TO_LABEL);
+
+// Computed once at module load. `keccak256` + `toBytes` are tree-shakeable
+// imports from viem — no wallet code is pulled in.
+const HASH_TO_SLUG: Record<string, string> = {};
+const SLUG_TO_HASH: Record<string, string> = {};
+for (const slug of CLASS_SLUGS) {
+  const hash = keccak256(toBytes(slug)).toLowerCase();
+  HASH_TO_SLUG[hash] = slug;
+  SLUG_TO_HASH[slug] = hash;
+}
+
+/** True if `value` looks like a 32-byte hex hash. */
+function isBytes32(value: string): boolean {
+  return /^0x[0-9a-f]{64}$/i.test(value);
+}
+
+/** Render a class as a human label. Accepts either the slug
+ *  (`"momentum_v1"`) or the on-chain bytes32 hash. */
 export function formatStrategyClass(cls: string): string {
-  return CLASS_LABELS[cls] ?? cls;
+  if (!cls) return cls;
+  if (isBytes32(cls)) {
+    const slug = HASH_TO_SLUG[cls.toLowerCase()];
+    return slug ? SLUG_TO_LABEL[slug]! : cls;
+  }
+  return SLUG_TO_LABEL[cls] ?? cls;
+}
+
+/** Map a slug to its on-chain bytes32 hash, or null if unknown. */
+export function classSlugToHash(slug: string): string | null {
+  return SLUG_TO_HASH[slug] ?? null;
 }
 
 export function chainName(chainId: number): "Kite" | "Base" | "Arbitrum" | "Anvil" | "Unknown" {

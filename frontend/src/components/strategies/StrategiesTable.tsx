@@ -16,6 +16,7 @@ import { Numeric, toneFor } from "@/components/atoms/Numeric";
 import { ArrowDownIcon, ArrowUpIcon } from "@/components/icon";
 import { cn } from "@/lib/cn";
 import {
+  classSlugToHash,
   explorerAddressUrl,
   formatAddress,
   formatBpsAsPct,
@@ -57,8 +58,11 @@ export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTa
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const filtered = useMemo(() => {
+    // Subgraph emits `declaredClass` as the bytes32 hash; filter chips
+    // emit the human slug. Compare on the hash.
+    const classHash = classFilter ? classSlugToHash(classFilter) : null;
     return rows.filter((r) => {
-      if (classFilter && r.declaredClass !== classFilter) return false;
+      if (classHash && r.declaredClass.toLowerCase() !== classHash) return false;
       if (chainFilter != null && r.chainId !== chainFilter) return false;
       return true;
     });
