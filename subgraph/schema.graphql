@@ -61,6 +61,10 @@ type Allocation @entity {
   user: User!
   allocator: Allocator!
   strategy: Strategy!
+  # IMPORTANT: per-event amount, NOT a running total. graph-ts strict-null
+  # fights BigInt accumulation, so consumers must aggregate at query time
+  # by summing across allocation events. See
+  # project_subgraph_bigint_limitation.md and subgraph/src/allocator-vault.ts.
   capitalDeployed: BigInt!
   strategyHighWaterMark: BigInt!
   lastRebalanceAt: BigInt!

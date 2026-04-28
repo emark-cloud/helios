@@ -76,7 +76,7 @@ class ReputationEngine:
         try:
             rollups = await self._goldsky.fetch_strategy_rollups(since)
         except Exception as exc:
-            _log.warning("reputation.goldsky.error", err=str(exc))
+            _log.warning("reputation.goldsky.error", err=str(exc), exc_info=True)
             return []
         updates: list[EngineUpdate] = []
         for r in rollups:

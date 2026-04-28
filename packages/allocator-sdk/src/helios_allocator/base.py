@@ -87,7 +87,13 @@ class BaseAllocator(ABC):
         capital: int,
         scores: list[float] | None = None,
     ) -> list[AllocationTarget]:
-        """Weight selected candidates by their score. Caps each at max_per_strategy_bps."""
+        """Weight selected candidates by their score. Caps each at max_per_strategy_bps.
+
+        Pass `scores` if you've already ranked. Omitting it triggers a re-rank
+        of `selected` here, so callers that already called `rank_strategies()`
+        should plumb the scores through to avoid an O(n²) re-rank on big
+        candidate sets.
+        """
         if not selected or capital == 0:
             return []
         if scores is None:

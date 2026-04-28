@@ -101,12 +101,25 @@ const SLUG_TO_LABEL: Record<string, string> = {
 
 const CLASS_SLUGS = Object.keys(SLUG_TO_LABEL);
 
-// Computed once at module load. `keccak256` + `toBytes` are tree-shakeable
-// imports from viem — no wallet code is pulled in.
+// Canonical class hashes the contracts emit. Each is `keccak256(bytes(slug))`
+// (see contracts/script/DeployPhase1.s.sol). Pinned here so a slug typo or a
+// viem-side hash regression trips the assertion below at module load instead
+// of silently breaking strategy filters.
+const EXPECTED_SLUG_HASH: Record<string, string> = {
+  momentum_v1: "0xad6ed03b237b0e0f63908c2621ef31bea0cee25afc33ff5afce41a6616f380c2",
+  mean_reversion_v1: "0x54ae267da80c601691ee3a47741957a75855c187d2e5889a2730d370497dee53",
+  yield_rotation_v1: "0xc374a93a514f884efa35d762ae78fdf668a42b901247e7f8b214b0156a2fdce9",
+};
+
 const HASH_TO_SLUG: Record<string, string> = {};
 const SLUG_TO_HASH: Record<string, string> = {};
 for (const slug of CLASS_SLUGS) {
   const hash = keccak256(toBytes(slug)).toLowerCase();
+  if (hash !== EXPECTED_SLUG_HASH[slug]) {
+    throw new Error(
+      `class hash drift for "${slug}": got ${hash}, expected ${EXPECTED_SLUG_HASH[slug]}`,
+    );
+  }
   HASH_TO_SLUG[hash] = slug;
   SLUG_TO_HASH[slug] = hash;
 }

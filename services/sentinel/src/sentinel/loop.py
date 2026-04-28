@@ -105,7 +105,7 @@ class SentinelLoop:
             self._last_rank_ts = ts
             _log.info("sentinel.candidates.refresh", count=len(self._candidates))
         except Exception as exc:
-            _log.warning("sentinel.candidates.error", err=str(exc))
+            _log.warning("sentinel.candidates.error", err=str(exc), exc_info=True)
 
     async def _tick_user(self, user: UserState, ts: int) -> None:
         # Step 4: drawdown check first — before any rebalancing logic.

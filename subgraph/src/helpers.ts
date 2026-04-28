@@ -3,6 +3,11 @@
 import { BigInt, Bytes, ethereum, log } from "@graphprotocol/graph-ts";
 import { Strategy, Allocator, User } from "../generated/schema";
 
+// Phase 1 ships Kite testnet only. Phase 5 adds Base/Arbitrum Sepolia and
+// will need to read chainId from the network context, not this constant.
+// Grep for PHASE1_CHAIN_ID before promoting this subgraph to multichain.
+export const PHASE1_CHAIN_ID: i32 = 2368;
+
 export function logEventId(event: ethereum.Event): Bytes {
   return event.transaction.hash.concatI32(event.logIndex.toI32());
 }

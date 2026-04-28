@@ -98,6 +98,9 @@ export async function fetchStrategies(
 
 export type AllocationRow = {
   id: string;
+  /** Per-event delta, NOT a running total. Sum across all of a user's
+   *  allocation rows to get total capital deployed. See
+   *  subgraph/schema.graphql comment on `Allocation.capitalDeployed`. */
   capitalDeployed: string;
   strategyHighWaterMark: string;
   lastRebalanceAt: string;

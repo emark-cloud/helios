@@ -98,7 +98,12 @@ class AnchorPoster:
             return
         self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
         pk = self._signer_pk if self._signer_pk.startswith("0x") else "0x" + self._signer_pk
-        self._account = Account.from_key(pk)
+        try:
+            self._account = Account.from_key(pk)
+        except Exception as exc:  # pragma: no cover — defensive
+            # Don't let the raised value (which may include the malformed key
+            # material) propagate up into structlog or a stack trace.
+            raise RuntimeError(f"invalid REPUTATION_SIGNER_PK: {type(exc).__name__}") from None
         self._contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self._anchor),
             abi=IReputationAnchor_ABI,

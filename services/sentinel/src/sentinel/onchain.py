@@ -198,7 +198,12 @@ class OnChainRunner:
         if self._w3 is not None:
             return
         self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
-        self._account = Account.from_key(self._operator_pk)
+        try:
+            self._account = Account.from_key(self._operator_pk)
+        except Exception as exc:  # pragma: no cover — defensive
+            # Don't let the raised value (which may include the malformed key
+            # material) propagate up into structlog or a stack trace.
+            raise RuntimeError(f"invalid OPERATOR_PK: {type(exc).__name__}") from None
         self._vault_contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self._allocator_vault),
             abi=IAllocatorVault_ABI,

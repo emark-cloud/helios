@@ -72,7 +72,13 @@ class Poller:
                 continue
             except Exception as exc:  # never let a misbehaving source kill the loop
                 last_err = exc
-                _log.warning("oracle.source.unexpected", source=src.name, asset=asset, err=str(exc))
+                _log.warning(
+                    "oracle.source.unexpected",
+                    source=src.name,
+                    asset=asset,
+                    err=str(exc),
+                    exc_info=True,
+                )
                 continue
             self._store.append(
                 asset=asset,
@@ -92,4 +98,5 @@ class Poller:
             "oracle.snapshot.no_source",
             asset=asset,
             err=str(last_err) if last_err else "all sources rejected",
+            exc_info=last_err is not None,
         )

@@ -4,7 +4,7 @@ import {
   StrategyDeactivated,
   ReputationUpdated,
 } from "../generated/StrategyRegistry/StrategyRegistry";
-import { getOrCreateStrategy } from "./helpers";
+import { getOrCreateStrategy, PHASE1_CHAIN_ID } from "./helpers";
 
 export function handleStrategyRegistered(event: StrategyRegistered): void {
   const id = event.params.strategyId as Bytes;
@@ -18,7 +18,7 @@ export function handleStrategyRegistered(event: StrategyRegistered): void {
   strategy.registeredAt = event.block.timestamp;
   // chainId is set when StrategyVault first emits NAVReported / TradeAttested for a
   // multi-chain strategy. Phase 1 is single-chain so default to Kite testnet.
-  strategy.chainId = 2368;
+  strategy.chainId = PHASE1_CHAIN_ID;
   strategy.save();
 }
 

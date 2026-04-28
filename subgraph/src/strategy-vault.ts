@@ -5,7 +5,7 @@ import {
   Slashed,
 } from "../generated/StrategyVault/StrategyVault";
 import { Trade, NAVSnapshot } from "../generated/schema";
-import { getOrCreateAllocator, getOrCreateStrategy, logEventId } from "./helpers";
+import { getOrCreateAllocator, getOrCreateStrategy, logEventId, PHASE1_CHAIN_ID } from "./helpers";
 
 export function handleTradeAttested(event: TradeAttested): void {
   // The verify call has already passed if this event fires (StrategyVault
@@ -27,7 +27,7 @@ export function handleTradeAttested(event: TradeAttested): void {
   trade.blockWindowEnd = event.params.blockWindowEnd;
   trade.timestamp = event.block.timestamp;
   trade.txHash = event.transaction.hash;
-  trade.chainId = 2368; // Phase 1 is Kite testnet only.
+  trade.chainId = PHASE1_CHAIN_ID;
   trade.save();
 
   // Make sure parent entities exist so `@derivedFrom` lookups work.
