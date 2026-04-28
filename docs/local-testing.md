@@ -103,29 +103,36 @@ Now end-to-end works:
 
 ## Tier 3 — Drive the auto-defund scenario
 
-With the Tier 2 stack running, run the scenario script. It deposits, delegates, drives a price drawdown to trigger the permissionless defund, and reallocates. **Note: it's one-shot, not a continuous driver** — refresh the dashboard after it exits to see the events that landed.
+With the Tier 2 stack running, run the scenario script. It deposits, delegates, executes a momentum trade with a mock proof, drives a NAV drawdown that breaches the user's threshold, has a non-operator EOA call `defundStrategy` (the permissionless path), and allocates a replacement strategy. The script asserts the contract event trail and the **permissionless-defund hard gate per `Helios.md §6.3`**.
 
 ```bash
-# new terminal, same env as T3
+# new terminal
 RPC_URL=http://localhost:8545 \
 DEPLOYER_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
 SKIP_ANVIL_BOOT=1 \
 ./scripts/e2e-scenario.sh
 ```
 
-You'll see in the dashboard activity rail:
+Expected output ends with `Permissionless-defund hard gate (Helios.md §6.3): PASSED` and `WS3 e2e: GREEN`.
 
-- `Allocation` events (with shield icon for proof badge)
-- `Defunded` event with red left-border (`data-defund-state="breaching"`)
-- `Rebalance complete` event
+### What Tier 3 actually validates (and what it doesn't)
+
+**Validates** — `AllocationCreated x2`, `TradeAttested x1`, `NAVReported x2`, `StrategyDefunded x1` (caller ≠ operator), `ReputationPosted x1`, all asserted via `eth_getLogs`. This is the canonical Phase 1 contract-correctness gate.
+
+**Does not visualize on the dashboard** in Phase 1, for two reasons:
+
+1. The `forge script` step inside `e2e-scenario.sh` always re-deploys to fresh addresses in `anvil-kite.json`. A Sentinel started before the script is now pointing at stale contracts.
+2. Even with addresses synced, the `e2e_scenario.py` driver acts directly on `AllocatorVault` and bypasses Sentinel entirely. Sentinel's activity-rail events come from its own decision loop, not from on-chain events — so the cascade animation, defund row, and rebalance event won't appear in `/dashboard`.
+
+Tier 3 is a **contract-level gate**, not a UI demo. The "Sentinel observes chain events" piece that would close the gap is a Phase 4 polish item; see `TODO.md`.
 
 ---
 
 ## Recommended order
 
 1. **Run Tier 1 first** to confirm `/strategies` against real Goldsky data — that's the quickest "yes, the frontend works against live Phase 1" check.
-2. If `/strategies` looks right, **jump to Tier 3** (it sets up Tier 2 implicitly via `e2e-scenario.sh`'s anvil boot path) for the writable flow + the drawdown moment.
-3. Tier 2 alone (without driving the scenario) is mostly useful if you want to step through `/onboard` by hand without the auto-defund interrupting your test.
+2. **Tier 2** — step through `/onboard` and `/dashboard` against a live Sentinel. The activity rail's `META_STRATEGY_SET` event is the visible signal that the wiring works end-to-end.
+3. **Tier 3** — run the scenario when you want the contract-level e2e + permissionless-defund hard gate. Don't expect the dashboard to animate; that's not what Tier 3 does in Phase 1.
 
 ---
 

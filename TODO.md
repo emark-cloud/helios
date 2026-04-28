@@ -327,6 +327,7 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [ ] WCAG AA contrast audit passes across all pages
 - [ ] Projector legibility check (low-contrast crush test on 1080p)
 - [ ] `/onboard` error UX — `OnboardClient.tsx:72-74` surfaces raw `Failed to fetch` when Sentinel is unreachable, hiding that the signature succeeded. Distinguish "signed but allocator unreachable" (retryable, signature kept) from "signing failed" (rejected/aborted). Surfaced during Tier 1 local-testing 2026-04-28.
+- [ ] Sentinel observes on-chain events so the dashboard reflects Tier 3 cascades. Today `e2e_scenario.py` drives `AllocatorVault` directly and `services/sentinel` only emits events from its own decision loop, so the activity rail stays blank during scenario runs even though the chain trail is correct (`AllocationCreated`, `StrategyDefunded`, `NAVReported`). Wire a chain-watcher (Goldsky-against-anvil or direct `eth_getLogs` poller) so chain events become `SentinelEvent`s on the WS feed. Closes the local-testing.md Tier 3 caveat. Surfaced 2026-04-28.
 
 ### FE — Telegram bot
 - [ ] `@helios_market_bot` deployed, token in `TELEGRAM_BOT_TOKEN`
