@@ -141,7 +141,7 @@ export function chainName(chainId: number): "Kite" | "Base" | "Arbitrum" | "Anvi
 }
 
 const EXPLORERS: Record<number, string> = {
-  2368: "https://www.oklink.com/kite-testnet",
+  2368: "https://testnet.kitescan.ai",
   84_532: "https://sepolia.basescan.org",
   421_614: "https://sepolia.arbiscan.io",
 };

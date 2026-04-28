@@ -15,7 +15,7 @@ export const kiteTestnet = defineChain({
     },
   },
   blockExplorers: {
-    default: { name: "OKLink", url: "https://www.oklink.com/kite-testnet" },
+    default: { name: "Kitescan", url: "https://testnet.kitescan.ai" },
   },
   testnet: true,
 });

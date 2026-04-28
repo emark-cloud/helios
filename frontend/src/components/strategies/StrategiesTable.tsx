@@ -154,7 +154,7 @@ function Row({ row }: { row: StrategyDirectoryRow }): JSX.Element {
   const drawdown = row.maxDrawdownBps;
 
   // /strategies/[id] is a Phase 4 page; until then the strategy
-  // address links out to OKLink so judges + auditors can still inspect.
+  // address links out to the chain explorer so judges + auditors can still inspect.
   const detailHref = explorerAddressUrl(row.chainId, row.id);
 
   return (

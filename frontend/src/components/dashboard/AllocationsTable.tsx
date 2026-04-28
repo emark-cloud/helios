@@ -19,9 +19,12 @@ import type { AllocationView } from "@/lib/sentinel";
 
 export function AllocationsTable({ allocations }: { allocations: AllocationView[] }): JSX.Element {
   if (allocations.length === 0) {
+    // Reaching this branch means the user has a signed meta-strategy
+    // (DashboardClient short-circuits the no-meta case to a 404 CTA);
+    // the allocator just hasn't deployed capital yet.
     return (
       <div className="rounded-md border border-surface-line bg-surface-panel p-8 text-center text-sm text-fg-muted">
-        No active allocations. Sign a meta-strategy at <code>/onboard</code> to begin the cascade.
+        Awaiting allocator decision. Sentinel ranks strategies on a 5-minute cadence and deploys capital when an eligible match is found.
       </div>
     );
   }
