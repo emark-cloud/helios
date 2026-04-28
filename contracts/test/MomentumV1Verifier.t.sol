@@ -41,9 +41,9 @@ contract MomentumV1VerifierTest is Test {
 
     function test_RawVerifier_AcceptsRealProof() public view {
         (Proof memory p, uint256[] memory pubInputs) = _loadFixture();
-        require(pubInputs.length == 11, "fixture: bad pub input count");
-        uint256[11] memory fixedInputs;
-        for (uint256 i = 0; i < 11; i++) {
+        require(pubInputs.length == 14, "fixture: bad pub input count");
+        uint256[14] memory fixedInputs;
+        for (uint256 i = 0; i < 14; i++) {
             fixedInputs[i] = pubInputs[i];
         }
         assertTrue(raw.verifyProof(p.a, p.b, p.c, fixedInputs));
@@ -69,7 +69,7 @@ contract MomentumV1VerifierTest is Test {
         }
         vm.expectRevert(
             abi.encodeWithSelector(
-                MomentumV1VerifierAdapter.WrongPublicInputCount.selector, shortInputs.length, 11
+                MomentumV1VerifierAdapter.WrongPublicInputCount.selector, shortInputs.length, 14
             )
         );
         adapter.verifyProof(p.a, p.b, p.c, shortInputs);

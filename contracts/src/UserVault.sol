@@ -52,6 +52,10 @@ contract UserVault is
     mapping(address => MetaStrategyLib.MetaStrategy) internal _metas;
     mapping(address => bytes) internal _metaSignatures;
 
+    /// @dev Reserved storage for future upgrades. Append new state variables
+    ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
+    uint256[50] private __gap;
+
     error ZeroAddress();
     error ZeroAmount();
     error UnsupportedAsset();
@@ -170,6 +174,7 @@ contract UserVault is
         if (amount > u.balance) revert InsufficientBalance();
         u.balance -= amount;
         baseAsset.safeTransfer(msg.sender, amount);
+        emit AllocatorTransfer(user, msg.sender, amount, u.balance);
     }
 
     function creditFromAllocator(address user, uint256 amount) external nonReentrant {
@@ -178,6 +183,7 @@ contract UserVault is
         baseAsset.safeTransferFrom(msg.sender, address(this), amount);
         u.balance += amount;
         if (u.balance > u.highWaterMark) u.highWaterMark = u.balance;
+        emit AllocatorCredit(user, msg.sender, amount, u.balance, u.highWaterMark);
     }
 
     // ── Views ───────────────────────────────────────────────────────

@@ -55,56 +55,66 @@ function chainedPoseidon(observations) {
 // here (rather than imported) so the prover service stays a leaf node — no
 // path-back into the circuits workspace at runtime.
 function buildValidMomentumInput() {
-  const universe = Array.from({ length: UNIVERSE_SIZE }, (_, i) => asField(0xaa00 + i));
-  const asset_in = universe[0];
-  const asset_out = universe[3];
-  const amount_in = "1000000000000000000";
   const max_position_size = "5000000000000000000";
   const max_slippage_bps = "50";
-  const min_amount_out = "995000000000000000";
-  const trade_direction = "1";
-  const allocator_address = asField(0xa11ca7);
-  const nonce = "42";
-  const block_window_start = "100";
-  const block_window_end = "150";
+  const signal_threshold = "100";
+  const stop_loss_price = "0";
+  const params_hash = poseidonHash([
+    max_position_size,
+    max_slippage_bps,
+    signal_threshold,
+    stop_loss_price,
+  ]);
   const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
   const oracle_root = chainedPoseidon(price_observations);
   const declared_class = asField("0x1234");
+  const strategy_vault = asField("0xbeef00");
+  const allocator_address = asField("0xa11ca7");
+  const asset_in_idx = "0";
+  const asset_out_idx = "3";
+  const amount_in = "1000000000000000000";
+  const min_amount_out = "995000000000000000";
+  const trade_direction = "1";
+  const nonce = "42";
+  const block_window_start = "100";
+  const block_window_end = "150";
   const trade_hash = poseidonHash([
+    strategy_vault,
     declared_class,
-    asset_in,
-    asset_out,
+    params_hash,
+    allocator_address,
+    asset_in_idx,
+    asset_out_idx,
     amount_in,
     min_amount_out,
     trade_direction,
-    allocator_address,
     nonce,
   ]);
   return {
     trade_hash,
     declared_class,
-    asset_in,
-    asset_out,
+    strategy_vault,
+    params_hash,
+    allocator_address,
+    asset_in_idx,
+    asset_out_idx,
     amount_in,
     min_amount_out,
     trade_direction,
-    allocator_address,
     nonce,
     block_window_start,
     block_window_end,
-    asset_universe: universe,
+    oracle_root,
     max_position_size,
     max_slippage_bps,
-    position_state: "0",
-    signal_threshold: "100",
+    signal_threshold,
+    stop_loss_price,
     price_observations,
-    oracle_root,
     is_long_entry: "1",
     is_short_entry: "0",
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
-    stop_loss_price: "0",
   };
 }
 
@@ -140,7 +150,7 @@ test("POST /prove momentum_v1 returns a proof that verifies off-chain", async ()
   assert.equal(res.status, 200, `expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
   const { proof, publicSignals } = res.body;
   assert.ok(proof, "proof present");
-  assert.equal(publicSignals.length, 11, "11 public signals");
+  assert.equal(publicSignals.length, 14, "14 public signals");
 
   // Off-chain verify against the snarkjs vkey. The on-chain MomentumV1Verifier.sol
   // is generated from this same vkey so an off-chain pass implies on-chain pass
@@ -155,13 +165,15 @@ test("POST /prove momentum_v1 fails closed on bad witness (e.g. amount over cap)
   const bad = buildValidMomentumInput();
   bad.amount_in = "9999000000000000000000"; // exceeds max_position_size
   bad.trade_hash = poseidonHash([
+    bad.strategy_vault,
     bad.declared_class,
-    bad.asset_in,
-    bad.asset_out,
+    bad.params_hash,
+    bad.allocator_address,
+    bad.asset_in_idx,
+    bad.asset_out_idx,
     bad.amount_in,
     bad.min_amount_out,
     bad.trade_direction,
-    bad.allocator_address,
     bad.nonce,
   ]);
   const res = await request(app)

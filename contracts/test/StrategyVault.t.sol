@@ -68,7 +68,8 @@ contract StrategyVaultTest is Test {
             maxCapacity: MAX_CAPACITY,
             feeRateBps: 1000,
             operator: operator,
-            stakeAmount: 5000e18
+            stakeAmount: 5000e18,
+            paramsHash: bytes32(uint256(0xfee5))
         });
 
         impl = new StrategyVault();
@@ -96,7 +97,8 @@ contract StrategyVaultTest is Test {
             maxCapacity: 1,
             feeRateBps: 0,
             operator: address(0),
-            stakeAmount: 0
+            stakeAmount: 0,
+            paramsHash: bytes32(0)
         });
         bytes memory initData = abi.encodeCall(
             StrategyVault.initialize,
@@ -115,7 +117,8 @@ contract StrategyVaultTest is Test {
             maxCapacity: 1,
             feeRateBps: 0,
             operator: operator,
-            stakeAmount: 0
+            stakeAmount: 0,
+            paramsHash: bytes32(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
@@ -132,7 +135,8 @@ contract StrategyVaultTest is Test {
             maxCapacity: 1,
             feeRateBps: 0,
             operator: operator,
-            stakeAmount: 0
+            stakeAmount: 0,
+            paramsHash: bytes32(0)
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(
@@ -246,15 +250,36 @@ contract StrategyVaultTest is Test {
     }
 
     function _validInputs() internal view returns (uint256[] memory pi) {
-        pi = new uint256[](8);
-        pi[0] = 0; // assetIn = USDC
-        pi[1] = 1; // assetOut = ETH
-        pi[2] = 100e6; // amountIn
-        pi[3] = 1e16; // minAmountOut
-        pi[4] = 1; // direction (enter)
-        pi[5] = block.number; // windowStart
-        pi[6] = block.number + 10; // windowEnd
-        pi[7] = uint256(keccak256("trade-1"));
+        // Layout matches StrategyVault.PI_*:
+        //  [0] trade_hash
+        //  [1] declared_class
+        //  [2] strategy_vault
+        //  [3] params_hash
+        //  [4] allocator
+        //  [5] asset_in_idx
+        //  [6] asset_out_idx
+        //  [7] amount_in
+        //  [8] min_amount_out
+        //  [9] direction
+        //  [10] nonce
+        //  [11] block_window_start
+        //  [12] block_window_end
+        //  [13] oracle_root
+        pi = new uint256[](14);
+        pi[0] = uint256(keccak256("trade-1"));
+        pi[1] = uint256(CLASS);
+        pi[2] = uint256(uint160(address(vault)));
+        pi[3] = uint256(bytes32(uint256(0xfee5))); // matches setUp paramsHash
+        pi[4] = uint256(uint160(allocatorVault));
+        pi[5] = 0; // asset_in_idx → USDC
+        pi[6] = 1; // asset_out_idx → ETH
+        pi[7] = 100e6; // amount_in
+        pi[8] = 1e16; // min_amount_out
+        pi[9] = 1; // direction (enter)
+        pi[10] = 1; // nonce
+        pi[11] = block.number; // window_start
+        pi[12] = block.number + 10; // window_end
+        pi[13] = uint256(keccak256("oracle-root-1"));
     }
 
     function test_ExecuteWithProof_OnlyOperator() public {
@@ -266,7 +291,7 @@ contract StrategyVaultTest is Test {
     }
 
     function test_ExecuteWithProof_RevertsOnShortInputs() public {
-        uint256[] memory pi = new uint256[](7);
+        uint256[] memory pi = new uint256[](13);
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.PublicInputsTooShort.selector);
@@ -275,17 +300,53 @@ contract StrategyVaultTest is Test {
 
     function test_ExecuteWithProof_RevertsOnAssetOOB() public {
         uint256[] memory pi = _validInputs();
-        pi[0] = 99;
+        pi[5] = 99;
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.AssetIndexOOB.selector);
         vault.executeWithProof(_proofBytes(), pi, trades);
     }
 
+    function test_ExecuteWithProof_RevertsOnClassMismatch() public {
+        uint256[] memory pi = _validInputs();
+        pi[1] = uint256(keccak256("wrong_class"));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ClassMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnVaultMismatch() public {
+        uint256[] memory pi = _validInputs();
+        pi[2] = uint256(uint160(randomCaller));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.VaultMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnParamsHashMismatch() public {
+        uint256[] memory pi = _validInputs();
+        pi[3] = uint256(bytes32(uint256(0xdead)));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ParamsHashMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnAllocatorMismatch() public {
+        uint256[] memory pi = _validInputs();
+        pi[4] = uint256(uint160(randomCaller));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.AllocatorMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
     function test_ExecuteWithProof_RevertsOnWindowNotStarted() public {
         uint256[] memory pi = _validInputs();
-        pi[5] = block.number + 5;
-        pi[6] = block.number + 10;
+        pi[11] = block.number + 5;
+        pi[12] = block.number + 10;
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.WindowNotStarted.selector);
@@ -294,8 +355,8 @@ contract StrategyVaultTest is Test {
 
     function test_ExecuteWithProof_RevertsOnWindowExpired() public {
         uint256[] memory pi = _validInputs();
-        pi[5] = block.number;
-        pi[6] = block.number;
+        pi[11] = block.number;
+        pi[12] = block.number;
         vm.roll(block.number + 1);
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
@@ -362,19 +423,19 @@ contract StrategyVaultTest is Test {
         emit TradeAttested(
             address(vault),
             allocatorVault,
-            bytes32(pi[7]),
+            bytes32(pi[0]),
             CLASS,
             address(usdc),
             address(eth),
             100e6,
             1e16,
             1,
-            uint64(pi[5]),
-            uint64(pi[6])
+            uint64(pi[11]),
+            uint64(pi[12])
         );
         vm.prank(operator);
         vault.executeWithProof(_proofBytes(), pi, trades);
-        assertTrue(vault.isTradeHashSeen(bytes32(pi[7])));
+        assertTrue(vault.isTradeHashSeen(bytes32(pi[0])));
     }
 
     function test_ExecuteWithProof_RevertsWhenHalted() public {
@@ -390,7 +451,7 @@ contract StrategyVaultTest is Test {
     // ── reportNAV ──────────────────────────────────────────────────
 
     function _reportNAV(uint256 nav, uint64 ts) internal {
-        bytes32 digest = keccak256(abi.encode(address(vault), nav, ts));
+        bytes32 digest = keccak256(abi.encode(block.chainid, address(vault), nav, ts));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
         vault.reportNAV(abi.encode(nav, ts, sig));
@@ -415,7 +476,7 @@ contract StrategyVaultTest is Test {
     function test_ReportNAV_RevertsOnBadSigner() public {
         uint64 ts = uint64(block.timestamp + 1);
         (, uint256 wrongKey) = makeAddrAndKey("wrongOracle");
-        bytes32 digest = keccak256(abi.encode(address(vault), uint256(1000e6), ts));
+        bytes32 digest = keccak256(abi.encode(block.chainid, address(vault), uint256(1000e6), ts));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);

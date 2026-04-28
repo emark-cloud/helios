@@ -67,3 +67,10 @@ class StrategyManifest(BaseModel):
     fee_rate_bps: int
     operator: str
     stake_amount_usd: int
+    # Poseidon commitment to the operator-declared circuit parameters
+    # (max_position_size, max_slippage_bps, signal_threshold, stop_loss_price).
+    # The on-chain StrategyVault asserts this against the params_hash public
+    # input on every executeWithProof — so the prover cannot lie about the
+    # declared bounds. Phase 1 deploy script defaults to bytes32(0); real
+    # strategies must compute and supply this before registering.
+    params_hash: str = "0x" + "0" * 64

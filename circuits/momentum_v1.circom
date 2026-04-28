@@ -1,49 +1,61 @@
 pragma circom 2.1.9;
 
-// Helios — momentum_v1 strategy attestation circuit.
+// Helios — momentum_v1 strategy attestation circuit (v2 layout).
 // Helios.md §9.3.
 //
-// Proves a single trade satisfies the momentum_v1 class invariants:
-//   1. asset_in / asset_out are in the strategy's manifest universe
-//   2. amount_in <= max_position_size (operator-declared bound)
-//   3. min_amount_out respects manifest's max slippage
-//   4. price_observations Poseidon-chain to a committed oracle root
-//   5. direction-specific signal logic (long entry / short entry / exit)
-//   6. block_window_end - block_window_start <= 100
-//   7. exit conditions: signal-flip OR stop-loss
-//   8. trade_hash matches Poseidon of the trade calldata public fields
+// Public-input layout MUST match StrategyVault's PI_* constants in
+//   contracts/src/StrategyVault.sol
+// AND the MomentumV1VerifierAdapter's _PUBLIC_INPUT_COUNT.
+// If you reorder, update both call sites or proofs will silently land on
+// the wrong slots.
 //
-// Public input order MUST match the Solidity verifier's publicInputs[] indexing
-// in `TradeAttestationVerifier`. Do not reorder without updating both sides.
+// Proves a single trade satisfies the momentum_v1 class invariants:
+//   1. amount_in <= max_position_size
+//   2. min_amount_out respects manifest's max slippage
+//   3. price_observations Poseidon-chain to a committed oracle root
+//   4. direction-specific signal logic (long entry / short entry / exit)
+//   5. block_window_end - block_window_start <= 100
+//   6. exit conditions: signal-flip OR stop-loss
+//   7. params_hash binds (max_position_size, max_slippage_bps,
+//        signal_threshold, stop_loss_price) — operator-declared parameters
+//        committed on-chain in the strategy manifest. The on-chain code
+//        asserts publicInputs[PI_PARAMS_HASH] == manifest.paramsHash, which
+//        is what gives the operator-declared bounds their teeth.
+//   8. trade_hash binds the public fields (cross-vault replay protection
+//        + cheap dedup key for _seenTradeHash).
+//   9. asset_in_idx / asset_out_idx are bounded in [0, UNIVERSE_SIZE) —
+//        the on-chain manifest resolves indices to addresses, so the
+//        circuit only needs to constrain the index range. There is no
+//        in-circuit asset_universe witness in this layout.
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/bitify.circom";
 
 // Asset universe size — manifest enforces this on-chain at registration.
-// Bumping this raises constraint count linearly via the membership checks.
 template MomentumV1(UNIVERSE_SIZE) {
-    // ── Public inputs ───────────────────────────────────────────────
-    signal input trade_hash;            // Poseidon over the trade fields
-    signal input declared_class;        // keccak256("momentum_v1") truncated to BN254 field
-    signal input asset_in;              // address as field element
-    signal input asset_out;
+    // ── Public inputs (order matches StrategyVault.PI_*) ─────────────
+    signal input trade_hash;
+    signal input declared_class;
+    signal input strategy_vault;
+    signal input params_hash;
+    signal input allocator_address;
+    signal input asset_in_idx;
+    signal input asset_out_idx;
     signal input amount_in;
     signal input min_amount_out;
     signal input trade_direction;       // 0=exit, 1=long entry, 2=short entry
-    signal input allocator_address;
     signal input nonce;
     signal input block_window_start;
     signal input block_window_end;
+    signal input oracle_root;
 
     // ── Witness (private) ───────────────────────────────────────────
-    signal input asset_universe[UNIVERSE_SIZE];     // operator's declared universe
-    signal input max_position_size;                 // operator's declared cap
-    signal input max_slippage_bps;                  // operator's declared slippage
-    signal input position_state;                    // current position size (unsigned)
+    signal input max_position_size;                 // operator-declared cap
+    signal input max_slippage_bps;                  // operator-declared slippage (< 10000)
     signal input signal_threshold;                  // operator-chosen threshold (bps)
+    signal input stop_loss_price;                   // operator-declared stop level
     signal input price_observations[16];            // last 16 minute-bars
-    signal input oracle_root;                       // committed price-oracle root
 
     // Direction selector witness (one-hot, validated below).
     signal input is_long_entry;
@@ -53,27 +65,51 @@ template MomentumV1(UNIVERSE_SIZE) {
     // Exit-reason selector witness (one-hot when is_exit, else both 0).
     signal input is_signal_flip;
     signal input is_stop_loss;
-    signal input stop_loss_price;                   // operator-declared stop level
 
-    // ── Constraint 1: asset_in / asset_out in universe ──────────────
-    component memberIn  = InUniverse(UNIVERSE_SIZE);
-    component memberOut = InUniverse(UNIVERSE_SIZE);
-    memberIn.candidate <== asset_in;
-    memberOut.candidate <== asset_out;
-    for (var i = 0; i < UNIVERSE_SIZE; i++) {
-        memberIn.universe[i]  <== asset_universe[i];
-        memberOut.universe[i] <== asset_universe[i];
-    }
-    memberIn.found  === 1;
-    memberOut.found === 1;
+    // ── Constraint A: params_hash binds operator-declared parameters ─
+    // On-chain StrategyVault asserts publicInputs[PI_PARAMS_HASH] equals
+    // the paramsHash stored in the strategy manifest. Combined with this
+    // constraint, the prover can no longer lie about cap / slippage /
+    // threshold / stop-loss — they are pinned to whatever the operator
+    // committed at registration.
+    component paramsPoseidon = Poseidon(4);
+    paramsPoseidon.inputs[0] <== max_position_size;
+    paramsPoseidon.inputs[1] <== max_slippage_bps;
+    paramsPoseidon.inputs[2] <== signal_threshold;
+    paramsPoseidon.inputs[3] <== stop_loss_price;
+    params_hash === paramsPoseidon.out;
 
-    // ── Constraint 2: amount_in <= max_position_size ────────────────
+    // max_slippage_bps must be in [0, 10000] so the (10000 - max_slippage_bps)
+    // term in the slippage constraint cannot wrap around the field.
+    component slipBpsBits = Num2Bits(14);
+    slipBpsBits.in <== max_slippage_bps;
+    component slipBpsLte = LessEqThan(14);
+    slipBpsLte.in[0] <== max_slippage_bps;
+    slipBpsLte.in[1] <== 10000;
+    slipBpsLte.out === 1;
+
+    // ── Constraint B: asset indices in range ────────────────────────
+    // UNIVERSE_SIZE=8 → indices fit in 3 bits. Range-check + strict <.
+    component inIdxBits  = Num2Bits(8);
+    component outIdxBits = Num2Bits(8);
+    inIdxBits.in  <== asset_in_idx;
+    outIdxBits.in <== asset_out_idx;
+    component inIdxLt  = LessThan(8);
+    component outIdxLt = LessThan(8);
+    inIdxLt.in[0]  <== asset_in_idx;
+    inIdxLt.in[1]  <== UNIVERSE_SIZE;
+    outIdxLt.in[0] <== asset_out_idx;
+    outIdxLt.in[1] <== UNIVERSE_SIZE;
+    inIdxLt.out  === 1;
+    outIdxLt.out === 1;
+
+    // ── Constraint 1: amount_in <= max_position_size ────────────────
     component sizeOk = LessEqThan(128);
     sizeOk.in[0] <== amount_in;
     sizeOk.in[1] <== max_position_size;
     sizeOk.out === 1;
 
-    // ── Constraint 3: slippage bound ────────────────────────────────
+    // ── Constraint 2: slippage bound ────────────────────────────────
     // min_amount_out * 10000 >= amount_in * (10000 - max_slippage_bps)
     signal slipLhs;
     signal slipRhs;
@@ -84,7 +120,7 @@ template MomentumV1(UNIVERSE_SIZE) {
     slipOk.in[1] <== slipRhs;
     slipOk.out === 1;
 
-    // ── Constraint 4: chained Poseidon commitment to oracle root ────
+    // ── Constraint 3: chained Poseidon commitment to oracle root ────
     // h[0]   = Poseidon(obs[0])
     // h[i]   = Poseidon(h[i-1], obs[i])  for i in 1..15
     // h[15] === oracle_root
@@ -101,7 +137,7 @@ template MomentumV1(UNIVERSE_SIZE) {
     }
     h[15] === oracle_root;
 
-    // ── Constraint 5: direction-specific signal logic ───────────────
+    // ── Constraint 4: direction-specific signal logic ───────────────
     is_long_entry  * (1 - is_long_entry)  === 0;
     is_short_entry * (1 - is_short_entry) === 0;
     is_exit        * (1 - is_exit)        === 0;
@@ -142,7 +178,7 @@ template MomentumV1(UNIVERSE_SIZE) {
     longNonNeg.in  <== long_excess;
     shortNonNeg.in <== short_excess;
 
-    // ── Constraint 6: block window bound ────────────────────────────
+    // ── Constraint 5: block window bound ────────────────────────────
     signal windowDelta;
     windowDelta <== block_window_end - block_window_start;
     component windowOk = LessEqThan(64);
@@ -150,7 +186,7 @@ template MomentumV1(UNIVERSE_SIZE) {
     windowOk.in[1] <== 100;
     windowOk.out === 1;
 
-    // ── Constraint 7: exit conditions (signal-flip OR stop-loss) ────
+    // ── Constraint 6: exit conditions (signal-flip OR stop-loss) ────
     is_signal_flip * (1 - is_signal_flip) === 0;
     is_stop_loss   * (1 - is_stop_loss)   === 0;
     // When exit: exactly one reason. When not exit: both 0.
@@ -170,50 +206,37 @@ template MomentumV1(UNIVERSE_SIZE) {
     component slNonNeg = Num2Bits(192);
     slNonNeg.in <== sl_excess;
 
-    // ── Constraint 8: trade_hash binds public fields ────────────────
-    component tradePoseidon = Poseidon(8);
-    tradePoseidon.inputs[0] <== declared_class;
-    tradePoseidon.inputs[1] <== asset_in;
-    tradePoseidon.inputs[2] <== asset_out;
-    tradePoseidon.inputs[3] <== amount_in;
-    tradePoseidon.inputs[4] <== min_amount_out;
-    tradePoseidon.inputs[5] <== trade_direction;
-    tradePoseidon.inputs[6] <== allocator_address;
-    tradePoseidon.inputs[7] <== nonce;
+    // ── Constraint 7: trade_hash binds public fields ────────────────
+    // Including strategy_vault prevents replay onto a sibling vault that
+    // happens to register the same momentum verifier.
+    component tradePoseidon = Poseidon(10);
+    tradePoseidon.inputs[0] <== strategy_vault;
+    tradePoseidon.inputs[1] <== declared_class;
+    tradePoseidon.inputs[2] <== params_hash;
+    tradePoseidon.inputs[3] <== allocator_address;
+    tradePoseidon.inputs[4] <== asset_in_idx;
+    tradePoseidon.inputs[5] <== asset_out_idx;
+    tradePoseidon.inputs[6] <== amount_in;
+    tradePoseidon.inputs[7] <== min_amount_out;
+    tradePoseidon.inputs[8] <== trade_direction;
+    tradePoseidon.inputs[9] <== nonce;
     trade_hash === tradePoseidon.out;
-
-    // Bind position_state so the witness check survives optimization.
-    signal posBind;
-    posBind <== position_state * 1;
-}
-
-// ── Universe membership (linear scan; fine for small universes) ────
-template InUniverse(N) {
-    signal input candidate;
-    signal input universe[N];
-    signal output found;
-
-    signal matches[N];
-    var sum = 0;
-    component eq[N];
-    for (var i = 0; i < N; i++) {
-        eq[i] = IsEqual();
-        eq[i].in[0] <== candidate;
-        eq[i].in[1] <== universe[i];
-        matches[i] <== eq[i].out;
-        sum += matches[i];
-    }
-    component sumEq = IsEqual();
-    sumEq.in[0] <== sum;
-    sumEq.in[1] <== 1;
-    found <== sumEq.out;
 }
 
 // Phase 1 universe size: 8 assets per strategy manifest.
 component main { public [
-    trade_hash, declared_class,
-    asset_in, asset_out,
-    amount_in, min_amount_out,
-    trade_direction, allocator_address,
-    nonce, block_window_start, block_window_end
+    trade_hash,
+    declared_class,
+    strategy_vault,
+    params_hash,
+    allocator_address,
+    asset_in_idx,
+    asset_out_idx,
+    amount_in,
+    min_amount_out,
+    trade_direction,
+    nonce,
+    block_window_start,
+    block_window_end,
+    oracle_root
 ] } = MomentumV1(8);

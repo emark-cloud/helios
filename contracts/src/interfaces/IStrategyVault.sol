@@ -17,6 +17,12 @@ interface IStrategyVault {
         uint16 feeRateBps;
         address operator;
         uint256 stakeAmount;
+        // Poseidon commitment to operator-declared circuit parameters
+        // (max_position_size, max_slippage_bps, signal_threshold, stop_loss_price).
+        // The momentum_v1 circuit recomputes this from its private witnesses
+        // and the StrategyVault asserts publicInputs[PI_PARAMS_HASH] matches —
+        // so the prover cannot lie about the declared cap / slippage bounds.
+        bytes32 paramsHash;
     }
 
     event TradeAttested(
@@ -33,6 +39,12 @@ interface IStrategyVault {
         uint64 blockWindowEnd
     );
     event NAVReported(address indexed strategy, uint256 totalNAV, uint64 timestamp);
+    event NavClampedOnWithdraw(
+        address indexed strategy,
+        address indexed allocator,
+        uint256 priorTotalNAV,
+        uint256 withdrawAmount
+    );
     event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
 
@@ -41,6 +53,10 @@ interface IStrategyVault {
     error NotRegistry();
     error AssetNotInUniverse();
     error CapacityExceeded();
+    error ClassMismatch();
+    error VaultMismatch();
+    error AllocatorMismatch();
+    error ParamsHashMismatch();
 
     function executeWithProof(
         bytes calldata proof,

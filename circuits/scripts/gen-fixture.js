@@ -28,53 +28,65 @@ function asField(n) {
     return h;
   };
 
-  const universe = Array.from({ length: 8 }, (_, i) => asField(0xaa00 + i));
-  const asset_in = universe[0];
-  const asset_out = universe[3];
+  const max_position_size = "5000000000000000000";
+  const max_slippage_bps = "50";
+  const signal_threshold = "100";
+  const stop_loss_price = "0";
+  const params_hash = ph([max_position_size, max_slippage_bps, signal_threshold, stop_loss_price]);
+
+  const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  const oracle_root = chained(price_observations);
+
+  const declared_class = asField("0x1234");
+  const strategy_vault = asField("0xbeef00");
+  const allocator_address = asField("0xa11ca7");
+  const asset_in_idx = "0";
+  const asset_out_idx = "3";
   const amount_in = "1000000000000000000";
   const min_amount_out = "995000000000000000";
   const trade_direction = "1";
-  const allocator_address = asField(0xa11ca7);
   const nonce = "42";
-  const declared_class = asField("0x1234");
-  const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
-  const oracle_root = chained(price_observations);
+  const block_window_start = "100";
+  const block_window_end = "150";
+
   const trade_hash = ph([
+    strategy_vault,
     declared_class,
-    asset_in,
-    asset_out,
+    params_hash,
+    allocator_address,
+    asset_in_idx,
+    asset_out_idx,
     amount_in,
     min_amount_out,
     trade_direction,
-    allocator_address,
     nonce,
   ]);
 
   const input = {
     trade_hash,
     declared_class,
-    asset_in,
-    asset_out,
+    strategy_vault,
+    params_hash,
+    allocator_address,
+    asset_in_idx,
+    asset_out_idx,
     amount_in,
     min_amount_out,
     trade_direction,
-    allocator_address,
     nonce,
-    block_window_start: "100",
-    block_window_end: "150",
-    asset_universe: universe,
-    max_position_size: "5000000000000000000",
-    max_slippage_bps: "50",
-    position_state: "0",
-    signal_threshold: "100",
-    price_observations,
+    block_window_start,
+    block_window_end,
     oracle_root,
+    max_position_size,
+    max_slippage_bps,
+    signal_threshold,
+    stop_loss_price,
+    price_observations,
     is_long_entry: "1",
     is_short_entry: "0",
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
-    stop_loss_price: "0",
   };
 
   console.log("generating proof…");

@@ -137,7 +137,8 @@ contract AllocatorVaultTest is Test {
             maxCapacity: 1_000_000e6,
             feeRateBps: STRAT_FEE_BPS,
             operator: stratOp,
-            stakeAmount: 5000e6
+            stakeAmount: 5000e6,
+            paramsHash: bytes32(0)
         });
         bytes memory initData = abi.encodeCall(
             StrategyVault.initialize,
@@ -451,7 +452,7 @@ contract AllocatorVaultTest is Test {
     // ── helpers ────────────────────────────────────────────────────
 
     function _reportNAV(StrategyVault s, uint256 nav, uint64 ts) internal {
-        bytes32 digest = keccak256(abi.encode(address(s), nav, ts));
+        bytes32 digest = keccak256(abi.encode(block.chainid, address(s), nav, ts));
         (uint8 v, bytes32 r, bytes32 sigS) = vm.sign(navOracleKey, digest);
         bytes memory sig = abi.encodePacked(r, sigS, v);
         s.reportNAV(abi.encode(nav, ts, sig));

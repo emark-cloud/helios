@@ -1,8 +1,7 @@
 // Helios — momentum_v1 witness-generation tests.
 //
-// Phase 1 scaffold: validates the circuit compiles and accepts a
-// well-formed valid witness. Full happy/invalid/boundary suite
-// (Helios.md §9.3) lands as the constraint-5 signal logic firms up.
+// Validates the v2 circuit schema (14 public inputs, params_hash binding,
+// strategy_vault binding, asset indices instead of address membership).
 
 const path = require("node:path");
 const test = require("node:test");
@@ -21,9 +20,7 @@ test.before(async () => {
   F = poseidon.F;
 });
 
-// snarkjs leaks file handles via fastFile; the GC closes them after the
-// test runner has marked the file complete, which throws an uncaughtException.
-// Force a clean exit once all tests have actually finished.
+// snarkjs leaks file handles via fastFile; force a clean exit once done.
 test.after(() => {
   setImmediate(() => process.exit(0));
 });
@@ -45,75 +42,74 @@ function chainedPoseidon(observations) {
   return h;
 }
 
-function buildValidInput() {
-  // Universe of 8 ERC-20 addresses (as field elements). Slot 0 = WKITE-ish.
-  const universe = Array.from({ length: UNIVERSE_SIZE }, (_, i) => asField(0xaa00 + i));
+function paramsHashOf({ max_position_size, max_slippage_bps, signal_threshold, stop_loss_price }) {
+  return poseidonHash([max_position_size, max_slippage_bps, signal_threshold, stop_loss_price]);
+}
 
-  const asset_in = universe[0];
-  const asset_out = universe[3];
-  const amount_in = "1000000000000000000"; // 1.0 in 18-dec
+function tradeHashOf(input) {
+  return poseidonHash([
+    input.strategy_vault,
+    input.declared_class,
+    input.params_hash,
+    input.allocator_address,
+    input.asset_in_idx,
+    input.asset_out_idx,
+    input.amount_in,
+    input.min_amount_out,
+    input.trade_direction,
+    input.nonce,
+  ]);
+}
+
+function buildValidInput() {
   const max_position_size = "5000000000000000000"; // 5.0
   const max_slippage_bps = "50"; // 0.5%
-  // min_amount_out >= amount_in * (10000 - 50) / 10000 = amount_in * 0.995
-  const min_amount_out = "995000000000000000";
-  const trade_direction = "1"; // long entry
-  const allocator_address = asField(0xa11ca7);
-  const nonce = "42";
-  const block_window_start = "100";
-  const block_window_end = "150"; // delta 50 ≤ 100
+  const signal_threshold = "100"; // 1.0%
+  const stop_loss_price = "0";
+  const params_hash = paramsHashOf({
+    max_position_size,
+    max_slippage_bps,
+    signal_threshold,
+    stop_loss_price,
+  });
 
-  // Monotonically rising bars: 1000, 1005, ..., 1075. Total 7.5% rise; with
-  // signal_threshold of 100 bps the long-entry excess is positive.
+  // Monotonically rising bars: 1000, 1005, ..., 1075. Total 7.5% rise.
   const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
   const oracle_root = chainedPoseidon(price_observations);
 
-  const declared_class = asField("0x1234");
-  const trade_hash = poseidonHash([
-    declared_class,
-    asset_in,
-    asset_out,
-    amount_in,
-    min_amount_out,
-    trade_direction,
-    allocator_address,
-    nonce,
-  ]);
-
-  return {
-    trade_hash,
-    declared_class,
-    asset_in,
-    asset_out,
-    amount_in,
-    min_amount_out,
-    trade_direction,
-    allocator_address,
-    nonce,
-    block_window_start,
-    block_window_end,
-    asset_universe: universe,
+  const base = {
+    declared_class: asField("0x1234"),
+    strategy_vault: asField("0xbeef00"),
+    params_hash,
+    allocator_address: asField("0xa11ca7"),
+    asset_in_idx: "0",
+    asset_out_idx: "3",
+    amount_in: "1000000000000000000",
+    // amount_in * (10000 - 50) / 10000 = 0.995 * 1e18.
+    min_amount_out: "995000000000000000",
+    trade_direction: "1", // long entry
+    nonce: "42",
+    block_window_start: "100",
+    block_window_end: "150",
+    oracle_root,
     max_position_size,
     max_slippage_bps,
-    position_state: "0",
-    signal_threshold: "100", // 1.0% threshold
+    signal_threshold,
+    stop_loss_price,
     price_observations,
-    oracle_root,
-    // Direction selector (one-hot) — long entry.
     is_long_entry: "1",
     is_short_entry: "0",
     is_exit: "0",
-    // Exit reason — both 0 because is_exit == 0.
     is_signal_flip: "0",
     is_stop_loss: "0",
-    stop_loss_price: "0",
   };
+  base.trade_hash = tradeHashOf(base);
+  return base;
 }
 
 function buildValidExitInput() {
-  // Same universe + bookkeeping as the long-entry case, but a falling price
-  // series so the signal-flip exit predicate succeeds.
   const input = buildValidInput();
-  // Reverse direction → exit (0); rebuild observations to fall by 7.5%.
+  // Falling series → signal-flip exit.
   const falling = Array.from({ length: 16 }, (_, i) => asField(1075 - i * 5));
   input.price_observations = falling;
   input.oracle_root = chainedPoseidon(falling);
@@ -123,42 +119,23 @@ function buildValidExitInput() {
   input.is_exit = "1";
   input.is_signal_flip = "1";
   input.is_stop_loss = "0";
-  input.stop_loss_price = "0";
-  // Recompute trade_hash for the new direction.
-  input.trade_hash = poseidonHash([
-    input.declared_class,
-    input.asset_in,
-    input.asset_out,
-    input.amount_in,
-    input.min_amount_out,
-    input.trade_direction,
-    input.allocator_address,
-    input.nonce,
-  ]);
+  input.trade_hash = tradeHashOf(input);
   return input;
 }
 
 function buildValidStopLossInput() {
-  // Long-position holder hits a stop loss: exit triggered by stop-loss reason.
   const input = buildValidInput();
+  // Long-position holder hits a stop loss: exit triggered by stop-loss reason.
   input.trade_direction = "0";
   input.is_long_entry = "0";
   input.is_short_entry = "0";
   input.is_exit = "1";
   input.is_signal_flip = "0";
   input.is_stop_loss = "1";
-  // Last observation is 1075; set stop_loss_price >= 1075 so price_last <= stop.
+  // Last observation is 1075; stop_loss_price >= 1075 satisfies (stop - last) >= 0.
   input.stop_loss_price = "1080";
-  input.trade_hash = poseidonHash([
-    input.declared_class,
-    input.asset_in,
-    input.asset_out,
-    input.amount_in,
-    input.min_amount_out,
-    input.trade_direction,
-    input.allocator_address,
-    input.nonce,
-  ]);
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
   return input;
 }
 
@@ -173,34 +150,14 @@ test("momentum_v1: valid witness generates", async () => {
 test("momentum_v1: amount_in over cap rejected", async () => {
   const input = buildValidInput();
   input.amount_in = "9999000000000000000000"; // way over max_position_size
-  // Ensure the trade_hash still matches the (now bad) amount so the failure
-  // is on the size constraint, not the hash binding.
-  input.trade_hash = poseidonHash([
-    input.declared_class,
-    input.asset_in,
-    input.asset_out,
-    input.amount_in,
-    input.min_amount_out,
-    input.trade_direction,
-    input.allocator_address,
-    input.nonce,
-  ]);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
-test("momentum_v1: asset_in not in universe rejected", async () => {
+test("momentum_v1: asset_in_idx out of range rejected", async () => {
   const input = buildValidInput();
-  input.asset_in = asField(0xdead); // not in the universe
-  input.trade_hash = poseidonHash([
-    input.declared_class,
-    input.asset_in,
-    input.asset_out,
-    input.amount_in,
-    input.min_amount_out,
-    input.trade_direction,
-    input.allocator_address,
-    input.nonce,
-  ]);
+  input.asset_in_idx = String(UNIVERSE_SIZE); // == UNIVERSE_SIZE → must fail (< check)
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
@@ -212,13 +169,32 @@ test("momentum_v1: window > 100 blocks rejected", async () => {
 
 test("momentum_v1: trade_hash mismatch rejected", async () => {
   const input = buildValidInput();
-  input.trade_hash = poseidonHash([1, 2, 3, 4, 5, 6, 7, 8]); // arbitrary wrong hash
+  input.trade_hash = poseidonHash([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]); // arbitrary wrong hash
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: params_hash mismatch rejected", async () => {
+  const input = buildValidInput();
+  // Tamper a private parameter without re-deriving params_hash.
+  input.max_position_size = "9999000000000000000";
+  // trade_hash is over public fields — params_hash itself is public so the
+  // trade_hash recomputation isn't needed here; the constraint failure is
+  // on the params Poseidon equality.
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
 test("momentum_v1: oracle root mismatch rejected", async () => {
   const input = buildValidInput();
-  input.oracle_root = "0"; // doesn't match the chained Poseidon of observations
+  input.oracle_root = "0"; // doesn't match chained Poseidon of observations
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+test("momentum_v1: max_slippage_bps over 10000 rejected", async () => {
+  const input = buildValidInput();
+  input.max_slippage_bps = "20000";
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
@@ -226,6 +202,8 @@ test("momentum_v1: long entry without sufficient momentum rejected", async () =>
   const input = buildValidInput();
   // Bump threshold above the 7.5% rise → long_excess_raw becomes negative.
   input.signal_threshold = "10000"; // 100%
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
@@ -246,10 +224,10 @@ test("momentum_v1: exit (signal flip) accepted on falling prices", async () => {
 
 test("momentum_v1: exit (signal flip) rejected when prices still rising", async () => {
   const input = buildValidExitInput();
-  // Override observations back to the rising series so the flip predicate fails.
   const rising = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
   input.price_observations = rising;
   input.oracle_root = chainedPoseidon(rising);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
@@ -264,12 +242,13 @@ test("momentum_v1: exit (stop loss) rejected when stop below last price", async 
   const input = buildValidStopLossInput();
   // Last observation is 1075; pick a stop below that to force the predicate to fail.
   input.stop_loss_price = "500";
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
 test("momentum_v1: exit with neither flip nor stop-loss reason rejected", async () => {
   const input = buildValidInput();
-  // Direction = exit but no reason flagged.
   input.trade_direction = "0";
   input.is_long_entry = "0";
   input.is_short_entry = "0";
@@ -277,15 +256,6 @@ test("momentum_v1: exit with neither flip nor stop-loss reason rejected", async 
   input.is_signal_flip = "0";
   input.is_stop_loss = "0";
   input.stop_loss_price = "0";
-  input.trade_hash = poseidonHash([
-    input.declared_class,
-    input.asset_in,
-    input.asset_out,
-    input.amount_in,
-    input.min_amount_out,
-    input.trade_direction,
-    input.allocator_address,
-    input.nonce,
-  ]);
+  input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });

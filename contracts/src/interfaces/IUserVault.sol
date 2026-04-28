@@ -15,6 +15,16 @@ interface IUserVault {
         address indexed user, address indexed allocator, uint256 feeAmount, uint256 newHighWaterMark
     );
     event Withdrawn(address indexed user, address indexed asset, uint256 amount);
+    event AllocatorTransfer(
+        address indexed user, address indexed allocator, uint256 amount, uint256 newBalance
+    );
+    event AllocatorCredit(
+        address indexed user,
+        address indexed allocator,
+        uint256 amount,
+        uint256 newBalance,
+        uint256 newHighWaterMark
+    );
 
     error OutOfBoundsDelegation();
     error MetaStrategyExpired();

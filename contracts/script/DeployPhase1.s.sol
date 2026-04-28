@@ -175,7 +175,10 @@ contract DeployPhase1 is Script {
             maxCapacity: MAX_CAPACITY,
             feeRateBps: STRATEGY_FEE_BPS,
             operator: deployer,
-            stakeAmount: STRATEGY_STAKE
+            stakeAmount: STRATEGY_STAKE,
+            // Phase 1 wires the demo paramsHash off-chain via the strategy SDK; the
+            // deploy script leaves it zero. Real strategies set it before registering.
+            paramsHash: bytes32(0)
         });
         bytes memory init = abi.encodeCall(
             StrategyVault.initialize,

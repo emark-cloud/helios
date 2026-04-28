@@ -58,6 +58,10 @@ contract AllocatorVault is
     mapping(address user => mapping(address strategy => uint256)) internal _strategyDeployed;
     uint256 internal _accruedFees;
 
+    /// @dev Reserved storage for future upgrades. Append new state variables
+    ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
+    uint256[50] private __gap;
+
     error ZeroAddress();
     error ZeroAmount();
     error InvalidWeights();
