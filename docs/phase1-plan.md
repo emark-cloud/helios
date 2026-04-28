@@ -275,7 +275,7 @@ When Kite testnet gets either Algebra deployment or a real oracle, the price sou
 WS3 has two tracks, sharing a single script:
 
 - **Track A — local anvil-kite (canonical, CI-gated).** Default target. Deterministic, reproducible, gates every PR, satisfies the "fresh clone + scenario in 10 min" Phase 1 acceptance bar. `scripts/e2e-scenario.sh` runs against the `anvil-kite` service in `docker-compose.yml`.
-- **Track B — live Kite testnet (one-shot, judge-facing).** Same script invoked as `RPC_URL=$KITE_RPC_URL ./scripts/e2e-scenario.sh`. Broadcasts to Kite testnet, populates `contracts/deployments/kite-testnet.json` with real addresses, gives Goldsky + frontend + judges live tx hashes to verify on OKLink. Run once at WS3 sign-off; **not** in CI.
+- **Track B — live Kite testnet (one-shot, judge-facing).** Same script invoked as `RPC_URL=$KITE_RPC_URL ./scripts/e2e-scenario.sh`. Broadcasts to Kite testnet, populates `contracts/deployments/kite-testnet.json` with real addresses, gives Goldsky + frontend + judges live tx hashes to verify on Kitescan. Run once at WS3 sign-off; **not** in CI.
 
 `Helios.md §6 / §9` stake the marketplace pitch on "go verify it yourself" — Track B is what makes those addresses real. Track A is what keeps the loop tight enough to ship.
 

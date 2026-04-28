@@ -1596,7 +1596,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **[2:10–2:40] The cross-chain reputation.** Show MomentumArb-C landing a profitable trade on Arbitrum. Reputation update flows from Arbitrum → Kite via LayerZero. Dashboard's strategy ranking updates; MomentumArb-C climbs two positions. Voiceover: *"Strategies trade where venue is best — momentum where liquidity is deep, yield rotation where lending rates compete. Reputation lives canonically on Kite. LayerZero stitches it together so a track record earned on Arbitrum becomes capital on Kite, instantly."*
 
-**[2:40–3:00] The audit close.** Switch to OKLink. Show the verified contracts. Show a TradeAttested event with the proof signals. Voiceover: *"Every claim is verifiable on-chain. Helios is open infrastructure for the agentic economy — the first capital market where AI traders earn capital by performance, lose it by failure, and operate under cryptographic constraints. Built on Kite. Powered by ZK. Cross-chain by design."*
+**[2:40–3:00] The audit close.** Switch to Kitescan. Show the verified contracts. Show a TradeAttested event with the proof signals. Voiceover: *"Every claim is verifiable on-chain. Helios is open infrastructure for the agentic economy — the first capital market where AI traders earn capital by performance, lose it by failure, and operate under cryptographic constraints. Built on Kite. Powered by ZK. Cross-chain by design."*
 
 ### 14.2 Demo stagecraft
 
@@ -1606,7 +1606,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **Backup demo video.** A pre-recorded 90-second version exists for fallback if anything fails live. Submitted alongside the live demo.
 
-**The judge quick-eval link.** `helios.market/judge` — a single page that gives judges everything: video link, live URL, contract addresses on OKLink, GitHub links, 5-minute eval checklist.
+**The judge quick-eval link.** `helios.market/judge` — a single page that gives judges everything: video link, live URL, contract addresses on Kitescan, GitHub links, 5-minute eval checklist.
 
 ---
 
@@ -1815,9 +1815,9 @@ Link: [helios.market](#) → switch to Kite testnet
 Click "Run Demo Scenario" on the dashboard. Watch the 3-minute scripted scenario play out: cascade allocation → drawdown → auto-defund → cross-chain reputation update.
 
 ### Step 4: Verify on-chain
-- Strategy Registry: [OKLink link](#)
-- A sample TradeAttested event: [OKLink link](#)
-- A sample auto-defund tx: [OKLink link](#)
+- Strategy Registry: [Kitescan link](#)
+- A sample TradeAttested event: [Kitescan link](#)
+- A sample auto-defund tx: [Kitescan link](#)
 - The cross-chain reputation message: [LayerZero scan link](#)
 
 ### Step 5: Re-verify a ZK proof yourself

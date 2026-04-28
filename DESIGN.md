@@ -370,7 +370,7 @@ The judge evaluation page. 5-minute checklist, everything they need.
 Needs:
 - Video link at top (3-minute demo, 90-second backup)
 - "Try the demo scenario" button — single click, launches the scripted auto-defund scene
-- Contract addresses (Kite, Base, Arbitrum) with OKLink/explorer links
+- Contract addresses (Kite, Base, Arbitrum) with explorer links (Kitescan / BaseScan / Arbiscan)
 - GitHub links (code, SDK, circuits, subgraph)
 - A "verify a ZK proof yourself" command block with syntax highlighting
 - The 5-step eval checklist from the spec, each with direct links
@@ -566,7 +566,7 @@ Current NAV: $1,012.40
 - Emoji is allowed here but used with restraint — status markers only (⚡ for activity, ⚠️ for alerts, ✓ for confirmations)
 - No bot personality, no "hi!" greetings, no reaction prompts
 - All numbers formatted identically to the web app (tabular-friendly even in a text channel)
-- Trade links point to OKLink explorer
+- Trade links point to the chain explorer (Kitescan on Kite; BaseScan / Arbiscan on Phase 5 chains)
 
 This is a trader's channel, not a community chat.
 

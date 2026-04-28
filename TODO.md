@@ -180,7 +180,7 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [x] Address loader from `contracts/deployments/<chain>.json` (direct JSON import; the contracts-abi addresses module is empty until its generate step runs)
 
 **Pages:**
-- [x] `/strategies` — public directory table, sortable by every column, filter by class/chain; row click → OKLink address page (Phase 4 swaps to `/strategies/[id]`)
+- [x] `/strategies` — public directory table, sortable by every column, filter by class/chain; row click → Kitescan address page (Phase 4 swaps to `/strategies/[id]`)
 - [x] `/onboard` — template picker (Conservative/Balanced/Aggressive), customization panel (asset universe, max per-strategy, drawdown threshold, max fee rate, rebalance cadence, max strategies), plainspoken commitment summary, EOA `personal_sign` tagged `[PASSPORT-STUB]` per `docs/kite-passport-notes.md`
 - [x] `/dashboard` — top strip (total NAV, capital deployed, all-time P&L, fees-to-date), current allocator card, active allocations table, live activity rail (WS to Sentinel), withdraw control always visible (button disabled — Phase 2 wires the tx)
 
@@ -326,13 +326,14 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [ ] Focus rings visible and amber-toned
 - [ ] WCAG AA contrast audit passes across all pages
 - [ ] Projector legibility check (low-contrast crush test on 1080p)
+- [ ] `/onboard` error UX — `OnboardClient.tsx:72-74` surfaces raw `Failed to fetch` when Sentinel is unreachable, hiding that the signature succeeded. Distinguish "signed but allocator unreachable" (retryable, signature kept) from "signing failed" (rejected/aborted). Surfaced during Tier 1 local-testing 2026-04-28.
 
 ### FE — Telegram bot
 - [ ] `@helios_market_bot` deployed, token in `TELEGRAM_BOT_TOKEN`
 - [ ] Event subscriptions consume the allocator WS stream
 - [ ] Message templates per `DESIGN.md §15`:
   - [ ] `StrategyAllocated`, `StrategyDefunded`, `RebalanceComplete`, `FeeAccrued`, `WithdrawalReady`
-  - [ ] Each ≤ 200 chars, one event per message, restrained emoji (⚡/⚠️/✓ only), links to OKLink
+  - [ ] Each ≤ 200 chars, one event per message, restrained emoji (⚡/⚠️/✓ only), links to Kitescan
 - [ ] User opt-in flow from `/dashboard`
 
 ### Acceptance for Phase 4
