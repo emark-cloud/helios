@@ -71,7 +71,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     signer = LocalSigner(cfg.signer_pk)
     store = SnapshotStore(signer=signer, capacity_per_asset=cfg.snapshot_capacity)
 
-    http_client = httpx.AsyncClient(headers={"User-Agent": "helios-oracle/0.1"})
+    http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-oracle/0.1"})
     sources: list[PriceSource] = []
     if cfg.scenario_mode:
         sources.append(ScenarioSource(cfg.scenario_file))

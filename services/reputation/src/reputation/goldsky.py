@@ -91,7 +91,9 @@ def _parse_strategy(raw: dict[str, Any]) -> StrategyRollup:
     allocations: list[dict[str, Any]] = list(raw.get("allocations") or [])
 
     total_proof_valid = sum(1 for t in trades if t.get("proofValid"))
-    capital = _max_int([_to_int(a.get("capitalDeployed")) for a in allocations] or [0])
+    # `Allocation.capitalDeployed` is per-event (graph-ts BigInt limitation,
+    # see project_subgraph_bigint_limitation.md). Sum at query time.
+    capital = sum(_to_int(a.get("capitalDeployed")) for a in allocations)
 
     realized_pnl = _realized_pnl_30d(nav_snapshots)
 
@@ -109,10 +111,6 @@ def _to_int(v: Any) -> int:
     if v is None:
         return 0
     return int(v)  # GraphQL BigInt arrives as a string
-
-
-def _max_int(xs: list[int]) -> int:
-    return max(xs) if xs else 0
 
 
 def _realized_pnl_30d(nav_snapshots: list[dict[str, Any]]) -> int:
