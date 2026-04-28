@@ -206,6 +206,11 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
             )
         )
         with client.websocket_connect(f"/v1/users/{user_addr}/events") as ws:
+            # The POST above also emits a META_STRATEGY_SET event so the
+            # activity rail shows delegation on reconnect-replay; drain it
+            # first, then assert on the manually pre-emitted ALLOCATION_CREATED.
+            meta = ws.receive_json()
+            assert meta["kind"] == "META_STRATEGY_SET"
             replayed = ws.receive_json()
             assert replayed["kind"] == "ALLOCATION_CREATED"
             assert replayed["strategy"] == "0x" + "11" * 20
