@@ -2,13 +2,16 @@
 
 import uvicorn
 
-from oracle.service import Settings, build_app
+from oracle.service import Settings
 
 
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]
+    # Pass the factory as an import string so uvicorn's reload mode can
+    # re-import on change. Passing the callable directly is incompatible
+    # with `reload=True`.
     uvicorn.run(
-        build_app,
+        "oracle.service:build_app",
         host=settings.http_host,
         port=settings.http_port,
         factory=True,

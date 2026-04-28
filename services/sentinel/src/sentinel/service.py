@@ -17,6 +17,7 @@ preservation that `UserVault.setMetaStrategy` does.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -36,7 +37,7 @@ from sentinel.schemas import (
     MetaStrategyPayload,
     StrategyDirectoryRow,
 )
-from sentinel.state import SentinelStore
+from sentinel.state import SentinelEvent, SentinelStore
 
 
 class Settings(BaseServiceSettings):
@@ -133,6 +134,19 @@ def _make_router(
             raise HTTPException(status_code=400, detail="path/body user mismatch")
         meta = payload.to_sdk_meta()
         store.upsert_user(meta)
+        # Append an operational event so the activity rail (live and on
+        # reconnect-replay) reflects that the user is delegated. Without
+        # this the rail stays blank until the first allocation lands.
+        store.emit_event(
+            SentinelEvent(
+                user_address=meta.user_address,
+                kind="META_STRATEGY_SET",
+                strategy_id=None,
+                amount_usd=0,
+                reason="meta-strategy signed",
+                timestamp=int(time.time()),
+            )
+        )
         u = store.get_user(meta.user_address)
         return {
             "ok": True,

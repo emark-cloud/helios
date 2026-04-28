@@ -34,15 +34,21 @@ services:
 
   # Kite testnet fork. Kite has 1-second block times; we mirror that locally
   # so the auto-defund demo timing matches production expectations.
+  #
+  # The foundry image's ENTRYPOINT is `["sh", "-c"]`, which means a `command`
+  # list is passed as positional args to a no-script shell — anvil never sees
+  # the flags. Override `entrypoint` so the args reach anvil directly.
   anvil-kite:
     image: ghcr.io/foundry-rs/foundry:latest
     restart: unless-stopped
-    command: >
-      anvil
-      --host 0.0.0.0
-      --chain-id 2368
-      --block-time 1
-      ${KITE_RPC_URL:+--fork-url ${KITE_RPC_URL}}
+    entrypoint: ["anvil"]
+    command:
+      - --host
+      - "0.0.0.0"
+      - --chain-id
+      - "2368"
+      - --block-time
+      - "1"
     ports:
       - "8545:8545"
 
@@ -50,12 +56,14 @@ services:
   anvil-base:
     image: ghcr.io/foundry-rs/foundry:latest
     restart: unless-stopped
-    command: >
-      anvil
-      --host 0.0.0.0
-      --chain-id 84532
-      --block-time 2
-      ${BASE_SEPOLIA_RPC_URL:+--fork-url ${BASE_SEPOLIA_RPC_URL}}
+    entrypoint: ["anvil"]
+    command:
+      - --host
+      - "0.0.0.0"
+      - --chain-id
+      - "84532"
+      - --block-time
+      - "2"
     ports:
       - "8546:8545"
 
@@ -63,12 +71,14 @@ services:
   anvil-arbitrum:
     image: ghcr.io/foundry-rs/foundry:latest
     restart: unless-stopped
-    command: >
-      anvil
-      --host 0.0.0.0
-      --chain-id 421614
-      --block-time 2
-      ${ARBITRUM_SEPOLIA_RPC_URL:+--fork-url ${ARBITRUM_SEPOLIA_RPC_URL}}
+    entrypoint: ["anvil"]
+    command:
+      - --host
+      - "0.0.0.0"
+      - --chain-id
+      - "421614"
+      - --block-time
+      - "2"
     ports:
       - "8547:8545"
 
