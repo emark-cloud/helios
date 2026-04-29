@@ -33,9 +33,13 @@ Outcome at end of Phase 2: multiple strategies per class with non-zero capital, 
 | WS4.B | `helios` CLI subcommands | WS4.A, WS2.B | WS5 |
 | WS5 | `/audit` page | WS2.A | WS4.B |
 | WS6 | Phase 2 e2e + acceptance | all above | — |
+| WS7.A | ZK params commitment binding (spec + registry rotateParams + YR check) | WS3.A | WS4, WS5 |
+| WS7.B | Reputation cold-start (engine + Sentinel bootstrap pool) | WS2.A | WS4 |
+| WS7.C | Auto-defund griefing + NAV signer (spec + meta-strategy fields) | — | any |
+| WS7.D | Stake-weighting honest framing (Helios.md text only) | — | any |
 
-**Critical path (serial):** WS1.A → WS1.B → WS3.A → WS3.B → WS6 ≈ 12.5 days.
-**Wall-clock with one engineer:** ~15–17 days. **With two:** ~9–11 days.
+**Critical path (serial):** WS1.A → WS1.B → WS3.A → WS3.B → WS6 ≈ 12.5 days. WS7 adds ~3 days on top, mostly WS7.A + WS7.B; WS7.C/D are doc + small schema changes.
+**Wall-clock with one engineer:** ~18–20 days with WS7. **With two:** ~11–13 days.
 
 ---
 
@@ -229,6 +233,76 @@ CI gates this as Phase 2's end-to-end integration test (path-filtered like Phase
 
 ---
 
+## WS7 — Spec hardening & soundness (added 2026-04-29)
+
+Added after a spec review flagged four gaps in `Helios.md`. Three are real (ZK params binding, NAV signer / griefing surface, reputation cold-start); one is a framing fix (stake-weighting). All four are reflected in `Helios.md` under §6.3, §6.4, §6.5, §8.1, §8.5, §8.7 (new), §9.2, §9.3.
+
+### WS7.A — ZK params commitment binding (M, ~2 days)
+
+**Why.** Phase 1/2 circuits already include `params_hash` as a public input and `StrategyVault.executeWithProof` already enforces `publicInputs[PI_PARAMS_HASH] == manifest.paramsHash` (see `contracts/src/StrategyVault.sol:212`, `circuits/momentum_v1.circom:80`). The spec text in `Helios.md §9.3` had not been updated to reflect this, and an explicit `rotateParams` path with cooldown + event is missing. Without the explicit rotation event the operator could in principle silently reset the manifest to refit the threshold.
+
+**Deliverables**
+- `contracts/src/StrategyRegistry.sol` — add `rotateParams(strategyId, newParamsHash)` with `paramsRotationCooldown` (default 24h) + `ParamsRotated(strategyId, oldHash, newHash, blockTimestamp)` event. `onlyOperator` modifier.
+- `contracts/src/interfaces/IStrategyRegistry.sol` — extend interface; regenerate ABIs into `packages/contracts-abi/`.
+- `contracts/test/StrategyRegistry.t.sol` — cooldown enforced, only operator can rotate, `manifest.paramsHash` cannot be written via any other path.
+- `contracts/src/StrategyVault.sol` — when class is `yield_rotation_v1`, additionally check that `trade_hash` reconstructs against the manifest's stored params hash (since YR binds threshold + bridging cost via `trade_hash`, not a separate PI). Add Foundry invariant test.
+- `services/reputation/src/reputation/score.py` — listen for `ParamsRotated`; reset the strategy's `AgeScore` window and `PerformanceScore` window to the rotation epoch. Track-record breaks visibly across rotations.
+- Subgraph: `ParamsRotated` mapping → `Strategy.paramsRotations[]` derived field. **No schema break** (additive entity field; honors `project_subgraph_goldsky_wasm` pin).
+- `Helios.md §6.5, §9.2, §9.3` — text updated as part of this PR (already landed in the 2026-04-29 spec edits).
+
+**Tests**
+- Foundry: rotation cooldown, only-operator, post-rotation a stale-params proof reverts.
+- Reputation engine: pytest asserts `AgeScore` resets on `ParamsRotated` event.
+- e2e scenario (WS6 extension): one strategy rotates mid-scenario; the dashboard activity rail shows the event; the reputation engine score drops on the cohort cohort-relative re-baseline.
+
+**Acceptance:** TODO WS7.A items + Helios.md §9.3 PI list matches actual circuit + on-chain enforcement.
+
+### WS7.B — Reputation cold-start mechanism (M, ~2 days)
+
+**Why.** §8.2 cohort-relative scoring and the example meta-strategy filter (Sharpe ≥ 1.5, stake > $5k) deadlock at launch: a new strategy can't attract capital, so it can't generate the track record that would raise its score. Spec needs an explicit bootstrap path.
+
+**Deliverables**
+- `services/reputation/src/reputation/cohort.py` — `min_cohort_size = 3` (was 2 in WS2.A draft); add explicit raw-Sharpe fallback (`(Sharpe - 0) / 1`) below the threshold per `Helios.md §8.7`.
+- `services/reputation/src/reputation/score.py` — stake-only floor: when `trades_attested == 0`, return `score = w_stake × StakeScore`. Unit test asserts monotonic non-decrease as proofs accumulate.
+- `services/sentinel/src/sentinel/allocator.py` — split allocation into a main pool and a bootstrap pool. `bootstrap_share_bps` (default 1000 = 10%) of total capital reserved for strategies with `trades_attested < min_attested_trades` (default 50). Bootstrap pool allocations are stake-weighted with a flat performance prior; main pool keeps the existing rank function.
+- `services/sentinel/src/sentinel/schemas.py` + `packages/allocator-sdk/src/helios_allocator/meta.py` — `bootstrap_share_bps` and `min_attested_trades` first-class meta-strategy fields.
+- `frontend/src/app/onboard/OnboardClient.tsx` — onboarding form exposes the bootstrap share (defaults visible, hidden behind an "Advanced" disclosure to preserve the current onboarding density per `DESIGN.md §5`).
+- `docs/reputation-math.md` — section "Cold start" annotates the three components.
+
+**Tests**
+- pytest: cold-start strategy with zero trades and committed stake gets `score == w_stake × StakeScore`.
+- Sentinel unit test: bootstrap pool allocates to a fresh strategy that the main filter excludes.
+- e2e scenario extension: register a fresh strategy mid-scenario with no track record; assert it receives non-zero capital from the bootstrap pool within one rebalance cycle.
+
+**Acceptance:** TODO WS7.B items + the Phase 2 e2e scenario includes a fresh strategy proving the bootstrap path.
+
+### WS7.C — Auto-defund griefing + NAV signer (S, ~1 day in Phase 2; implementation Phase 4)
+
+**Why.** `Helios.md §6.3` made `defundStrategy` permissionless on a single drawdown read, with no specification of who signs `reportNAV` or how to mitigate transient mark-to-market dips. Reviewer correctly flagged this as a griefing surface. Phase 2 commits the spec shape + meta-strategy fields; Phase 4 implements the TWAP / bond / confirm-window logic so `e2e-scenario-phase2.sh` does not need to be rewritten.
+
+**Phase 2 deliverables (this workstream)**
+- `Helios.md §6.3 / §6.4` — updated as part of the 2026-04-29 spec edits: TWAP-persistence + bond + confirmation window in §6.3; explicit "operator signs `reportNAV`, but the auto-defund trigger reads on-chain balance + `OraclePriceAnchor` TWAP, not the signed value" clarification in §6.4.
+- `contracts/src/UserVault.sol` — extend `MetaStrategy` struct with `uint16 defundTwapBars` (default 3), `uint16 defundBondBps` (default 50), `uint32 defundConfirmBlocks` (default 25). Storage layout-safe append (UUPS reserved gap).
+- Foundry tests: meta-strategy storage round-trips the new fields; defaults applied if caller passes zero.
+- Frontend `/onboard` exposes the defaults under "Advanced" (no UI for tuning yet — Phase 4 wires the controls + bond UX).
+
+**Phase 4 deliverables (deferred, tracked in TODO Phase 4)**
+- `AllocatorVault.defundStrategy` reads on-chain balance + `OraclePriceAnchor` TWAP across `defundTwapBars` snapshots; requires the breach to persist across all of them; requires caller to post `defundBondBps` of the position; refunds + small reward if confirmed at `defundConfirmBlocks`; slashes bond to user vault if NAV recovers.
+- `/dashboard` activity rail surfaces "defund pending confirmation" state.
+
+**Acceptance (Phase 2 portion):** TODO WS7.C items + meta-strategy stores the three fields + spec is consistent.
+
+### WS7.D — Stake-weighting honest framing (XS, ~1 hour, doc only)
+
+**Deliverables**
+- `Helios.md §8.1` principle 2 — reframed as deliberate tradeoff (done in 2026-04-29 spec edits).
+- `Helios.md §8.5` — stake-stripped sub-rank added as v2 candidate (done).
+- `docs/reputation-math.md` — when written in Phase 6, mirror the framing.
+
+**Acceptance:** spec text reflects the tradeoff; no code change.
+
+---
+
 ## Cross-cutting concerns
 
 - **EIP-712 typehash v2 coordinated change.** Single PR touching `services/reputation/src/reputation/signer.py:53-112` and `contracts/src/ReputationAnchor.sol:19`. Domain version `"1" → "2"`. Engine refuses to sign when `REPUTATION_TYPEHASH_VERSION=2` until contract upgrade is on-chain.
@@ -273,6 +347,13 @@ CI gates this as Phase 2's end-to-end integration test (path-filtered like Phase
 - `/home/emark/helios/scripts/e2e-scenario-phase2.sh` (new)
 - `/home/emark/helios/docs/operator-guide.md` (new)
 - `/home/emark/helios/docs/phase2-plan.md` (this plan, on approval)
+- `/home/emark/helios/contracts/src/StrategyRegistry.sol` (WS7.A — `rotateParams` + `ParamsRotated` event)
+- `/home/emark/helios/contracts/src/StrategyVault.sol` (WS7.A — yield-rotation `trade_hash` ↔ manifest paramsHash check)
+- `/home/emark/helios/services/reputation/src/reputation/cohort.py` (WS7.B — `min_cohort_size = 3` + raw-Sharpe fallback)
+- `/home/emark/helios/services/reputation/src/reputation/score.py` (WS7.B — stake-only floor when `trades_attested == 0`; WS7.A — `ParamsRotated` listener resets age + perf windows)
+- `/home/emark/helios/services/sentinel/src/sentinel/allocator.py` (WS7.B — bootstrap pool split)
+- `/home/emark/helios/services/sentinel/src/sentinel/schemas.py` (WS7.B — `bootstrap_share_bps`, `min_attested_trades` fields)
+- `/home/emark/helios/contracts/src/UserVault.sol` (WS7.C — `MetaStrategy` extended with `defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`)
 
 ---
 
@@ -302,5 +383,9 @@ End-to-end on Kite testnet:
 | WS4.B CLI subcommands | M | 3 |
 | WS5 /audit page | S | 2 |
 | WS6 e2e scenario | M | 2 |
+| WS7.A ZK params binding | M | 2 |
+| WS7.B reputation cold-start | M | 2 |
+| WS7.C defund/NAV (spec + fields, Phase 2 portion) | S | 1 |
+| WS7.D stake-weighting framing (doc only) | XS | <0.1 |
 
-Critical-path serial: ~12.5 days. Wall-clock with one engineer: 15–17 days; with two splitting WS1.B/C and WS4.A/B: 9–11 days.
+Critical-path serial including WS7: ~14.5 days. Wall-clock with one engineer: 18–20 days; with two splitting WS1.B/C, WS4.A/B, and WS7.A/B: 11–13 days.

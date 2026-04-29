@@ -423,7 +423,7 @@ function withdrawAllocatorFees() external;
 
 - Only the allocator EOA (or its session keys) can call `allocateToStrategy`, `defundStrategy`, `rebalance`.
 - All allocation amounts are checked against the user's meta-strategy.
-- `defundStrategy` is callable by anyone (permissionless trigger) if the strategy's drawdown exceeds the user's threshold — the auto-defund mechanism is enforced on-chain, not just in the allocator's off-chain logic. This is critical: even if the allocator agent goes offline or misbehaves, anyone can trigger the defund.
+- `defundStrategy` is callable by anyone (permissionless trigger), but only when the drawdown breach is **persistent** — held across at least 3 consecutive 5-minute oracle TWAP snapshots — and the caller posts a small forfeit bond. The bond is refunded with a small reward if the breach is confirmed at execution; slashed to the user's vault if NAV recovers above threshold within `defundConfirmBlocks` of the trigger. This preserves the safety property (anyone can fire if the allocator goes offline) while closing a griefing surface where a competitor times a transient mark-to-market dip to lock in losses that would have mean-reverted. The TWAP-persistence depth, bond size, and confirmation window are configurable per-user in the meta-strategy (`defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`).
 - `reason` is logged on-chain (e.g., `"DRAWDOWN_BREACH"`, `"RANK_DROP"`, `"USER_REBALANCE"`).
 
 ### 6.4 `StrategyVault`
@@ -468,7 +468,8 @@ function slash(string calldata reason) external onlyRegistry;
 **Trust constraints.**
 
 - `executeWithProof` requires a valid Groth16 proof binding the trade calldata to the strategy's declared class. The verifier contract is set at deploy time and cannot be changed (immutable on the manifest). If the proof is invalid, execution reverts and the trade does not happen.
-- `slash` can only be called by `StrategyRegistry` (e.g., on detected misbehavior — invalid NAV reports, repeated proof failures).
+- `reportNAV` is signed by the **strategy operator** and is used only for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers). It is **not** the source of truth for the auto-defund drawdown trigger. Drawdown is computed by the auto-defund path (§6.3) from on-chain vault balance + oracle-priced asset universe (TWAP per `OraclePriceAnchor`), so a malicious operator cannot suppress defund by signing a flattering NAV. A signed NAV that diverges materially from the on-chain marked value is itself slashable evidence under `slash`.
+- `slash` can only be called by `StrategyRegistry` (e.g., on detected misbehavior — invalid NAV reports, repeated proof failures, manifest-divergent trades).
 - All capital flows are tracked per-allocator so multiple allocators can co-invest in the same strategy.
 
 ### 6.5 `StrategyRegistry`
@@ -507,13 +508,17 @@ function withdrawStake(address strategyId, uint256 amount) external;
 function deactivate(address strategyId) external;
 function updateReputation(address strategyId, int256 delta) external onlyReputationAnchor;
 function slash(address strategyId, uint256 amount, string calldata reason) external onlyOwner;
+function rotateParams(address strategyId, bytes32 newParamsHash) external onlyOperator;
+function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external onlyOwner;
 ```
 
 **Trust constraints.**
 
-- `registerStrategy` requires posting `stakeAmount` in USDC. Permissionless.
+- `registerStrategy` requires posting `stakeAmount` in USDC. Permissionless. The manifest's `paramsHash` is committed at registration and bound into every ZK proof's public inputs (§9.3).
+- `rotateParams` lets the operator change `manifest.paramsHash` only after a public, observable cooldown (default 24h after the last rotation, enforced by the registry). Rotation emits a `ParamsRotated` event and creates a clean break in the strategy's track record: the reputation engine resets `AgeScore` and `PerformanceScore` on the new params slot, and allocators see the rotation timestamp so they can choose whether to keep or pull capital. This forecloses the "pick a threshold to fit each trade" attack because the threshold is fixed across all trades under a given `paramsHash` and any change is publicly visible before the next trade.
 - `slash` is owner-controlled in the MVP (Helios team multi-sig), with a clear path to community governance post-hackathon.
 - `withdrawStake` has a 7-day cooldown to prevent rug-pulls after taking allocations.
+- `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4).
 
 ### 6.6 `AllocatorRegistry`
 
@@ -804,7 +809,7 @@ Reputation is the heart of Helios. It's the signal that drives capital allocatio
 ### 8.1 Design principles
 
 1. **Computed from realized, attested behavior only.** A strategy's reputation comes from trades that hit the chain *with valid ZK proofs*. Marketing, social signals, and unverified claims contribute nothing.
-2. **Stake-weighted.** Higher operator stake = higher reputation impact. A strategy with $50k stake and a 1.5 Sharpe ranks above a strategy with $5k stake and a 1.6 Sharpe, all else equal. This makes Sybil farming expensive.
+2. **Stake-weighted, with a logarithmic cap.** Higher operator stake → higher reputation impact, blunted by the log curve in `StakeScore` (see §8.2: a 100× capital advantage yields ~3.4× score boost, not 100×). A strategy with $50k stake and a 1.5 Sharpe ranks above a strategy with $5k stake and a 1.6 Sharpe, all else equal. This is a **deliberate tradeoff**, not a free win: it makes Sybil farming expensive (the dominant attack on permissionless reputation) at the cost of giving capital-rich operators a bounded structural advantage over equally-skilled small operators. The log curve blunts whale dominance but does not eliminate it. v2 considers a separate stake-stripped sub-rank so users can choose between the capital-weighted and pure-skill signals (§8.5).
 3. **Lookback-disciplined.** Score uses rolling windows (7d, 30d, 90d) with explicit weights. New strategies have low scores until they accumulate history.
 4. **Drawdown-penalized.** Strategies that achieve returns through high drawdowns rank below strategies with smoother performance, even at equal Sharpe.
 5. **Proof validity tracked.** Strategies with proof failures (an invalid proof attempt counts against them) get reputation penalties even if they self-correct.
@@ -919,6 +924,7 @@ A reputation system that drives real capital is a juicy target. Helios's defense
 - **Time-varying weights.** The `w_*` weights are fixed in v1. v2 might let the protocol adjust them based on market regime (e.g., increase `w_risk` during high-volatility periods).
 - **Slippage attribution.** A strategy that consistently gets bad fills (because of MEV or thin liquidity) takes a P&L hit but no extra reputation penalty. v2 separates skill from execution quality.
 - **Capital-aware Sharpe.** A strategy that performs well on $10k but degrades on $1M (capacity-constrained) currently gets the same Sharpe per allocation. v2 should track capacity-adjusted performance.
+- **Stake-stripped (pure-skill) sub-rank.** v1's reputation includes `StakeScore`, which advantages capital-rich operators (§8.1). The log curve blunts but does not eliminate this. v2 can publish a stake-stripped score alongside the canonical one so allocators and users can pick the rank function that matches their risk tolerance — capital signal vs. pure skill signal.
 
 These are documented as known limitations and laid out in the post-hackathon roadmap. The judges should see them as *evidence of mature thinking*, not as gaps.
 
@@ -933,6 +939,18 @@ The engine is a Python service that:
 5. Emits a public WebSocket feed of score changes for the dashboard.
 
 Code is open-source from day one. Anyone can run their own instance against the same Goldsky subgraph and verify the outputs match.
+
+### 8.7 Cold-start mechanism
+
+A new strategy enters with no track record: low `PerformanceScore`, low `AgeScore`, and — for a brand-new class — undefined cohort statistics. Without an explicit bootstrap path this is a deadlock: a new strategy can't attract capital, so it can't generate the attested track record that would raise its score. Helios's cold-start has three components:
+
+1. **Cohort-size fallback.** If a class has fewer than 3 strategies with at least 7 days of history, `NormalizedSharpe` falls back to raw Sharpe (median = 0, IQR = 1) instead of cohort scaling. This avoids degenerate median/IQR computation and lets the first few strategies in a new class receive non-zero performance signal. Implemented in the engine; `min_cohort_size = 3` is documented in `docs/reputation-math.md`.
+
+2. **Exploration budget in the reference allocator.** Helios Sentinel reserves a configurable share of capital (default 10%, exposed in the meta-strategy as `bootstrap_share_bps`) for strategies with fewer than `min_attested_trades` (default 50). Within the bootstrap pool, allocations are stake-weighted with a flat performance prior so a new strategy gets a deterministic on-ramp without forcing the user to lower the main filter bar (e.g., a meta-strategy still gates the main 90% on Sharpe ≥ 1.5 and stake > $5k while letting the bootstrap 10% explore). Allocators that don't expose a bootstrap pool are valid market participants — they just compete for non-bootstrap capital. Helix (§11.4) ships its own variant.
+
+3. **Stake-only score floor.** A registered strategy with no trade history scores `ReputationScore = w_stake · StakeScore` (other components zeroed), giving it a non-zero starting point bounded below by its committed stake. This makes the score monotonically non-decreasing as proofs accumulate (no "score went down because I have proofs now" surprises) and gives operators a predictable floor to plan against.
+
+The example meta-strategy in §10 documents `bootstrap_share_bps` as a first-class field. The cold-start mechanism is part of why Helios sells stake-weighting as a tradeoff (§8.1) rather than pure positive: stake is the new strategy's only initial signal, so for the cold-start path stake *is* the rank.
 
 ---
 
@@ -959,6 +977,7 @@ We're going with **Option B**. The honest tradeoff: a malicious operator could i
 - The reputation system penalizes this within days (a strategy that's always long will perform terribly during downturns and lose reputation).
 - The stake gets slashed if the strategy violates declared invariants (which it can't, by construction).
 - The cost of running such a degenerate strategy (stake + gas + lost reputation) exceeds any rational gain.
+- The strategy's parameters (signal threshold, max position size, slippage cap, stop-loss) are committed in the manifest at registration via `paramsHash` (§9.3) and bound into every proof's public inputs. The operator cannot pick a threshold that fits each individual trade — the threshold is fixed across all trades under that manifest, and rotating it requires a public, observable `StrategyRegistry.rotateParams` call with cooldown. A degenerate threshold (e.g., set so any signal triggers) is therefore visible to every allocator before any capital is risked, and weighed against the operator's reputation in the open.
 
 The system isn't fully trustless against the strategy operator's intentions — it's trustless against the strategy operator's *capacity to misbehave under cover of class membership*. That's the meaningful guarantee.
 
@@ -968,50 +987,61 @@ The README will be very explicit about this tradeoff. Honesty about cryptographi
 
 The circuit proves the following invariants for a single trade:
 
-**Public inputs:**
+**Public inputs (14 signals):**
 
 ```
-1. trade_hash            // Poseidon(trade calldata)
-2. declared_class        // keccak256("momentum_v1")
-3. asset_in              // address as uint160
-4. asset_out             // address as uint160
-5. amount_in             // uint256
-6. min_amount_out        // uint256, slippage bound
-7. trade_direction       // 0 = exit, 1 = enter long, 2 = enter short
-8. allocator_address     // uint160
-9. nonce                 // for replay protection
-10. block_window_start   // execution must be within window
-11. block_window_end
+1.  trade_hash             // Poseidon over trade calldata + parameter slots
+2.  declared_class         // keccak256("momentum_v1")
+3.  strategy_vault         // address as uint160 — binds proof to a specific vault
+4.  params_hash            // Poseidon(signal_threshold, max_position_size,
+                           //   max_slippage_bps, stop_loss_price) — committed
+                           //   in the StrategyManifest at registration
+5.  allocator              // uint160
+6.  asset_in_idx           // index into manifest.assetUniverse
+7.  asset_out_idx          // index into manifest.assetUniverse
+8.  amount_in              // uint256
+9.  min_amount_out         // uint256, slippage bound
+10. trade_direction        // 0 = exit, 1 = enter long, 2 = enter short
+11. nonce                  // replay protection
+12. block_window_start     // execution must be within this window
+13. block_window_end
+14. oracle_root            // Poseidon root of the price-snapshot chain
 ```
+
+`StrategyVault.executeWithProof` rejects any proof whose `params_hash` does not match `manifest.paramsHash`, whose `oracle_root` is not the most-recent root anchored by `OraclePriceAnchor` within an acceptable freshness window, and whose `strategy_vault` is not the calling vault address. The verifier itself is also class-checked against `declared_class`.
 
 **Witness (private to the prover):**
 
 ```
-1. price_observations     // committed price array (last N bars)
+1. price_observations      // committed price array (last N bars)
 2. position_state          // current position size and direction
-3. signal_threshold        // operator's chosen threshold
-4. max_position_size       // operator's chosen size cap
-5. signal_computation_data
+3. signal_threshold        // operator's committed threshold (matches params_hash)
+4. max_position_size       // operator's committed size cap (matches params_hash)
+5. max_slippage_bps        // operator's committed slippage cap (matches params_hash)
+6. stop_loss_price         // operator's committed stop-loss (matches params_hash)
+7. signal_computation_data
 ```
 
 **Constraints (informal):**
 
 ```
-1. asset_in and asset_out must be in the strategy's manifest asset universe
+0. Poseidon(signal_threshold, max_position_size, max_slippage_bps, stop_loss_price)
+   == params_hash       // operator parameters bind to the manifest commitment
+1. asset_in_idx and asset_out_idx must be in the strategy's manifest asset universe
 2. amount_in must be <= max_position_size
-3. min_amount_out must respect the manifest's max slippage (e.g., 50 bps)
-4. The price_observations must Poseidon-hash to a committed price oracle root
+3. min_amount_out must respect max_slippage_bps (e.g., 50 bps)
+4. price_observations must Poseidon-hash to oracle_root
 5. If trade_direction == 1 (long entry):
    - Last N-period return of asset_out must be > signal_threshold
    - position_state must be flat or net short before this trade
 6. If trade_direction == 2 (short entry): symmetric
-7. If trade_direction == 0 (exit): a signal-flip or stop-loss condition must be true
+7. If trade_direction == 0 (exit): signal-flip OR price < stop_loss_price
 8. block_window_end - block_window_start must be <= 100 (no infinite window)
 ```
 
-The circuit doesn't prove what `signal_threshold` is — only that *some* threshold exists for which the trade direction matches. This protects the operator's IP while still constraining what they can claim is a momentum trade.
+The circuit does **not** reveal the operator's specific `signal_threshold` value (that stays in the witness), but Constraint 0 plus the on-chain `params_hash == manifest.paramsHash` check together prove that the threshold *exists, was committed in the manifest before any of these trades were observed, and is identical across every trade under that manifest*. This forecloses the "pick a threshold that fits the trade" attack: an operator who wants to retune their threshold must publicly call `StrategyRegistry.rotateParams` (cooldown-gated, emits `ParamsRotated`), creating an observable break in the track record that the reputation engine and allocators see before the next trade. Same construction applies to `mean_reversion_v1`; `yield_rotation_v1` binds `signal_threshold` and `bridging_cost` directly through `trade_hash` checked against the manifest's stored hash on-chain (§9.4).
 
-**Estimated complexity:** ~15k constraints. Proof generation ~1.5s on commodity VPS. Verifier gas cost ~250k.
+**Estimated complexity:** ~15k constraints (current build: ~5.4k for momentum, ~5.7k for mean-reversion). Proof generation ~1.5s on commodity VPS. Verifier gas cost ~250k.
 
 ### 9.4 Other strategy classes
 

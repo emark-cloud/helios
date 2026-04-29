@@ -252,11 +252,44 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [ ] Proof testing: `helios test-proof --trade <spec>` runs a full proof cycle locally
 - [ ] Docs: `docs/operator-guide.md`
 
+### CX/SX — Spec hardening (WS7) — added 2026-04-29 from spec review
+
+Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK threshold binding, NAV signer ambiguity + auto-defund griefing, reputation cold-start, stake-weighting framing). See `docs/phase2-plan.md` WS7 for the detailed plan.
+
+**WS7.A — ZK params commitment binding (CX)**
+- [ ] `StrategyRegistry.rotateParams(strategyId, newParamsHash)` with cooldown (`paramsRotationCooldown`, default 24h) + `ParamsRotated(strategyId, oldHash, newHash, blockTimestamp)` event
+- [ ] Confirm/lock `manifest.paramsHash` immutability except via the registry path; `StrategyVault` already enforces `publicInputs[PI_PARAMS_HASH] == manifest.paramsHash` at `StrategyVault.sol:212` — add Foundry test that any path other than `rotateParams` reverts
+- [ ] `yield_rotation_v1`: confirm `StrategyVault` (or class-aware entry path) on-chain checks that `trade_hash` reconstructs against the manifest's stored params hash for the YR class, since YR binds `signal_threshold` + `bridging_cost` through `trade_hash` rather than a separate `params_hash` PI. Add invariant test
+- [ ] Update `Helios.md §9.3` PI list — done as part of this workstream
+- [ ] Reputation engine: on `ParamsRotated`, reset `AgeScore` and the `PerformanceScore` window to the new params epoch (clean break in track record)
+- [ ] `/strategies/[id]` and `/audit/[strategy]` surface the `paramsHash` rotation history (Phase 4 frontend; spec/event in Phase 2)
+
+**WS7.B — Reputation cold-start mechanism (SX)**
+- [ ] Engine: cohort-size fallback in `services/reputation/src/reputation/cohort.py` already at `min_cohort_size = 2` per WS2.A — bump to `min_cohort_size = 3` and add the explicit raw-Sharpe fallback documented in `Helios.md §8.7`
+- [ ] Engine: stake-only score floor when `trades_attested == 0` → `score = w_stake × StakeScore`; unit test
+- [ ] Sentinel: `bootstrap_share_bps` field on the meta-strategy schema (default 1000 = 10%); allocator reserves that share for strategies with `trades_attested < min_attested_trades` (default 50), allocated stake-weighted with flat performance prior
+- [ ] Sentinel unit + scenario tests: cold-start strategy receives bootstrap allocation even when the user's main filter (e.g., Sharpe ≥ 1.5) excludes it
+- [ ] `docs/reputation-math.md` documents the three cold-start components
+
+**WS7.C — Auto-defund griefing + NAV signer (CX/SX, spec only in Phase 2)**
+- [ ] `Helios.md §6.3 / §6.4` updated — done as part of this workstream
+- [ ] Add fields to `MetaStrategy` schema in `UserVault`: `defundTwapBars` (default 3), `defundBondBps` (default 50), `defundConfirmBlocks` (default 25); update tests
+- [ ] **Implementation deferred to Phase 4** — TWAP/bond/confirm-window logic in `AllocatorVault.defundStrategy`; Phase 2 only commits the spec shape and meta-strategy fields so existing scenarios still pass
+- [ ] Phase 4 task tracker: add a checkbox in Phase 4 §"FE — System polish" for the bond UX on `/dashboard`
+
+**WS7.D — Stake-weighting honest framing (docs only)**
+- [x] `Helios.md §8.1` principle 2 reframed as deliberate tradeoff — done
+- [x] `Helios.md §8.5` adds stake-stripped sub-rank as v2 candidate — done
+- [ ] `docs/reputation-math.md` mirrors the framing once the doc is written in Phase 6 (note in this checklist, not separately tracked)
+
 ### Acceptance for Phase 2
 - [ ] Multiple strategies of each class registered with non-zero capital
 - [ ] Reputation scores visibly diverge based on realized performance + drawdown
 - [ ] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md`
 - [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs
+- [ ] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch
+- [ ] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel
+- [ ] WS7.C: meta-strategy schema carries the three defund fields; AllocatorVault tests assert the fields are stored even though they are not yet enforced (enforcement is Phase 4)
 
 ---
 
