@@ -209,15 +209,18 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 
 **Goal.** Three classes with real proofs. Reputation is the full §8.2 formula.
 
-### CX — Mean reversion circuit
-- [ ] `circuits/mean_reversion_v1.circom` — N-sigma deviation signal, structurally similar to momentum with inverted direction logic; ≤ 20k constraints
-- [ ] Unit tests: valid short on N-sigma up, valid long on N-sigma down, exit on mean re-cross, boundary cases
-- [ ] Verifier deployed + registered
+### CX — Mean reversion circuit (WS1.B ✅ circuit + tests landed 2026-04-29)
+- [x] `circuits/mean_reversion_v1.circom` — N-sigma deviation signal (in-circuit stddev via sum-of-squares; long on N-sigma down, short on N-sigma up, exit on mean re-cross or stop-loss). Public-input layout matches `momentum_v1` (14 PIs) so `StrategyVault.PI_*` and adapter `_PUBLIC_INPUT_COUNT = 14` are reused unchanged. **5 746 non-linear constraints — 29% of 20k budget.**
+- [x] Unit tests: valid long on N-sigma down, valid short on N-sigma up, valid exit on mean re-cross, valid exit on stop-loss, plus 14 reject paths (insufficient deviation, wrong sign, params/oracle/trade-hash mismatches, exit-without-reason, …). **18 witness tests passing.**
+- [ ] Verifier adapter + on-chain registration — WS3.A: `MeanReversionV1Verifier.sol` is generated under `contracts/src/verifiers/`; adapter wrapper + `TradeAttestationVerifier.setVerifier(CLASS_MR, …)` land with WS3.A.
 
-### CX — Yield rotation circuit
-- [ ] `circuits/yield_rotation_v1.circom` — proves rate differential between `M_from` and `M_to` exceeds threshold against committed yield-oracle root; both markets in allowlisted universe; ≤ 15k constraints
-- [ ] Unit tests: valid rotation, rejected rotation when APY differential below threshold, rejected market not in universe
-- [ ] Verifier deployed + registered
+### CX — Yield rotation circuit (WS1.C ✅ circuit + tests landed 2026-04-29)
+- [x] `circuits/yield_rotation_v1.circom` — Poseidon-Merkle inclusion of `(M_from, apy_from)` and `(M_to, apy_to)` against `yield_oracle_root` (depth 6 → 64 markets), Poseidon-Merkle inclusion of both market ids against a private `markets_allowlist_root` (depth 4 → 16 markets) bound through `trade_hash` so the on-chain side rejects any trade whose hash doesn't match `Poseidon(StrategyRegistry.marketAllowlistRoot(class), …public fields…)`. APY differential `apy_to − apy_from ≥ signal_threshold + bridging_cost`. 9 PIs (no params_hash slot — operator/registry params bind through trade_hash). **6 564 non-linear constraints — 44% of 15k budget.**
+- [x] Unit tests: valid rotation, differential below threshold rejected, bridging cost erodes differential, M_from/M_to not in allowlist rejected, yield-root mismatch, apy claim diverges from oracle leaf, M_from == M_to rejected, amount_rotating = 0 rejected, trade-hash mismatch, tampered allowlist root. **11 witness tests passing.**
+- [ ] Verifier adapter + on-chain registration — WS3.A: `YieldRotationV1Verifier.sol` is generated; the 9-PI shape doesn't fit `StrategyVault._validateAndVerify`'s 14-PI directional layout, so WS3.A introduces a class-aware vault entry path alongside the adapter (`_PUBLIC_INPUT_COUNT = 9`).
+
+### CX — Circuit budget gate (WS1.B/C support)
+- [x] `circuits/scripts/check_constraints.sh` + `make check-constraints` target. CI gate fails if any compiled circuit exceeds 90% of its declared `BUDGET_*`. Current: momentum 28%, mean_reversion 29%, yield_rotation 44%.
 
 ### SX — Reference strategies for the new classes
 - [ ] `reference-strategies/mean_reversion_v1/` — Python impl on SDK, deployed to VPS

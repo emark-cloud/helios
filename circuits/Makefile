@@ -21,24 +21,44 @@ PTAU_POWER  ?= 16
 PTAU_FILE   := $(PTAU_DIR)/pot$(PTAU_POWER)_final.ptau
 
 # Circuits shipped by Helios. Each name matches the .circom file name (without .circom).
-CIRCUITS := momentum_v1
+CIRCUITS := momentum_v1 mean_reversion_v1 yield_rotation_v1
+
+# Per-circuit constraint budgets (non-linear). check-constraints fails if a
+# compiled .r1cs exceeds 90% of these. Bumping a budget is a deliberate act:
+# update Helios.md §9.4 alongside it. PTAU 16 hard-caps total at 65 535.
+BUDGET_momentum_v1        := 20000
+BUDGET_mean_reversion_v1  := 20000
+BUDGET_yield_rotation_v1  := 15000
 
 # ────────────────────────────────────────────────────────────
 # High-level targets
 # ────────────────────────────────────────────────────────────
-.PHONY: all clean test ptau $(CIRCUITS)
+.PHONY: all clean test ptau check-constraints \
+        test-momentum test-mean-reversion test-yield-rotation \
+        $(CIRCUITS)
 
 all: $(CIRCUITS)
 
 clean:
 	rm -rf $(BUILD_DIR)
 
-test: test-momentum
+# Witness-generation tests build .wasm only (skip zkey/PTAU so this runs
+# fast in CI before the full PTAU 16 ceremony is needed).
+test: test-momentum test-mean-reversion test-yield-rotation
 
-# Witness-generation tests for momentum_v1. Builds .wasm only (skips zkey/PTAU
-# so this runs fast in CI before the full PTAU 16 ceremony is needed).
 test-momentum: $(BUILD_DIR)/momentum_v1/momentum_v1.wasm
 	$(NODE) --test test/momentum_v1.test.js
+
+test-mean-reversion: $(BUILD_DIR)/mean_reversion_v1/mean_reversion_v1.wasm
+	$(NODE) --test test/mean_reversion_v1.test.js
+
+test-yield-rotation: $(BUILD_DIR)/yield_rotation_v1/yield_rotation_v1.wasm
+	$(NODE) --test test/yield_rotation_v1.test.js
+
+# Verifies every compiled .r1cs is within 90% of its declared BUDGET_*.
+# Run after `make all` (or any per-circuit target that produces .r1cs).
+check-constraints:
+	@bash scripts/check_constraints.sh
 
 # ────────────────────────────────────────────────────────────
 # Powers of Tau
