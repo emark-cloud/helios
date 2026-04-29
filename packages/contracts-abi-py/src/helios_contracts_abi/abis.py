@@ -259,6 +259,43 @@ IUserVault_ABI = [
   },
   {
     "type": "event",
+    "name": "AllocatorCredit",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "allocator",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newBalance",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newHighWaterMark",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "AllocatorDelegated",
     "inputs": [
       {
@@ -312,6 +349,37 @@ IUserVault_ABI = [
       },
       {
         "name": "newHighWaterMark",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "AllocatorTransfer",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "allocator",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newBalance",
         "type": "uint256",
         "indexed": False,
         "internalType": "uint256"
@@ -868,6 +936,11 @@ IStrategyVault_ABI = [
             "name": "stakeAmount",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "paramsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -971,6 +1044,37 @@ IStrategyVault_ABI = [
         "type": "uint64",
         "indexed": False,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "NavClampedOnWithdraw",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "allocator",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "priorTotalNAV",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "withdrawAmount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
       }
     ],
     "anonymous": False
@@ -1100,12 +1204,22 @@ IStrategyVault_ABI = [
   },
   {
     "type": "error",
+    "name": "AllocatorMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AssetNotInUniverse",
     "inputs": []
   },
   {
     "type": "error",
     "name": "CapacityExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ClassMismatch",
     "inputs": []
   },
   {
@@ -1121,6 +1235,16 @@ IStrategyVault_ABI = [
   {
     "type": "error",
     "name": "NotRegistry",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultMismatch",
     "inputs": []
   }
 ]
@@ -2551,5 +2675,313 @@ IHeliosOApp_ABI = [
       }
     ],
     "anonymous": False
+  }
+]
+
+IOracleAnchor_ABI = [
+  {
+    "type": "function",
+    "name": "commit",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "windowStart",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "windowEnd",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "sig",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "commitAt",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IOracleAnchor.Commit",
+        "components": [
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "windowStart",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "windowEnd",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "committedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "signer",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "commitCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hashCommit",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "windowStart",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "windowEnd",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "nonce_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isKnownRoot",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "latest",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IOracleAnchor.Commit",
+        "components": [
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "windowStart",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "windowEnd",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "committedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "signer",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nonce",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "oracleSigner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setSigner",
+    "inputs": [
+      {
+        "name": "signer_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "Committed",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "indexed": True,
+        "internalType": "uint256"
+      },
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "windowStart",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      },
+      {
+        "name": "windowEnd",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      },
+      {
+        "name": "signer",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "SignerUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "error",
+    "name": "EmptyWindow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSigner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NonMonotonicWindow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownIndex",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroRoot",
+    "inputs": []
   }
 ]

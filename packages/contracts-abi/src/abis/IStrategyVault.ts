@@ -126,6 +126,11 @@ export const IStrategyVaultAbi = [
             "name": "stakeAmount",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "paramsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -229,6 +234,37 @@ export const IStrategyVaultAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NavClampedOnWithdraw",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "allocator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "priorTotalNAV",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "withdrawAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -358,12 +394,22 @@ export const IStrategyVaultAbi = [
   },
   {
     "type": "error",
+    "name": "AllocatorMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AssetNotInUniverse",
     "inputs": []
   },
   {
     "type": "error",
     "name": "CapacityExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ClassMismatch",
     "inputs": []
   },
   {
@@ -379,6 +425,16 @@ export const IStrategyVaultAbi = [
   {
     "type": "error",
     "name": "NotRegistry",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultMismatch",
     "inputs": []
   }
 ] as const;

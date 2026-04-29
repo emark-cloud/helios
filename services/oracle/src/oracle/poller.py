@@ -7,7 +7,7 @@ Owns no state of its own; pushes into `SnapshotStore`.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import structlog
 
@@ -24,6 +24,7 @@ class Poller:
         sources: Sequence[PriceSource],
         assets: Sequence[str],
         interval_sec: int,
+        on_snapshot: Callable[[str], object] | None = None,
     ) -> None:
         if not sources:
             raise ValueError("at least one source required")
@@ -33,6 +34,7 @@ class Poller:
         self._sources = list(sources)
         self._assets = list(assets)
         self._interval = max(1, interval_sec)
+        self._on_snapshot = on_snapshot
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
@@ -93,6 +95,13 @@ class Poller:
                 price_e18=quote.price_e18,
                 ts_ms=quote.timestamp_ms,
             )
+            if self._on_snapshot is not None:
+                # Hook errors must never kill the poll loop — the snapshot
+                # is already in the store; anchor commits are advisory.
+                try:
+                    self._on_snapshot(asset)
+                except Exception as exc:
+                    _log.warning("oracle.snapshot.hook_failed", asset=asset, err=str(exc))
             return
         _log.error(
             "oracle.snapshot.no_source",

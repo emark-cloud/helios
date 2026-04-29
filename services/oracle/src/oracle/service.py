@@ -22,6 +22,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
+from oracle.anchor import AnchorPoster, PriceAnchorScheduler
 from oracle.poller import Poller
 from oracle.signer import LocalSigner
 from oracle.sources.base import PriceSource
@@ -40,6 +41,14 @@ class Settings(BaseServiceSettings):
     assets: str = Field(default="KITE/USDT,ETH/USDT", validation_alias="ORACLE_ASSETS")
     snapshot_capacity: int = 1024
     http_port: int = 8003
+
+    # Phase 2 anchor wiring. All optional — empty values keep the poster
+    # in dry-run mode (records pending commits for tests, doesn't submit).
+    rpc_url: str = Field(default="", validation_alias="KITE_RPC_URL")
+    chain_id: int = Field(default=2368, validation_alias="ORACLE_CHAIN_ID")
+    price_anchor_address: str = Field(default="", validation_alias="ORACLE_PRICE_ANCHOR_ADDRESS")
+    anchor_interval_bars: int = Field(default=50, validation_alias="ORACLE_ANCHOR_INTERVAL_BARS")
+    anchor_chain_depth: int = Field(default=16, validation_alias="ORACLE_ANCHOR_CHAIN_DEPTH")
 
 
 # Default symbol mappings. Override at process boundary if Binance / Coingecko
@@ -79,7 +88,26 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         sources.append(BinanceSource(http_client, _BINANCE_SYMBOLS))
         sources.append(CoingeckoSource(http_client, _COINGECKO_SLUGS))
 
-    poller = Poller(store=store, sources=sources, assets=assets, interval_sec=cfg.bar_interval_sec)
+    price_poster = AnchorPoster(
+        kind="price",
+        rpc_url=cfg.rpc_url,
+        signer_pk=cfg.signer_pk,
+        anchor_address=cfg.price_anchor_address,
+        chain_id=cfg.chain_id,
+    )
+    price_scheduler = PriceAnchorScheduler(
+        store=store,
+        poster=price_poster,
+        interval_bars=cfg.anchor_interval_bars,
+        chain_depth=cfg.anchor_chain_depth,
+    )
+    poller = Poller(
+        store=store,
+        sources=sources,
+        assets=assets,
+        interval_sec=cfg.bar_interval_sec,
+        on_snapshot=price_scheduler.on_bar,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -135,15 +163,19 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         if asset not in assets:
             raise HTTPException(status_code=404, detail=f"asset not tracked: {asset}")
+        # Poseidon root is a BN254 field element. Serialize as decimal
+        # string (canonical for circuits) and as 32-byte hex (canonical
+        # for `OraclePriceAnchor.commit(bytes32, ...)`).
         chain_root = store.chain_root(asset, n)
         head_ts = store.head_timestamp_ms(asset)
         return {
             "asset": asset,
             "n": n,
-            "root": _hex(chain_root),
+            "root": str(chain_root),
+            "root_bytes32": "0x" + chain_root.to_bytes(32, "big").hex(),
             "head_timestamp_ms": head_ts,
             "signer": signer.signer_address,
-            "hash": "keccak256",
+            "hash": "poseidon",
         }
 
     app = create_app(name="oracle", settings=cfg, routers=[router])
@@ -154,6 +186,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store  # type: ignore[attr-defined]
     app.state.poller = poller  # type: ignore[attr-defined]
     app.state.signer = signer  # type: ignore[attr-defined]
+    app.state.price_anchor_poster = price_poster  # type: ignore[attr-defined]
+    app.state.price_anchor_scheduler = price_scheduler  # type: ignore[attr-defined]
     return app
 
 

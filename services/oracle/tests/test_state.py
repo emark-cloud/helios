@@ -1,8 +1,8 @@
-"""Snapshot store: ring semantics + chain root."""
+"""Snapshot store: ring semantics + Poseidon chain root."""
 
 from __future__ import annotations
 
-from eth_utils.crypto import keccak
+from oracle.poseidon import poseidon_chain
 from oracle.signer import LocalSigner
 from oracle.state import SnapshotStore
 
@@ -28,29 +28,35 @@ def test_ring_capacity_evicts_oldest() -> None:
     assert [x.timestamp_ms for x in snaps] == [1009, 1008, 1007, 1006]
 
 
-def test_chain_root_matches_keccak_chain() -> None:
+def test_chain_root_matches_circuit_poseidon_chain() -> None:
     s = _store()
-    appended = [
-        s.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 + i, source="test")
-        for i in range(3)
-    ]
-    expected = appended[0].digest
-    expected = keccak(expected + appended[1].digest)
-    expected = keccak(expected + appended[2].digest)
+    prices = [10**18 + i for i in range(3)]
+    for i, p in enumerate(prices):
+        s.append("KITE/USDT", price_e18=p, timestamp_ms=1000 + i, source="test")
+    # Oldest → newest, exactly as the circuit consumes price_observations.
+    expected = poseidon_chain(prices)
     assert s.chain_root("KITE/USDT", 3) == expected
 
 
 def test_chain_root_empty_returns_zero() -> None:
     s = _store()
-    assert s.chain_root("KITE/USDT", 16) == b"\x00" * 32
+    assert s.chain_root("KITE/USDT", 16) == 0
 
 
 def test_chain_root_truncates_to_n() -> None:
     s = _store()
-    for i in range(4):
-        s.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 + i, source="test")
-    # Asking for n=2 should chain only the last two, not all four.
-    last_two = s.recent("KITE/USDT", 2)
-    a, b = last_two[1].digest, last_two[0].digest  # oldest, newest
-    expected = keccak(a + b)
+    prices = [10**18 + i for i in range(4)]
+    for i, p in enumerate(prices):
+        s.append("KITE/USDT", price_e18=p, timestamp_ms=1000 + i, source="test")
+    # Asking for n=2 should chain only the last two (oldest-first), not all four.
+    expected = poseidon_chain(prices[-2:])
     assert s.chain_root("KITE/USDT", 2) == expected
+
+
+def test_chain_root_returns_field_element() -> None:
+    s = _store()
+    s.append("KITE/USDT", price_e18=10**18, timestamp_ms=1000, source="test")
+    root = s.chain_root("KITE/USDT", 1)
+    assert isinstance(root, int)
+    # BN254 scalar field. Any valid Poseidon output fits in 32 bytes unsigned.
+    assert 0 <= root < (1 << 254)

@@ -1,0 +1,10 @@
+{
+  "name": "helios-oracle-poseidon-helper",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Stdin/stdout Poseidon helper for the Helios oracle. Wraps circomlibjs to guarantee bit-exact parity with the momentum/mean-reversion/yield-rotation circuits.",
+  "main": "poseidon_helper.js",
+  "dependencies": {
+    "circomlibjs": "0.1.7"
+  }
+}

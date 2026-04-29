@@ -28,6 +28,7 @@ const CONTRACTS = [
   "IReputationAnchor",
   "ITradeAttestationVerifier",
   "IHeliosOApp",
+  "IOracleAnchor",
 ];
 
 async function loadArtifact(name) {

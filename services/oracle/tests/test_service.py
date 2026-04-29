@@ -64,8 +64,11 @@ async def test_scenario_mode_serves_signed_snapshots() -> None:
         root = await client.get("/v1/snapshots/root", params={"asset": "KITE/USDT", "n": 3})
         assert root.status_code == 200
         rbody = root.json()
-        assert rbody["root"].startswith("0x") and len(rbody["root"]) == 66
-        assert rbody["hash"] == "keccak256"
+        # Poseidon root over BN254: decimal field-element string + 32-byte hex.
+        assert rbody["root"].isdigit() and 0 < int(rbody["root"]) < (1 << 254)
+        assert rbody["root_bytes32"].startswith("0x") and len(rbody["root_bytes32"]) == 66
+        assert int(rbody["root_bytes32"], 16) == int(rbody["root"])
+        assert rbody["hash"] == "poseidon"
         assert rbody["head_timestamp_ms"] == 120000
 
         missing = await client.get("/v1/snapshots/recent", params={"asset": "BTC/USDT", "n": 5})

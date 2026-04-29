@@ -3,10 +3,15 @@
 Holds a bounded ring of signed snapshots per asset. Two derived views:
 
   * `recent(asset, n)` — the last N snapshots (newest first).
-  * `chain_root(asset, n)` — keccak256-chain over the last N snapshot
-    digests. Phase 2 will commit this via a standalone `OraclePriceAnchor`
-    every 5 min and swap to a Poseidon-chain so the momentum circuit can
-    consume the root directly without an extra hash-equivalence proof.
+  * `chain_root(asset, n)` — Poseidon-chain over the last N raw prices,
+    bit-exact with the chained-Poseidon commitment in
+    `momentum_v1.circom` and the mean-reversion / yield-rotation
+    circuits to come. The same root that gets committed to
+    `OraclePriceAnchor` is what each circuit verifies as the public
+    `oracle_root` input — no extra hash-equivalence proof needed.
+
+Phase 1 chained over keccak(digest_bytes); Phase 2 chains Poseidon over
+price field elements directly.
 """
 
 from __future__ import annotations
@@ -15,8 +20,7 @@ from collections import deque
 from dataclasses import dataclass
 from threading import Lock
 
-from eth_utils.crypto import keccak
-
+from oracle.poseidon import poseidon_chain
 from oracle.signer import LocalSigner
 
 
@@ -68,20 +72,21 @@ class SnapshotStore:
                 return []
             return list(ring)[-n:][::-1]  # newest first
 
-    def chain_root(self, asset: str, n: int) -> bytes:
-        """keccak256 chain over the last N digests (oldest → newest).
+    def chain_root(self, asset: str, n: int) -> int:
+        """Poseidon chain over the last N price_e18 (oldest → newest).
 
-        Returns 32 zero bytes when no snapshots are present.
+        Shape: h0 = P(p0); hi = P(h_{i-1}, pi). Returns 0 when no
+        snapshots are present (a sentinel `oracle_root` that no honest
+        witness will produce — Poseidon of any nonzero input has
+        negligible probability of being 0).
         """
         snaps = self.recent(asset, n)
         if not snaps:
-            return b"\x00" * 32
-        # Reverse to oldest-first for a deterministic chain.
+            return 0
+        # Reverse to oldest-first for a deterministic chain that matches
+        # the circuit's left-fold over time-ordered observations.
         ordered = snaps[::-1]
-        acc = ordered[0].digest
-        for s in ordered[1:]:
-            acc = keccak(acc + s.digest)
-        return acc
+        return poseidon_chain([s.price_e18 for s in ordered])
 
     def assets(self) -> list[str]:
         with self._lock:

@@ -1070,9 +1070,11 @@ source = { editable = "services/oracle" }
 dependencies = [
     { name = "eth-account" },
     { name = "eth-utils" },
+    { name = "helios-contracts-abi" },
     { name = "helios-service-template" },
     { name = "httpx" },
     { name = "structlog" },
+    { name = "web3" },
 ]
 
 [package.optional-dependencies]
@@ -1087,6 +1089,7 @@ dev = [
 requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "eth-utils", specifier = ">=4.1" },
+    { name = "helios-contracts-abi", editable = "packages/contracts-abi-py" },
     { name = "helios-service-template", editable = "services/_template" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
@@ -1094,6 +1097,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "structlog", specifier = ">=24.4" },
+    { name = "web3", specifier = ">=7.0" },
 ]
 provides-extras = ["dev"]
 
