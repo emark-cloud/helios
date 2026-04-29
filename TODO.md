@@ -138,8 +138,8 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 ### SX — Oracle (Phase 1 minimum) ✅ (merged to main 2026-04-26 — WS2.B; on-chain root anchor deferred to Phase 2 — see WS3 deferred list)
 - [x] Price oracle signs 1-minute snapshots for KITE/USDT, ETH/USDT (BTC/USDT mapping ready). **Source-abstraction layer (`oracle/sources/{base,binance,coingecko,scenario,algebra}.py`) — Binance → Coingecko fallthrough live; Algebra is a Phase 2 stub. EIP-191-framed ECDSA signature over `keccak256(asset_hash ‖ price_e18 ‖ ts_ms)` with `ORACLE_SIGNER_PK`.**
-- [x] Chain of last N snapshots exposed via HTTP. **`GET /v1/snapshots/recent?asset=…&n=…`, `GET /v1/snapshots/root?asset=…&n=…`. Phase 1 uses keccak256-chain (Solidity-native); Phase 2 swaps to Poseidon so the momentum circuit can consume the root directly without an extra hash-equivalence proof.**
-- [ ] Root committed on-chain (simple signed anchor, full circuit-committed root acceptable in Phase 2). *(Anchor task lands in WS3 e2e once `OraclePriceAnchor` / `Helios.sol` heartbeat is deployed; oracle service exposes the chain root and signer for the anchor task to read.)*
+- [x] Chain of last N snapshots exposed via HTTP. **`GET /v1/snapshots/recent?asset=…&n=…`, `GET /v1/snapshots/root?asset=…&n=…`. Phase 1 used a keccak256 chain (Solidity-native); Phase 2 WS1.A swapped to a Poseidon chain over `price_e18` field elements so the momentum / mean-reversion / yield-rotation circuits consume the root directly without an extra hash-equivalence proof. `root` is now the decimal field element; `root_bytes32` carries the contract-friendly hex.**
+- [x] Root committed on-chain — **Phase 2 WS1.A**: `OraclePriceAnchor` (EIP-712 append-only ledger) + `PriceAnchorScheduler` (interval-N commits) wired into the oracle service via `Poller.on_snapshot`. Live submission gated on `ORACLE_PRICE_ANCHOR_ADDRESS`; the address gets populated by `DeployPhase2.s.sol` (WS3.B), at which point the service auto-promotes from dry-run to broadcasting.
 - [x] `SCENARIO_MODE=1` replays `scenarios/phase1-drawdown.json` (16-bar KITE drawdown ~7%, ETH flat). 12 service+source+state tests passing.
 
 ### SX — Subgraph ✅ (merged to main 2026-04-26 — WS2.B; Goldsky deploy is a Track B follow-up)
@@ -164,7 +164,7 @@ WS3 direction (decided 2026-04-27, see `docs/phase1-plan.md` WS3 section): two t
 - [x] Runs in CI as the end-to-end integration test (Track A only; path-filtered to skip frontend/docs-only PRs)
 
 **Deferred from WS3 (with reason):**
-- Oracle on-chain root anchor — Phase 1 keccak256 chain is service-local; momentum circuit doesn't consume the on-chain root until Phase 2 swaps to Poseidon. `OraclePriceAnchor` deploy is decorative until then.
+- Oracle on-chain root anchor — ~~Phase 1 keccak256 chain is service-local; momentum circuit doesn't consume the on-chain root until Phase 2 swaps to Poseidon. `OraclePriceAnchor` deploy is decorative until then.~~ **Resolved by Phase 2 WS1.A**: Poseidon swap landed, `OraclePriceAnchor` + `OracleYieldAnchor` shipped with EIP-712 commits and Foundry tests; WS3.B's `DeployPhase2.s.sol` flips the live anchor address.
 - Goldsky subgraph deploy in the CI e2e — CI uses `eth_getLogs` directly. `pnpm --filter subgraph deploy` is a documented Track B follow-up so the dashboard renders against testnet, not a CI gate.
 
 ### FE — Frontend minimum (WS4)
@@ -234,10 +234,10 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [ ] Unit tests validate each component against `Helios.md §8.2` worked examples
 - [ ] `/audit` page exposes the inputs for every strategy's current score
 
-### SX — Oracle hardening
-- [ ] Yield oracle signs APY snapshots per lending market (Aave, Compound stubs for now — real integrations in Phase 5)
-- [ ] Price oracle Poseidon-root anchored on-chain via a periodic commit
-- [ ] Scenario mode supports scripted yield differentials for yield-rotation demos
+### SX — Oracle hardening (WS1.A ✅ landed 2026-04-29 — commit `bfc55fb`)
+- [x] Yield oracle signs APY snapshots per lending market (Aave, Compound stubs for now — real integrations in Phase 5). **`services/oracle/src/oracle/yield_state.py` + `sources/yield_{base,aave_stub,compound_stub}.py`. Uses the existing `LocalSigner.sign_quote` shape (asset slot ↦ market_id, price slot ↦ apy_bps_e6) so the on-chain anchor recovery flow stays single-codepath. `OracleYieldAnchor.sol` mirrors `OraclePriceAnchor` with a distinct EIP-712 type-hash to block cross-domain replay.**
+- [x] Price oracle Poseidon-root anchored on-chain via a periodic commit. **`OraclePriceAnchor.sol` (append-only EIP-712 ledger, monotonic windows, replay nonce) + `oracle.anchor.PriceAnchorScheduler` (commits every `ORACLE_ANCHOR_INTERVAL_BARS` bars, default 50) wired into `Poller.on_snapshot`. Python signing parity locked by 7 anchor unit tests; on-chain side covered by 16 Foundry tests; vector parity with the momentum circuit's chained Poseidon locked by 10 `test_poseidon_chain.py` cases (canonical `momentum_v1.test.js` `buildValidInput` fixture). `chain_root` is now a BN254 field element (decimal string + bytes32 hex on the HTTP endpoint).**
+- [x] Scenario mode supports scripted yield differentials for yield-rotation demos. **Aave/Compound stub feeders advance through deterministic APY tick sequences; the canonical scenario crosses Compound USDC above Aave USDC by tick 5 (≥1.0% spread) so `yield_rotation_v1` has a real differential to chase in CI.**
 
 ### SX — Strategy SDK v0.1
 - [ ] `pip install helios-strategy-sdk` works from a test-PyPI mirror
