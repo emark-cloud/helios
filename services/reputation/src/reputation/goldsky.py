@@ -1,7 +1,12 @@
-"""Thin Goldsky GraphQL client for the reputation engine.
+"""Goldsky GraphQL client for the reputation engine.
 
-Uses httpx async; only the strategy-rollup query the engine needs in Phase 1.
-The query window mirrors `Helios.md §8.2` — 30-day P&L, all-time trade counts.
+Phase 2 (`Helios.md §8.2`) needs raw per-trade and NAV events to compute
+windowed Sharpe and 90d drawdown. The query pulls a 90d window — the engine
+slices into 7d/30d/90d via `reputation.windows`.
+
+Honors the no-schema-bump rule (`project_subgraph_goldsky_wasm`): all data
+extracted from existing entities (`Trade`, `NAVSnapshot`, `Allocation`,
+`Strategy`).
 """
 
 from __future__ import annotations
@@ -11,11 +16,12 @@ from typing import Any
 
 import httpx
 
-_QUERY_STRATEGY_ROLLUP = """
-query StrategyRollup($since: BigInt!) {
+_QUERY_STRATEGY_STATE = """
+query StrategyState($since: BigInt!) {
   strategies(first: 1000, where: { active: true }) {
     id
     declaredClass
+    stakeAmount
     currentReputation
     totalAttestedTrades
     totalRealizedPnL
@@ -24,7 +30,7 @@ query StrategyRollup($since: BigInt!) {
       first: 1000
       where: { timestamp_gte: $since }
       orderBy: timestamp
-      orderDirection: desc
+      orderDirection: asc
     ) {
       id
       proofValid
@@ -50,13 +56,29 @@ query StrategyRollup($since: BigInt!) {
 
 
 @dataclass(frozen=True, slots=True)
-class StrategyRollup:
+class TradeEvent:
+    timestamp: int
+    proof_valid: bool
+    amount_in_e18: int
+
+
+@dataclass(frozen=True, slots=True)
+class NavEvent:
+    timestamp: int
+    total_nav_e18: int
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyState:
+    """Raw 90d state for one strategy. Engine slices and aggregates."""
+
     strategy_id: str
     declared_class: str
-    total_attested_trades: int
-    total_proof_valid: int
-    capital_deployed_e18: int
-    realized_pnl_30d_e18: int
+    stake_e18: int
+    trades_attested: int  # lifetime
+    capital_deployed_e18: int  # current, summed across allocation events
+    trades_90d: list[TradeEvent]
+    nav_snapshots_90d: list[NavEvent]
 
 
 class GoldskyClient:
@@ -69,12 +91,12 @@ class GoldskyClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def fetch_strategy_rollups(self, since_unix: int) -> list[StrategyRollup]:
+    async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]:
         if not self._endpoint:
             return []
         resp = await self._client.post(
             self._endpoint,
-            json={"query": _QUERY_STRATEGY_ROLLUP, "variables": {"since": str(since_unix)}},
+            json={"query": _QUERY_STRATEGY_STATE, "variables": {"since": str(since_unix)}},
         )
         resp.raise_for_status()
         body: dict[str, Any] = resp.json()
@@ -85,38 +107,48 @@ class GoldskyClient:
         return [_parse_strategy(s) for s in strategies]
 
 
-def _parse_strategy(raw: dict[str, Any]) -> StrategyRollup:
-    trades: list[dict[str, Any]] = list(raw.get("trades") or [])
-    nav_snapshots: list[dict[str, Any]] = list(raw.get("navSnapshots") or [])
+def _parse_strategy(raw: dict[str, Any]) -> StrategyState:
+    trades_raw: list[dict[str, Any]] = list(raw.get("trades") or [])
+    nav_raw: list[dict[str, Any]] = list(raw.get("navSnapshots") or [])
     allocations: list[dict[str, Any]] = list(raw.get("allocations") or [])
 
-    total_proof_valid = sum(1 for t in trades if t.get("proofValid"))
+    trades = [
+        TradeEvent(
+            timestamp=_to_int(t.get("timestamp")),
+            proof_valid=bool(t.get("proofValid")),
+            amount_in_e18=_to_int(t.get("amountIn")),
+        )
+        for t in trades_raw
+    ]
+    nav = [
+        NavEvent(
+            timestamp=_to_int(n.get("timestamp")),
+            total_nav_e18=_to_int(n.get("totalNAV")),
+        )
+        for n in nav_raw
+    ]
+
     # `Allocation.capitalDeployed` is per-event (graph-ts BigInt limitation,
-    # see project_subgraph_bigint_limitation.md). Sum at query time.
-    capital = sum(_to_int(a.get("capitalDeployed")) for a in allocations)
+    # see project_subgraph_bigint_limitation.md). Sum at query time, ignoring
+    # defunded allocations so capital reflects live exposure only.
+    capital = sum(
+        _to_int(a.get("capitalDeployed"))
+        for a in allocations
+        if a.get("defundedAt") in (None, "0", 0)
+    )
 
-    realized_pnl = _realized_pnl_30d(nav_snapshots)
-
-    return StrategyRollup(
+    return StrategyState(
         strategy_id=str(raw.get("id")),
         declared_class=str(raw.get("declaredClass") or ""),
-        total_attested_trades=_to_int(raw.get("totalAttestedTrades")),
-        total_proof_valid=total_proof_valid,
+        stake_e18=_to_int(raw.get("stakeAmount")),
+        trades_attested=_to_int(raw.get("totalAttestedTrades")),
         capital_deployed_e18=capital,
-        realized_pnl_30d_e18=realized_pnl,
+        trades_90d=trades,
+        nav_snapshots_90d=nav,
     )
 
 
 def _to_int(v: Any) -> int:
     if v is None:
         return 0
-    return int(v)  # GraphQL BigInt arrives as a string
-
-
-def _realized_pnl_30d(nav_snapshots: list[dict[str, Any]]) -> int:
-    """Latest NAV minus oldest NAV in the window. The subgraph orders ascending
-    by timestamp so [0] is oldest and [-1] is newest. Sentinel of 0 when the
-    window has fewer than 2 points (no measurable P&L yet)."""
-    if len(nav_snapshots) < 2:
-        return 0
-    return _to_int(nav_snapshots[-1].get("totalNAV")) - _to_int(nav_snapshots[0].get("totalNAV"))
+    return int(v)

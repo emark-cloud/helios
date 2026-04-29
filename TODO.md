@@ -227,15 +227,16 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [ ] `reference-strategies/yield_rotation_v1/` — scans allowlisted lending markets (Phase 5 adds cross-chain; Phase 2 uses Kite-local markets only)
 - [ ] Both registered on `StrategyRegistry` with real stake
 
-### SX — Full reputation formula
-- [ ] `PerformanceScore` — 0.5×7d + 0.3×30d + 0.2×90d normalized Sharpe; cohort-relative (median/IQR per class)
-- [ ] `RiskScore` — `1 - clip(MaxDD90d / 5000, 0, 1)`
-- [ ] `ProofScore` — `ValidProofs / TotalProofAttempts`
-- [ ] `StakeScore` — `log(1 + stake/1000) / log(1 + max_stake_in_class/1000)`
-- [ ] `AgeScore` — `clip(sqrt(trades_attested / 1000), 0, 1)`
-- [ ] Weights w_perf=0.40, w_risk=0.25, w_proof=0.15, w_stake=0.10, w_age=0.10
-- [ ] Unit tests validate each component against `Helios.md §8.2` worked examples
-- [ ] `/audit` page exposes the inputs for every strategy's current score
+### SX — Full reputation formula (WS2.A engine ✅ landed 2026-04-29)
+- [x] `PerformanceScore` — 0.5×7d + 0.3×30d + 0.2×90d normalized Sharpe; cohort-relative (median/IQR per class). **Engine groups `StrategyState`s by `declaredClass`, builds per-window cohort stats in `services/reputation/src/reputation/cohort.py`, normalizes each strategy's Sharpe via `(Sharpe − median) / IQR`. Spec deviation: NAV-delta proxy used in place of realized-trade-P&L Sharpe pending per-trade P&L emission from the strategy vault — documented in `score.py` module docstring.**
+- [x] `RiskScore` — `1 - clip(MaxDD90d / 5000, 0, 1)`. **Engine derives 90d max drawdown from `NAVSnapshot` events directly; no schema bump (honors `project_subgraph_goldsky_wasm`).**
+- [x] `ProofScore` — `ValidProofs / TotalProofAttempts`. **Computed against the 30d window of subgraph `Trade` events. Subgraph only emits on-chain (proof-valid) trades, so the ratio is binary 0/1 in Phase 2 — limitation noted; lifts when the prover service publishes attempted-but-rejected proofs.**
+- [x] `StakeScore` — `log(1 + stake/1000) / log(1 + max_stake_in_class/1000)`. **Implemented; max_stake_in_class derived per tick from the active strategy set.**
+- [x] `AgeScore` — `clip(sqrt(trades_attested / 1000), 0, 1)`.
+- [x] Weights w_perf=0.40, w_risk=0.25, w_proof=0.15, w_stake=0.10, w_age=0.10. **Compile-time invariant via `assert` in `score.py`.**
+- [x] Unit tests validate each component against `Helios.md §8.2` worked examples. **44 tests passing — `test_score_822.py` (component-by-component + aggregate), `test_cohort.py`, `test_windows.py`, `test_engine.py` (cohort divergence + drawdown extraction + componentsHash signing), `test_signer.py` (v1 + v2 typehash round-trip), `test_service.py` (REST + audit endpoint).**
+- [x] `/audit` page exposes the inputs for every strategy's current score. **Backend: `GET /v1/audit/{actor}` returns five components, cohort stats per window, raw + normalized Sharpes, weights, and `componentsHash`. Frontend `/audit/[actor]/page.tsx` is WS5.**
+- [ ] **WS3.A typehash v2 + on-chain anchor upgrade.** Engine signs in shadow mode (typehash v1, default `REPUTATION_TYPEHASH_VERSION=1`); `componentsHash` is computed and served via `/v1/audit` but only enters the EIP-712 signature when WS3.A's `ReputationAnchor` v2 deploys and the env flag flips to `"2"`.
 
 ### SX — Oracle hardening (WS1.A ✅ landed 2026-04-29 — commit `bfc55fb`)
 - [x] Yield oracle signs APY snapshots per lending market (Aave, Compound stubs for now — real integrations in Phase 5). **`services/oracle/src/oracle/yield_state.py` + `sources/yield_{base,aave_stub,compound_stub}.py`. Uses the existing `LocalSigner.sign_quote` shape (asset slot ↦ market_id, price slot ↦ apy_bps_e6) so the on-chain anchor recovery flow stays single-codepath. `OracleYieldAnchor.sol` mirrors `OraclePriceAnchor` with a distinct EIP-712 type-hash to block cross-domain replay.**

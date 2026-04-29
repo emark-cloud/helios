@@ -885,6 +885,44 @@ AgeScore(s, t) = clip((TradesAttested(s) / 1000) ^ 0.5, 0, 1)
 
 A strategy reaches max age score after ~1000 attested trades. Square-root curve so early growth is rewarded.
 
+#### Worked example
+
+A momentum strategy `s` of class `c` against a 2-strategy cohort. Per-window cohort Sharpes for `c` are `{1.0, 2.0}` so each window has `median = 1.5`, `IQR = 1.0` (small-cohort range proxy — IQR is undefined for `n < 4`). `s`'s raw inputs:
+
+| Input | Value |
+|---|---|
+| Sharpe(s, 7d) | 2.5 |
+| Sharpe(s, 30d) | 2.0 |
+| Sharpe(s, 90d) | 1.8 |
+| MaxDrawdown(90d) | 1500 bps (15%) |
+| ValidProofs / TotalAttempts | 199 / 200 |
+| Stake(s) | $5,000 |
+| max(Stake of class c) | $50,000 |
+| TradesAttested(s) | 250 |
+
+Component-by-component:
+
+```
+NormalizedSharpe(7d)  = (2.5 - 1.5) / 1.0 = 1.000
+NormalizedSharpe(30d) = (2.0 - 1.5) / 1.0 = 0.500
+NormalizedSharpe(90d) = (1.8 - 1.5) / 1.0 = 0.300
+
+PerformanceScore = 0.5·1.000 + 0.3·0.500 + 0.2·0.300 = 0.710
+RiskScore        = 1.0 - clip(1500 / 5000, 0, 1)     = 0.700
+ProofScore       = 199 / 200                          = 0.995
+StakeScore       = log(1 + 5000/1000) / log(1 + 50000/1000)
+                 = log(6) / log(51)                   ≈ 0.4557
+AgeScore         = sqrt(250 / 1000)                   = 0.500
+
+ReputationScore  = 0.40·0.710 + 0.25·0.700 + 0.15·0.995
+                 + 0.10·0.4557 + 0.10·0.500
+                 ≈ 0.7038
+```
+
+The on-chain `currentScore` is stored as `int256` in e4 fixed point (`score × 10_000`), giving `currentScore = 7038`. The reputation engine also derives `componentsHash = keccak256(abi.encode(int256, uint256, uint256, uint256, uint256))` over the five sub-scores in e4 form — this hash is recorded alongside the aggregate score by `ReputationAnchor` v2 (Phase 2 / WS3.A typehash bump) so allocators can verify the breakdown that produced any score.
+
+This example is the canonical reference for `services/reputation/tests/test_score_822.py`. Any change to the formulas above must update the test in lockstep (and vice versa).
+
 ### 8.3 What the allocator does with the score
 
 Each allocator agent has its own ranking function that *consumes* the reputation score. **Helios Sentinel's** reference ranking is deliberately simple and legible:

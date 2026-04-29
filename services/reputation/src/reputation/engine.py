@@ -1,36 +1,69 @@
-"""Reputation Engine — pulls Goldsky strategy rollups, computes Phase 1 score,
-posts signed updates to ReputationAnchor."""
+"""Reputation Engine — Phase 2.
+
+Fetches per-strategy state from Goldsky over a 90d window, slices into 7d /
+30d / 90d windows, computes cohort Sharpe statistics per class, scores each
+strategy via the full `Helios.md §8.2` formula, signs the update, and
+optionally posts on-chain.
+
+Per `docs/phase2-plan.md` WS2.A, the engine lands in **shadow mode** first:
+typehash v2 (with `componentsHash`) is computed and exposed via `/v1/audit`,
+but signing/anchoring stays on v1 until `REPUTATION_TYPEHASH_VERSION=2` is
+flipped after WS3.A's contract upgrade.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
+from typing import Protocol
 
 import structlog
 
 from reputation.anchor import AnchorPoster, PostedUpdate
-from reputation.goldsky import GoldskyClient, StrategyRollup
-from reputation.score import ScoreInputs, ScoreOutputs, compute_phase1_score
-from reputation.signer import ActorType, ReputationSigner, ReputationUpdate, SignedUpdate
+from reputation.cohort import cohort_stats, neutral
+from reputation.goldsky import NavEvent, StrategyState
+from reputation.score import (
+    CohortContext,
+    ScoreInputs,
+    ScoreOutputs,
+    WindowSharpe,
+    annualized_sharpe_from_nav,
+    compute_score,
+)
+from reputation.signer import (
+    ActorType,
+    ReputationSigner,
+    ReputationUpdate,
+    SignedUpdate,
+)
+from reputation.windows import slice_windows
 
 _log = structlog.get_logger(__name__)
-_THIRTY_DAYS_SEC = 30 * 24 * 60 * 60
+_NINETY_DAYS_SEC = 90 * 24 * 60 * 60
+
+
+class _GoldskyProto(Protocol):
+    async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]: ...
+
+    async def aclose(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class EngineUpdate:
-    rollup: StrategyRollup
+    state: StrategyState
     inputs: ScoreInputs
     outputs: ScoreOutputs
     signed: SignedUpdate
+    cohort: CohortContext
     posted: PostedUpdate | None = None
 
 
 class ReputationEngine:
     def __init__(
         self,
-        goldsky: GoldskyClient,
+        goldsky: _GoldskyProto,
         signer: ReputationSigner,
         poll_interval_sec: int = 60,
         anchor: AnchorPoster | None = None,
@@ -70,20 +103,31 @@ class ReputationEngine:
         await self._goldsky.aclose()
 
     async def tick_once(self, now_unix: int | None = None) -> list[EngineUpdate]:
-        """One pass over all strategies. Used by tests."""
         ts = now_unix if now_unix is not None else int(time.time())
-        since = ts - _THIRTY_DAYS_SEC
+        since = ts - _NINETY_DAYS_SEC
         try:
-            rollups = await self._goldsky.fetch_strategy_rollups(since)
+            states = await self._goldsky.fetch_strategy_states(since)
         except Exception as exc:
             _log.warning("reputation.goldsky.error", err=str(exc), exc_info=True)
             return []
+
+        sharpes_by_strategy = {s.strategy_id: _windowed_sharpes(s, ts) for s in states}
+        cohort_by_class = _build_cohorts(states, sharpes_by_strategy)
+        max_stake_by_class = _max_stake_by_class(states)
+
         updates: list[EngineUpdate] = []
-        for r in rollups:
-            update = self._compute_update(r, ts)
-            self._latest[r.strategy_id] = update
+        for s in states:
+            update = self._compute_update(
+                state=s,
+                now_unix=ts,
+                sharpes=sharpes_by_strategy[s.strategy_id],
+                cohort=cohort_by_class[s.declared_class],
+                max_stake_in_class_e18=max_stake_by_class.get(s.declared_class, 0),
+            )
+            self._latest[s.strategy_id] = update
             updates.append(update)
             await self._fanout(update)
+
         _log.info("reputation.tick", count=len(updates))
         return updates
 
@@ -95,36 +139,57 @@ class ReputationEngine:
             except TimeoutError:
                 continue
 
-    def _compute_update(self, rollup: StrategyRollup, now_unix: int) -> EngineUpdate:
-        # Phase 1: every emitted TradeAttested event implies on-chain
-        # verification already passed, so the validity rate is 1.0 unless we
-        # later track "rejected attempts" off-chain. Until then, default to
-        # 10_000 bps (full credit).
-        proof_validity_bps = 10_000 if rollup.total_attested_trades > 0 else 0
-        inputs = ScoreInputs(
-            realized_pnl_30d_e18=rollup.realized_pnl_30d_e18,
-            notional_e18=rollup.capital_deployed_e18,
-            proof_validity_rate_bps=proof_validity_bps,
+    def _compute_update(
+        self,
+        state: StrategyState,
+        now_unix: int,
+        sharpes: WindowSharpe,
+        cohort: CohortContext,
+        max_stake_in_class_e18: int,
+    ) -> EngineUpdate:
+        windowed_trades = slice_windows(state.trades_90d, now_unix)
+        # Subgraph only emits Trade events when the proof verifies on-chain;
+        # failed-proof events aren't observable. Until the prover service
+        # publishes attempted-but-rejected proofs (post-Phase-2), valid ==
+        # attempts and the ratio is binary 0 / 1 by construction.
+        valid_proofs = sum(1 for t in windowed_trades.last_30d if t.proof_valid)
+        attempts = len(windowed_trades.last_30d)
+        max_dd_bps_90d = _max_drawdown_bps(state.nav_snapshots_90d)
+        realized_pnl_30d_e18 = _nav_delta(
+            slice_windows(state.nav_snapshots_90d, now_unix).last_30d
         )
-        outputs = compute_phase1_score(inputs)
+
+        inputs = ScoreInputs(
+            sharpes=sharpes,
+            max_drawdown_bps_90d=max_dd_bps_90d,
+            valid_proofs=valid_proofs,
+            total_proof_attempts=attempts,
+            stake_e18=state.stake_e18,
+            max_stake_in_class_e18=max_stake_in_class_e18,
+            trades_attested=state.trades_attested,
+        )
+        outputs = compute_score(inputs, cohort)
+
         update = ReputationUpdate(
-            actor=rollup.strategy_id,
+            actor=state.strategy_id,
             actor_type=ActorType.STRATEGY,
             current_score=outputs.score_e4,
-            # Block monotonicity is enforced on-chain. Off-chain we don't have
-            # a precise block; using `now_unix` as the source's monotonic
-            # cursor lets the on-chain replay-protection accept consecutive
-            # ticks regardless of underlying block production.
             last_update_block=now_unix,
-            total_attested_trades=rollup.total_attested_trades,
-            total_realized_pnl=max(0, rollup.realized_pnl_30d_e18),
-            max_drawdown_bps=0,  # Phase 2 wires the drawdown calc.
-            proof_validity_rate_bps=proof_validity_bps,
+            total_attested_trades=state.trades_attested,
+            total_realized_pnl=max(0, realized_pnl_30d_e18),
+            max_drawdown_bps=max_dd_bps_90d,
+            proof_validity_rate_bps=round(outputs.components.proof * 10_000),
+            components_hash=outputs.components_hash,
         )
         signed = self._signer.sign_update(update)
         posted = self._anchor.post(signed) if self._anchor is not None else None
         return EngineUpdate(
-            rollup=rollup, inputs=inputs, outputs=outputs, signed=signed, posted=posted
+            state=state,
+            inputs=inputs,
+            outputs=outputs,
+            signed=signed,
+            cohort=cohort,
+            posted=posted,
         )
 
     async def _fanout(self, update: EngineUpdate) -> None:
@@ -136,3 +201,83 @@ class ReputationEngine:
                 dead.append(q)
         for q in dead:
             self._subscribers.discard(q)
+
+
+def _windowed_sharpes(state: StrategyState, now_unix: int) -> WindowSharpe:
+    w = slice_windows(state.nav_snapshots_90d, now_unix)
+    return WindowSharpe(
+        sharpe_7d=annualized_sharpe_from_nav(_to_pairs(w.last_7d)),
+        sharpe_30d=annualized_sharpe_from_nav(_to_pairs(w.last_30d)),
+        sharpe_90d=annualized_sharpe_from_nav(_to_pairs(w.last_90d)),
+    )
+
+
+def _to_pairs(events: list[NavEvent]) -> list[tuple[int, int]]:
+    return [(e.timestamp, e.total_nav_e18) for e in events]
+
+
+def _build_cohorts(
+    states: list[StrategyState],
+    sharpes_by_strategy: dict[str, WindowSharpe],
+) -> dict[str, CohortContext]:
+    by_class: dict[str, list[WindowSharpe]] = {}
+    for s in states:
+        by_class.setdefault(s.declared_class, []).append(sharpes_by_strategy[s.strategy_id])
+
+    contexts: dict[str, CohortContext] = {}
+    for cls, group in by_class.items():
+        contexts[cls] = CohortContext(
+            win_7d=cohort_stats([g.sharpe_7d for g in group]),
+            win_30d=cohort_stats([g.sharpe_30d for g in group]),
+            win_90d=cohort_stats([g.sharpe_90d for g in group]),
+        )
+    return contexts
+
+
+def _max_stake_by_class(states: list[StrategyState]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for s in states:
+        cur = out.get(s.declared_class, 0)
+        if s.stake_e18 > cur:
+            out[s.declared_class] = s.stake_e18
+    return out
+
+
+def _max_drawdown_bps(snapshots: list[NavEvent]) -> int:
+    """Peak-to-trough drawdown over the snapshot window, returned in bps.
+
+    Iterates ascending; tracks running peak; at each step records the dd_bps
+    and keeps the max. Returns 0 when the window is empty or has no decline.
+    """
+    if not snapshots:
+        return 0
+    peak = 0
+    max_dd_bps = 0
+    for ev in snapshots:
+        nav = ev.total_nav_e18
+        if nav > peak:
+            peak = nav
+            continue
+        if peak <= 0:
+            continue
+        dd_bps = math.floor((peak - nav) * 10_000 / peak)
+        max_dd_bps = max(max_dd_bps, dd_bps)
+    return max_dd_bps
+
+
+def _nav_delta(snapshots: list[NavEvent]) -> int:
+    if len(snapshots) < 2:
+        return 0
+    return snapshots[-1].total_nav_e18 - snapshots[0].total_nav_e18
+
+
+# Dependency-injection helper for tests that pre-build cohorts.
+def neutral_cohort() -> CohortContext:
+    return CohortContext(win_7d=neutral(), win_30d=neutral(), win_90d=neutral())
+
+
+__all__ = [
+    "EngineUpdate",
+    "ReputationEngine",
+    "neutral_cohort",
+]
