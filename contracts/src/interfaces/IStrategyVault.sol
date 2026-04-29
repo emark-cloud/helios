@@ -47,6 +47,22 @@ interface IStrategyVault {
     );
     event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
+    /// @notice Emitted when a yield_rotation_v1 trade is attested. The
+    ///         private witnesses (signal_threshold, bridging_cost,
+    ///         markets_allowlist_root) are committed inside the proof's
+    ///         trade_hash but not visible on chain — the audit page
+    ///         re-derives them from the prover service.
+    event YieldRotationAttested(
+        address indexed strategy,
+        address indexed allocator,
+        bytes32 indexed tradeHash,
+        bytes32 declaredClass,
+        uint256 mFrom,
+        uint256 mTo,
+        uint256 amountRotating,
+        bytes32 yieldOracleRoot,
+        uint64 blockWindowEnd
+    );
 
     error InvalidProof();
     error NotOperator();
@@ -59,6 +75,12 @@ interface IStrategyVault {
     error ParamsHashMismatch();
 
     function executeWithProof(
+        bytes calldata proof,
+        uint256[] calldata publicInputs,
+        Call[] calldata trades
+    ) external;
+
+    function executeYieldRotationWithProof(
         bytes calldata proof,
         uint256[] calldata publicInputs,
         Call[] calldata trades

@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import { IGroth16Verifier } from "../interfaces/ITradeAttestationVerifier.sol";
+
+/// @notice Bridges snarkjs's fixed-size verifier signature
+///         (`verifyProof(uint[2], uint[2][2], uint[2], uint[9])`) for
+///         yield_rotation_v1 onto the dynamic-array `IGroth16Verifier` shape
+///         that `TradeAttestationVerifier` calls. YR uses a distinct 9-PI
+///         layout (rotation rather than swap), so it ships a dedicated
+///         entry path in `StrategyVault`.
+interface ISnarkjsYieldRotationV1Verifier {
+    function verifyProof(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[9] calldata publicSignals
+    ) external view returns (bool);
+}
+
+contract YieldRotationV1VerifierAdapter is IGroth16Verifier {
+    uint256 private constant _PUBLIC_INPUT_COUNT = 9;
+
+    ISnarkjsYieldRotationV1Verifier public immutable inner;
+
+    error WrongPublicInputCount(uint256 got, uint256 expected);
+
+    constructor(address inner_) {
+        inner = ISnarkjsYieldRotationV1Verifier(inner_);
+    }
+
+    function verifyProof(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[] calldata publicInputs
+    ) external view returns (bool) {
+        if (publicInputs.length != _PUBLIC_INPUT_COUNT) {
+            revert WrongPublicInputCount(publicInputs.length, _PUBLIC_INPUT_COUNT);
+        }
+        uint256[9] memory fixedInputs;
+        for (uint256 i = 0; i < _PUBLIC_INPUT_COUNT; i++) {
+            fixedInputs[i] = publicInputs[i];
+        }
+        return inner.verifyProof(a, b, c, fixedInputs);
+    }
+}

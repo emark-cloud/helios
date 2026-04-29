@@ -26,10 +26,21 @@ interface IStrategyRegistry {
     event StrategyDeactivated(address indexed strategyId);
     event ReputationUpdated(address indexed strategyId, int256 delta, int256 newScore);
     event StrategySlashed(address indexed strategyId, uint256 amount, string reason);
+    event MarketAllowlistRootSet(bytes32 indexed declaredClass, bytes32 root);
+    event ParamsHashCommitted(address indexed strategyId, bytes32 paramsHash);
+    event ParamsRotationInitiated(
+        address indexed strategyId, bytes32 oldHash, bytes32 newHash, uint64 unlockAt
+    );
+    event ParamsRotated(address indexed strategyId, bytes32 oldHash, bytes32 newHash);
 
     error StakeCooldownActive();
     error NotReputationAnchor();
     error NotOperator();
+    error ParamsRotationCooldownActive();
+    error NoPendingParamsRotation();
+    error ParamsRotationAlreadyPending();
+    error ParamsHashAlreadyCommitted();
+    error ParamsHashNotCommitted();
 
     function registerStrategy(address vault, bytes32 declaredClass, uint256 stakeAmount)
         external
@@ -44,4 +55,18 @@ interface IStrategyRegistry {
 
     function strategyOf(address strategyId) external view returns (StrategyEntry memory);
     function strategiesByClass(bytes32 declaredClass) external view returns (address[] memory);
+
+    // ── WS3.A: per-class market allowlist (yield_rotation_v1) ───────
+    function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external;
+    function marketAllowlistRoot(bytes32 declaredClass) external view returns (bytes32);
+
+    // ── WS7.A: params-hash commitment + rotation ────────────────────
+    function commitInitialParamsHash(address strategyId, bytes32 paramsHash) external;
+    function initiateParamsRotation(address strategyId, bytes32 newParamsHash) external;
+    function completeParamsRotation(address strategyId) external;
+    function paramsHashOf(address strategyId) external view returns (bytes32);
+    function pendingParamsHashOf(address strategyId)
+        external
+        view
+        returns (bytes32 newHash, uint64 unlockAt);
 }

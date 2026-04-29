@@ -24,10 +24,26 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
         uint64 unlockAt;
     }
 
+    struct PendingParamsRotation {
+        bytes32 newHash;
+        uint64 unlockAt;
+    }
+
     mapping(address => StrategyEntry) internal _strategies;
     mapping(address => PendingWithdrawal) public pendingWithdrawals;
     mapping(bytes32 => address[]) internal _strategiesByClass;
     address[] public strategyList;
+
+    // WS3.A — per-class market allowlist root (yield_rotation_v1 et al.).
+    // Helios.md §6.5 / §9.3.
+    mapping(bytes32 => bytes32) internal _marketAllowlistRoot;
+
+    // WS7.A — committed params hash per strategy. Initial commit lives
+    // here so the StrategyVault can require pre-trade equality without
+    // operator-time tampering. Rotations follow the same cooldown shape
+    // as stake withdrawals.
+    mapping(address => bytes32) internal _paramsHashOf;
+    mapping(address => PendingParamsRotation) internal _pendingParamsRotation;
 
     error StrategyAlreadyRegistered();
     error StrategyNotFound();
@@ -176,5 +192,78 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
 
     function strategyCount() external view returns (uint256) {
         return strategyList.length;
+    }
+
+    // ── WS3.A: per-class market allowlist ───────────────────────────
+
+    function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external onlyOwner {
+        _marketAllowlistRoot[declaredClass] = root;
+        emit MarketAllowlistRootSet(declaredClass, root);
+    }
+
+    function marketAllowlistRoot(bytes32 declaredClass) external view returns (bytes32) {
+        return _marketAllowlistRoot[declaredClass];
+    }
+
+    // ── WS7.A: params-hash commitment + rotation ────────────────────
+
+    /// @notice One-shot initial commit of a strategy's params hash. Must
+    ///         be called by the operator after `registerStrategy` and
+    ///         before the vault attempts its first trade. After this
+    ///         point, mutations require `initiateParamsRotation` +
+    ///         `completeParamsRotation` (cooldown enforced).
+    function commitInitialParamsHash(address strategyId, bytes32 paramsHash) external {
+        StrategyEntry storage s = _strategies[strategyId];
+        if (s.registeredAt == 0) revert StrategyNotFound();
+        if (msg.sender != s.operator) revert NotOperator();
+        if (_paramsHashOf[strategyId] != bytes32(0)) revert ParamsHashAlreadyCommitted();
+
+        _paramsHashOf[strategyId] = paramsHash;
+        emit ParamsHashCommitted(strategyId, paramsHash);
+    }
+
+    function initiateParamsRotation(address strategyId, bytes32 newParamsHash) external {
+        StrategyEntry storage s = _strategies[strategyId];
+        if (s.registeredAt == 0) revert StrategyNotFound();
+        if (msg.sender != s.operator) revert NotOperator();
+        if (_paramsHashOf[strategyId] == bytes32(0)) revert ParamsHashNotCommitted();
+        if (_pendingParamsRotation[strategyId].newHash != bytes32(0)) {
+            revert ParamsRotationAlreadyPending();
+        }
+
+        uint64 unlockAt = uint64(block.timestamp + stakeCooldown);
+        _pendingParamsRotation[strategyId] =
+            PendingParamsRotation({ newHash: newParamsHash, unlockAt: unlockAt });
+
+        emit ParamsRotationInitiated(strategyId, _paramsHashOf[strategyId], newParamsHash, unlockAt);
+    }
+
+    function completeParamsRotation(address strategyId) external {
+        StrategyEntry storage s = _strategies[strategyId];
+        if (s.registeredAt == 0) revert StrategyNotFound();
+        if (msg.sender != s.operator) revert NotOperator();
+
+        PendingParamsRotation memory p = _pendingParamsRotation[strategyId];
+        if (p.newHash == bytes32(0)) revert NoPendingParamsRotation();
+        if (block.timestamp < p.unlockAt) revert ParamsRotationCooldownActive();
+
+        bytes32 oldHash = _paramsHashOf[strategyId];
+        _paramsHashOf[strategyId] = p.newHash;
+        delete _pendingParamsRotation[strategyId];
+
+        emit ParamsRotated(strategyId, oldHash, p.newHash);
+    }
+
+    function paramsHashOf(address strategyId) external view returns (bytes32) {
+        return _paramsHashOf[strategyId];
+    }
+
+    function pendingParamsHashOf(address strategyId)
+        external
+        view
+        returns (bytes32 newHash, uint64 unlockAt)
+    {
+        PendingParamsRotation memory p = _pendingParamsRotation[strategyId];
+        return (p.newHash, p.unlockAt);
     }
 }

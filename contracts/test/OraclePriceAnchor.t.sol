@@ -124,7 +124,9 @@ contract OraclePriceAnchorTest is Test {
 
     function test_setSigner_onlyOwner() public {
         address newSigner = makeAddr("newSigner");
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
         anchor.setSigner(newSigner);
 
         vm.prank(owner);

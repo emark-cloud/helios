@@ -73,7 +73,8 @@ contract ReputationAnchorTest is Test {
             totalRealizedPnL: 1000e18,
             maxDrawdownBps: 800,
             proofValidityRateBps: 9900,
-            actorType: t
+            actorType: t,
+            componentsHash: bytes32(0)
         });
     }
 

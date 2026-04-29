@@ -18,6 +18,11 @@ interface IReputationAnchor {
         uint256 maxDrawdownBps;
         uint256 proofValidityRateBps; // strategies only; always 10_000 for allocators
         ActorType actorType;
+        // V2: keccak256-encoded fingerprint of the §8.2 component vector
+        // (R_pnl, R_drawdown, R_consistency, R_proof, R_age) the engine used
+        // to compute currentScore. Anchored on chain so audit consumers can
+        // re-verify the score breakdown without trusting the engine response.
+        bytes32 componentsHash;
     }
 
     event ReputationPosted(

@@ -59,8 +59,7 @@ interface IOracleAnchor {
     ///      implement this with anchor-specific EIP-712 type-hashes — a
     ///      price-domain signature cannot be replayed against a yield
     ///      anchor and vice versa.
-    function commit(bytes32 root, uint64 windowStart, uint64 windowEnd, bytes calldata sig)
-        external;
+    function commit(bytes32 root, uint64 windowStart, uint64 windowEnd, bytes calldata sig) external;
 
     /// @notice Rotate the authorized signer. Owner-gated.
     function setSigner(address signer_) external;

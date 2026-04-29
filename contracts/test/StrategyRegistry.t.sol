@@ -278,4 +278,145 @@ contract StrategyRegistryTest is Test {
         vm.prank(operator);
         registry.registerStrategy(vault, CLASS_MOMENTUM, STAKE);
     }
+
+    // ── WS3.A: market allowlist root ────────────────────────────────
+
+    function test_SetMarketAllowlistRoot_OnlyOwner() public {
+        bytes32 root = keccak256("yield-allowlist-root");
+
+        vm.prank(randomCaller);
+        vm.expectRevert();
+        registry.setMarketAllowlistRoot(CLASS_MOMENTUM, root);
+
+        vm.expectEmit(true, false, false, true);
+        emit IStrategyRegistry.MarketAllowlistRootSet(CLASS_MOMENTUM, root);
+        vm.prank(owner);
+        registry.setMarketAllowlistRoot(CLASS_MOMENTUM, root);
+
+        assertEq(registry.marketAllowlistRoot(CLASS_MOMENTUM), root);
+    }
+
+    function test_SetMarketAllowlistRoot_PerClassIsolation() public {
+        bytes32 r1 = keccak256("a");
+        bytes32 r2 = keccak256("b");
+        vm.prank(owner);
+        registry.setMarketAllowlistRoot(keccak256("yield_rotation_v1"), r1);
+        vm.prank(owner);
+        registry.setMarketAllowlistRoot(keccak256("mean_reversion_v1"), r2);
+
+        assertEq(registry.marketAllowlistRoot(keccak256("yield_rotation_v1")), r1);
+        assertEq(registry.marketAllowlistRoot(keccak256("mean_reversion_v1")), r2);
+        assertEq(registry.marketAllowlistRoot(CLASS_MOMENTUM), bytes32(0));
+    }
+
+    // ── WS7.A: paramsHash commitment + rotation ─────────────────────
+
+    function _registerForRotation() internal {
+        vm.prank(operator);
+        registry.registerStrategy(vault, CLASS_MOMENTUM, STAKE);
+    }
+
+    function test_CommitInitialParamsHash_Happy() public {
+        _registerForRotation();
+        bytes32 h = keccak256("params-v1");
+
+        vm.expectEmit(true, false, false, true);
+        emit IStrategyRegistry.ParamsHashCommitted(vault, h);
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, h);
+
+        assertEq(registry.paramsHashOf(vault), h);
+    }
+
+    function test_CommitInitialParamsHash_RevertsIfAlreadyCommitted() public {
+        _registerForRotation();
+        bytes32 h = keccak256("params-v1");
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, h);
+
+        vm.expectRevert(IStrategyRegistry.ParamsHashAlreadyCommitted.selector);
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, keccak256("other"));
+    }
+
+    function test_CommitInitialParamsHash_RevertsIfNotOperator() public {
+        _registerForRotation();
+        vm.prank(randomCaller);
+        vm.expectRevert(IStrategyRegistry.NotOperator.selector);
+        registry.commitInitialParamsHash(vault, keccak256("x"));
+    }
+
+    function test_InitiateParamsRotation_RevertsIfUncommitted() public {
+        _registerForRotation();
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.ParamsHashNotCommitted.selector);
+        registry.initiateParamsRotation(vault, keccak256("v2"));
+    }
+
+    function test_ParamsRotation_FullCycle() public {
+        _registerForRotation();
+        bytes32 v1 = keccak256("params-v1");
+        bytes32 v2 = keccak256("params-v2");
+
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, v1);
+
+        uint64 expectedUnlock = uint64(block.timestamp + COOLDOWN);
+        vm.expectEmit(true, false, false, true);
+        emit IStrategyRegistry.ParamsRotationInitiated(vault, v1, v2, expectedUnlock);
+        vm.prank(operator);
+        registry.initiateParamsRotation(vault, v2);
+
+        (bytes32 pendingHash, uint64 unlockAt) = registry.pendingParamsHashOf(vault);
+        assertEq(pendingHash, v2);
+        assertEq(unlockAt, expectedUnlock);
+
+        // Cooldown still active.
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.ParamsRotationCooldownActive.selector);
+        registry.completeParamsRotation(vault);
+
+        // Past cooldown — finalize.
+        vm.warp(block.timestamp + COOLDOWN + 1);
+        vm.expectEmit(true, false, false, true);
+        emit IStrategyRegistry.ParamsRotated(vault, v1, v2);
+        vm.prank(operator);
+        registry.completeParamsRotation(vault);
+
+        assertEq(registry.paramsHashOf(vault), v2);
+        (bytes32 cleared,) = registry.pendingParamsHashOf(vault);
+        assertEq(cleared, bytes32(0));
+    }
+
+    function test_InitiateParamsRotation_RevertsIfAlreadyPending() public {
+        _registerForRotation();
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, keccak256("v1"));
+        vm.prank(operator);
+        registry.initiateParamsRotation(vault, keccak256("v2"));
+
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.ParamsRotationAlreadyPending.selector);
+        registry.initiateParamsRotation(vault, keccak256("v3"));
+    }
+
+    function test_CompleteParamsRotation_RevertsIfNothingPending() public {
+        _registerForRotation();
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, keccak256("v1"));
+
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.NoPendingParamsRotation.selector);
+        registry.completeParamsRotation(vault);
+    }
+
+    function test_ParamsRotation_NotOperatorRejected() public {
+        _registerForRotation();
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, keccak256("v1"));
+
+        vm.prank(randomCaller);
+        vm.expectRevert(IStrategyRegistry.NotOperator.selector);
+        registry.initiateParamsRotation(vault, keccak256("v2"));
+    }
 }

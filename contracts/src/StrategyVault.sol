@@ -17,6 +17,7 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { ITradeAttestationVerifier } from "./interfaces/ITradeAttestationVerifier.sol";
+import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 
 /// @title StrategyVault
 /// @notice Per-strategy capital + ZK-gated trade execution + NAV tracking.
@@ -50,6 +51,20 @@ contract StrategyVault is
     uint256 internal constant PI_BLOCK_WINDOW_END = 12;
     uint256 internal constant PI_ORACLE_ROOT = 13;
     uint256 internal constant PI_LENGTH = 14;
+
+    // Yield-rotation public-input layout. Distinct from the swap layout
+    // above — rotations move capital between yield-bearing markets and
+    // bind a different witness set. MUST match circuits/yield_rotation_v1.circom.
+    uint256 internal constant PI_YR_TRADE_HASH = 0;
+    uint256 internal constant PI_YR_DECLARED_CLASS = 1;
+    uint256 internal constant PI_YR_M_FROM = 2;
+    uint256 internal constant PI_YR_M_TO = 3;
+    uint256 internal constant PI_YR_AMOUNT = 4;
+    uint256 internal constant PI_YR_YIELD_ORACLE_ROOT = 5;
+    uint256 internal constant PI_YR_ALLOCATOR = 6;
+    uint256 internal constant PI_YR_NONCE = 7;
+    uint256 internal constant PI_YR_BLOCK_WINDOW_END = 8;
+    uint256 internal constant PI_YR_LENGTH = 9;
 
     StrategyManifest internal _manifest;
     IERC20 public baseAsset;
@@ -197,6 +212,33 @@ contract StrategyVault is
         _emitTradeAttested(publicInputs);
     }
 
+    /// @notice yield_rotation_v1 entry path. The 9-PI layout omits asset
+    ///         indices, params_hash, and an explicit window-start (rotation
+    ///         is whole-position; the allocator picks the destination
+    ///         market). Private witnesses bound by the circuit but not
+    ///         visible here:
+    ///           - signal_threshold (operator-declared APY-diff gate)
+    ///           - bridging_cost
+    ///           - markets_allowlist_root (canonical root lives in
+    ///             StrategyRegistry.marketAllowlistRoot — operators are
+    ///             expected to use it; full on-chain enforcement requires
+    ///             promoting that root to a public input in the circuit,
+    ///             which is a v2 change).
+    /// @dev TODO(WS7.A): once Poseidon-on-Solidity ships, recompute the
+    ///      YR trade_hash here against the registry's committed paramsHash
+    ///      to defend against operators feeding stale params into a fresh
+    ///      proof. The circuit already enforces the binding between
+    ///      private witnesses and the trade_hash.
+    function executeYieldRotationWithProof(
+        bytes calldata proof,
+        uint256[] calldata publicInputs,
+        Call[] calldata trades
+    ) external onlyOperator notHalted nonReentrant {
+        _validateAndVerifyYR(proof, publicInputs);
+        _runTrades(trades);
+        _emitYieldRotationAttested(publicInputs);
+    }
+
     function _validateAndVerify(bytes calldata proof, uint256[] calldata publicInputs) internal {
         if (publicInputs.length < PI_LENGTH) revert PublicInputsTooShort();
 
@@ -209,7 +251,7 @@ contract StrategyVault is
         if (address(uint160(publicInputs[PI_STRATEGY_VAULT])) != address(this)) {
             revert VaultMismatch();
         }
-        if (bytes32(publicInputs[PI_PARAMS_HASH]) != _manifest.paramsHash) {
+        if (bytes32(publicInputs[PI_PARAMS_HASH]) != _activeParamsHash()) {
             revert ParamsHashMismatch();
         }
         if (address(uint160(publicInputs[PI_ALLOCATOR])) != allocatorVault) {
@@ -229,6 +271,39 @@ contract StrategyVault is
 
         if (!ITradeAttestationVerifier(verifier)
                 .verify(_manifest.declaredClass, proof, publicInputs)) revert InvalidProof();
+    }
+
+    function _validateAndVerifyYR(bytes calldata proof, uint256[] calldata publicInputs) internal {
+        if (publicInputs.length < PI_YR_LENGTH) revert PublicInputsTooShort();
+
+        if (bytes32(publicInputs[PI_YR_DECLARED_CLASS]) != _manifest.declaredClass) {
+            revert ClassMismatch();
+        }
+        if (address(uint160(publicInputs[PI_YR_ALLOCATOR])) != allocatorVault) {
+            revert AllocatorMismatch();
+        }
+        if (block.number > publicInputs[PI_YR_BLOCK_WINDOW_END]) revert WindowExpired();
+
+        bytes32 tradeHash = bytes32(publicInputs[PI_YR_TRADE_HASH]);
+        if (_seenTradeHash[tradeHash]) revert TradeAlreadySettled();
+        _seenTradeHash[tradeHash] = true;
+
+        if (!ITradeAttestationVerifier(verifier)
+                .verify(_manifest.declaredClass, proof, publicInputs)) revert InvalidProof();
+    }
+
+    function _emitYieldRotationAttested(uint256[] calldata publicInputs) internal {
+        emit YieldRotationAttested(
+            address(this),
+            allocatorVault,
+            bytes32(publicInputs[PI_YR_TRADE_HASH]),
+            _manifest.declaredClass,
+            publicInputs[PI_YR_M_FROM],
+            publicInputs[PI_YR_M_TO],
+            publicInputs[PI_YR_AMOUNT],
+            bytes32(publicInputs[PI_YR_YIELD_ORACLE_ROOT]),
+            uint64(publicInputs[PI_YR_BLOCK_WINDOW_END])
+        );
     }
 
     function _runTrades(Call[] calldata trades) internal {
@@ -310,6 +385,17 @@ contract StrategyVault is
     }
 
     // ── Internal helpers ────────────────────────────────────────────
+
+    /// @notice The currently-binding params hash. WS7.A: prefer the
+    ///         registry-committed value when present so post-rotation
+    ///         proofs validate against the canonical hash; fall back to
+    ///         the manifest value for vaults that haven't yet committed
+    ///         (Phase-1 deployment path).
+    function _activeParamsHash() internal view returns (bytes32) {
+        bytes32 fromRegistry = IStrategyRegistry(registry).paramsHashOf(address(this));
+        if (fromRegistry != bytes32(0)) return fromRegistry;
+        return _manifest.paramsHash;
+    }
 
     function _navOf(address allocator) internal view returns (uint256) {
         // Phase 1: single allocator vault, so totalAllocated == _allocationOf[allocatorVault].

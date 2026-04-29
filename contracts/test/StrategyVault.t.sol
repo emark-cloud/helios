@@ -6,6 +6,7 @@ import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { ITradeAttestationVerifier } from "../src/interfaces/ITradeAttestationVerifier.sol";
+import { IStrategyRegistry } from "../src/interfaces/IStrategyRegistry.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -83,6 +84,16 @@ contract StrategyVaultTest is Test {
         usdc.mint(allocatorVault, 1_000_000e6);
         vm.prank(allocatorVault);
         usdc.approve(address(vault), type(uint256).max);
+
+        // The vault now consults the registry for the active params hash
+        // (WS7.A). Tests use a plain EOA for `registry`, so mock the
+        // selector to return zero — the vault falls back to the manifest
+        // value for these legacy paths.
+        vm.mockCall(
+            registry,
+            abi.encodeWithSelector(IStrategyRegistry.paramsHashOf.selector),
+            abi.encode(bytes32(0))
+        );
     }
 
     // ── Initialization ───────────────────────────────────────────────
@@ -516,5 +527,134 @@ contract StrategyVaultTest is Test {
         assertEq(m.operator, operator);
         assertEq(m.maxCapacity, MAX_CAPACITY);
         assertEq(m.assetUniverse.length, 2);
+    }
+
+    // ── WS7.A: registry-pulled params hash overrides manifest ──────
+
+    function test_ExecuteWithProof_UsesRegistryParamsHashWhenCommitted() public {
+        bytes32 newHash = keccak256("rotated-params-v2");
+        // Registry now returns the rotated hash; the proof's PI_PARAMS_HASH
+        // must match this value, not the manifest's 0xfee5 default.
+        vm.mockCall(
+            registry,
+            abi.encodeWithSelector(IStrategyRegistry.paramsHashOf.selector),
+            abi.encode(newHash)
+        );
+
+        uint256[] memory pi = _validInputs();
+        // First confirm the old (manifest) hash is now rejected.
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ParamsHashMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+
+        // Then confirm the rotated hash passes.
+        pi[3] = uint256(newHash);
+        vm.prank(operator);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    // ── WS7.A: yield-rotation 9-PI entry path ──────────────────────
+
+    function _yrInputs() internal view returns (uint256[] memory pi) {
+        // Layout: [trade_hash, declared_class, m_from, m_to, amount,
+        //          yield_oracle_root, allocator, nonce, block_window_end]
+        pi = new uint256[](9);
+        pi[0] = uint256(keccak256("yr-trade-1"));
+        pi[1] = uint256(CLASS);
+        pi[2] = 1; // m_from market id
+        pi[3] = 2; // m_to market id
+        pi[4] = 1000e6; // amount rotating
+        pi[5] = uint256(keccak256("yield-oracle-root"));
+        pi[6] = uint256(uint160(allocatorVault));
+        pi[7] = 7; // nonce
+        pi[8] = block.number + 10;
+    }
+
+    function test_ExecuteYieldRotationWithProof_HappyPath() public {
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+
+        vm.expectEmit(true, true, true, true);
+        emit IStrategyVault.YieldRotationAttested(
+            address(vault),
+            allocatorVault,
+            bytes32(pi[0]),
+            CLASS,
+            pi[2],
+            pi[3],
+            pi[4],
+            bytes32(pi[5]),
+            uint64(pi[8])
+        );
+        vm.prank(operator);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnShortInputs() public {
+        uint256[] memory pi = new uint256[](8);
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.PublicInputsTooShort.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnClassMismatch() public {
+        uint256[] memory pi = _yrInputs();
+        pi[1] = uint256(keccak256("other_class"));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ClassMismatch.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnAllocatorMismatch() public {
+        uint256[] memory pi = _yrInputs();
+        pi[6] = uint256(uint160(makeAddr("notAllocator")));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.AllocatorMismatch.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnWindowExpired() public {
+        uint256[] memory pi = _yrInputs();
+        pi[8] = block.number == 0 ? 0 : block.number - 1;
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.WindowExpired.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnReplay() public {
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.TradeAlreadySettled.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnBadProof() public {
+        // Re-deploy a verifier that returns false to force the InvalidProof path.
+        MockGroth16Verifier badInner = new MockGroth16Verifier(false);
+        vm.prank(owner);
+        verifier.registerVerifier(CLASS, address(badInner));
+
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.InvalidProof.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_OnlyOperator() public {
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(randomCaller);
+        vm.expectRevert(IStrategyVault.NotOperator.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
     }
 }

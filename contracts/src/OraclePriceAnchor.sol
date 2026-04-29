@@ -73,7 +73,8 @@ contract OraclePriceAnchor is IOracleAnchor, Ownable, EIP712 {
         uint256 n = _commits.length;
         if (n != 0 && windowStart < _commits[n - 1].windowEnd) revert NonMonotonicWindow();
 
-        bytes32 structHash = keccak256(abi.encode(COMMIT_TYPEHASH, root, windowStart, windowEnd, nonce));
+        bytes32 structHash =
+            keccak256(abi.encode(COMMIT_TYPEHASH, root, windowStart, windowEnd, nonce));
         bytes32 digest = _hashTypedDataV4(structHash);
         address recovered = ECDSA.recover(digest, sig);
         if (recovered != oracleSigner) revert InvalidSigner();
