@@ -244,11 +244,11 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [x] Price oracle Poseidon-root anchored on-chain via a periodic commit. **`OraclePriceAnchor.sol` (append-only EIP-712 ledger, monotonic windows, replay nonce) + `oracle.anchor.PriceAnchorScheduler` (commits every `ORACLE_ANCHOR_INTERVAL_BARS` bars, default 50) wired into `Poller.on_snapshot`. Python signing parity locked by 7 anchor unit tests; on-chain side covered by 16 Foundry tests; vector parity with the momentum circuit's chained Poseidon locked by 10 `test_poseidon_chain.py` cases (canonical `momentum_v1.test.js` `buildValidInput` fixture). `chain_root` is now a BN254 field element (decimal string + bytes32 hex on the HTTP endpoint).**
 - [x] Scenario mode supports scripted yield differentials for yield-rotation demos. **Aave/Compound stub feeders advance through deterministic APY tick sequences; the canonical scenario crosses Compound USDC above Aave USDC by tick 5 (≥1.0% spread) so `yield_rotation_v1` has a real differential to chase in CI.**
 
-### SX — Strategy SDK v0.1
-- [ ] `pip install helios-strategy-sdk` works from a test-PyPI mirror
-- [ ] `StrategyAgent` base class with `declared_class`, `asset_universe`, `max_position_size_usd`, `fee_rate_bps`, `on_bar`, `size_trade`, `should_exit`
-- [ ] Backtest harness: `helios backtest --strategy ./my.py --period 90d --capital 10000` runs against historical replay and outputs a P&L/Sharpe/max-DD report
-- [ ] Local simulator: `helios simulate` runs against mocked market, usable in CI
+### SX — Strategy SDK v0.1 (WS4.A landed 2026-04-30)
+- [x] `pip install helios-strategy-sdk` works from a test-PyPI mirror. **`.github/workflows/publish-sdk-testpypi.yml` builds + publishes on `sdk-v*` tag (and `workflow_dispatch`) via PyPI trusted publishing (OIDC). Tag/version drift gate fails the run if `sdk-v<x>` doesn't match `pyproject.toml`.**
+- [x] `StrategyAgent` base class with `declared_class`, `asset_universe`, `max_position_size_usd`, `fee_rate_bps`, `on_bar`, `size_trade`, `should_exit`. **`packages/strategy-sdk/src/helios/agent.py` formalized: `on_bar` abstract, `size_trade`/`should_exit` non-abstract with safe defaults (clamp to `max_position_size_usd` ∧ `available_capital`; default `should_exit=False`). Internal `_set_capital` / `_set_position` hooks land for backtest + runtime. 7 unit tests cover declared-class enforcement, sizing clamps, and manifest pass-through.**
+- [x] Backtest harness: `packages/strategy-sdk/src/helios/backtest.py` ships `run_backtest(strategy, prices, …)` returning a `BacktestReport` with NAV series, fills, Sharpe, max-DD, win rate, realized P&L. Pure-Python (no numpy); `helios.nav.NAVTracker` provides O(1) drawdown + Sharpe matching `services/reputation/windows.py` annualisation. CLI integration is WS4.B.
+- [x] Local simulator: `synthesize_random_walk(assets, bars, seed)` (deterministic LCG + Box-Muller-lite) feeds `run_backtest` for CI smoke tests; 25 SDK pytest cases cover engine, NAV math, and synth determinism. CLI surface (`helios simulate`) is WS4.B.
 - [ ] Deploy helper: `helios deploy --strategy ./my.py --vps user@server` packages Docker image and bootstraps the agent
 - [ ] Stake management: `helios stake top-up --amount N`
 - [ ] Proof testing: `helios test-proof --trade <spec>` runs a full proof cycle locally

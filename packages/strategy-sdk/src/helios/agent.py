@@ -1,14 +1,20 @@
 """StrategyAgent base class.
 
-Phase 0 ships the abstract surface so service code can import it. Phase 1
-backfills the concrete behavior:
-  - market data polling (1-minute bars)
-  - calling `on_bar(asset, snapshot)` per asset per bar
-  - constructing trade calldata for the chosen DEX router
-  - bundling witness data and POSTing to the Prover Service
-  - submitting `executeWithProof` with proper gas handling
-  - NAV tracking + reporting
-  - fee distribution claims
+Subclass this to ship a strategy on the Helios marketplace. See
+`Helios.md §10` for the full SDK contract.
+
+Required override:
+  * `on_bar(asset, snapshot)` — your signal logic.
+
+Optional overrides (sensible defaults provided):
+  * `size_trade(intent, available_capital)` — translate a trade
+    intent into a notional USD amount. Default respects `intent`'s
+    own sizing, capped by `max_position_size_usd` and the available
+    capital.
+  * `should_exit(asset, snapshot, position)` — supplemental exit
+    hook the backtest engine consults each bar. Default returns
+    `False`; the recommended pattern is still to express exits as
+    `TradeIntent(direction=Direction.EXIT, ...)` from `on_bar`.
 """
 
 from __future__ import annotations
@@ -17,11 +23,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import ClassVar
 
-from helios.types import MarketSnapshot, Position, StrategyManifest, TradeIntent
+from helios.types import Direction, MarketSnapshot, Position, StrategyManifest, TradeIntent
 
 
 class StrategyAgent(ABC):
-    """Subclass me. See Helios.md §10.
+    """Subclass me. See `Helios.md §10`.
 
     Class-level configuration (override these on your subclass):
         declared_class: e.g. "momentum_v1"
@@ -44,9 +50,43 @@ class StrategyAgent(ABC):
     # ── To be overridden by operators ────────────────────────
     @abstractmethod
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
-        """Called for each asset on each bar close. Return a TradeIntent to trade,
-        or None to do nothing. Phase 0 abstract; Phase 1 wires the runtime."""
+        """Called for each asset on each bar close. Return a TradeIntent
+        to trade, or None to do nothing."""
         ...
+
+    def size_trade(self, intent: TradeIntent, available_capital: float) -> float:
+        """Translate a TradeIntent into a notional USD amount.
+
+        Default policy: prefer the intent's own `amount_in_usd` when
+        present; otherwise convert `amount_in_asset` using the price
+        embedded in the snapshot if the strategy attached one
+        (operators usually inline this in `on_bar`). Always clamps to
+        `max_position_size_usd` and `available_capital`.
+
+        Operators with custom sizing (Kelly, vol-target, …) override
+        this and ignore the intent's `amount_in_usd`."""
+        cap = float(self.max_position_size_usd) if self.max_position_size_usd else available_capital
+        notional: float
+        if intent.amount_in_usd is not None:
+            notional = intent.amount_in_usd
+        elif intent.amount_in_asset is not None:
+            # Without a price the SDK cannot convert; surface zero so the
+            # backtest engine treats the intent as a no-op rather than
+            # silently mis-sizing.
+            notional = 0.0
+        else:
+            notional = 0.0
+        return max(0.0, min(notional, cap, available_capital))
+
+    def should_exit(self, asset: str, snapshot: MarketSnapshot, position: Position) -> bool:
+        """Supplemental exit hook the backtest engine consults each bar.
+
+        Default returns `False`. The canonical pattern is to drive exits
+        from `on_bar` by returning `TradeIntent(direction=Direction.EXIT,
+        …)`; this hook exists for strategies that want a separate
+        per-bar stop-loss or risk gate without polluting `on_bar`."""
+        del asset, snapshot, position
+        return False
 
     # ── Helpers available inside on_bar ──────────────────────
     @property
@@ -56,6 +96,9 @@ class StrategyAgent(ABC):
     def position_for(self, asset: str) -> float:
         pos = self._positions.get(asset)
         return pos.quantity if pos else 0.0
+
+    def position_object(self, asset: str) -> Position | None:
+        return self._positions.get(asset)
 
     def manifest(
         self, *, operator: str, stake_amount_usd: int, max_capacity_usd: int
@@ -67,4 +110,18 @@ class StrategyAgent(ABC):
             fee_rate_bps=self.fee_rate_bps,
             operator=operator,
             stake_amount_usd=stake_amount_usd,
+        )
+
+    # ── Internal hooks the SDK uses (backtest, runtime) ──────
+    def _set_capital(self, usd: float) -> None:
+        self._available_capital_usd = usd
+
+    def _set_position(
+        self, asset: str, qty: float, avg_entry_price: float, direction: Direction
+    ) -> None:
+        if qty == 0:
+            self._positions.pop(asset, None)
+            return
+        self._positions[asset] = Position(
+            asset=asset, quantity=qty, avg_entry_price=avg_entry_price, direction=direction
         )
