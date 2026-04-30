@@ -1,0 +1,34 @@
+[project]
+name = "helios-reference-yield-rotation-v1"
+version = "0.1.0"
+description = "Reference yield_rotation_v1 strategy. Built on helios-strategy-sdk; ships the runtime that polls the yield oracle, builds Merkle witnesses, calls the prover, and submits executeYieldRotationWithProof."
+requires-python = ">=3.11"
+dependencies = [
+    "helios-service-template",
+    "helios-strategy-sdk",
+    # Reuses the oracle's Poseidon helper for client-side Merkle-tree
+    # building — yield-rotation operators must construct allowlist proofs
+    # with circomlibjs-bit-exact hashes. Phase 3 will lift this into a
+    # shared `helios-poseidon` package; for Phase 2 the workspace dep is
+    # the cleanest path that keeps the YR strategy self-consistent with
+    # the on-chain oracle root.
+    "helios-oracle",
+    "eth-account>=0.13",
+    "eth-utils>=4.1",
+    "httpx>=0.27",
+    "structlog>=24.4",
+    "web3>=7.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1"]
+
+[project.scripts]
+yield-rotation-v1 = "yield_rotation_v1.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yield_rotation_v1"]

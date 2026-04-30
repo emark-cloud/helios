@@ -1,0 +1,27 @@
+[project]
+name = "helios-reference-mean-reversion-v1"
+version = "0.1.0"
+description = "Reference mean_reversion_v1 strategy. Built on helios-strategy-sdk; ships the runtime that polls the oracle, calls the prover, and submits executeWithProof."
+requires-python = ">=3.11"
+dependencies = [
+    "helios-service-template",
+    "helios-strategy-sdk",
+    "eth-account>=0.13",
+    "eth-utils>=4.1",
+    "httpx>=0.27",
+    "structlog>=24.4",
+    "web3>=7.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1"]
+
+[project.scripts]
+mean-reversion-v1 = "mean_reversion_v1.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mean_reversion_v1"]

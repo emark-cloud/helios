@@ -22,14 +22,18 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
-from oracle.anchor import AnchorPoster, PriceAnchorScheduler
-from oracle.poller import Poller
+from oracle.anchor import AnchorPoster, PriceAnchorScheduler, YieldAnchorScheduler
+from oracle.poller import Poller, YieldPoller
 from oracle.signer import LocalSigner
 from oracle.sources.base import PriceSource
 from oracle.sources.binance import BinanceSource
 from oracle.sources.coingecko import CoingeckoSource
 from oracle.sources.scenario import ScenarioSource
+from oracle.sources.yield_aave_stub import AaveStubSource
+from oracle.sources.yield_base import YieldSource
+from oracle.sources.yield_compound_stub import CompoundStubSource
 from oracle.state import SnapshotStore
+from oracle.yield_state import YieldStore
 
 
 class Settings(BaseServiceSettings):
@@ -42,11 +46,21 @@ class Settings(BaseServiceSettings):
     snapshot_capacity: int = 1024
     http_port: int = 8003
 
+    # Yield oracle — Phase 2. Comma-separated `(source:market_pair)` ids,
+    # e.g. "aave-v3:USDC,aave-v3:USDT,compound-v3:USDC,compound-v3:USDT".
+    yield_markets: str = Field(
+        default="aave-v3:USDC,aave-v3:USDT,compound-v3:USDC,compound-v3:USDT",
+        validation_alias="ORACLE_YIELD_MARKETS",
+    )
+    yield_interval_sec: int = Field(default=60, validation_alias="ORACLE_YIELD_INTERVAL_SEC")
+    yield_capacity: int = Field(default=512, validation_alias="ORACLE_YIELD_CAPACITY")
+
     # Phase 2 anchor wiring. All optional — empty values keep the poster
     # in dry-run mode (records pending commits for tests, doesn't submit).
     rpc_url: str = Field(default="", validation_alias="KITE_RPC_URL")
     chain_id: int = Field(default=2368, validation_alias="ORACLE_CHAIN_ID")
     price_anchor_address: str = Field(default="", validation_alias="ORACLE_PRICE_ANCHOR_ADDRESS")
+    yield_anchor_address: str = Field(default="", validation_alias="ORACLE_YIELD_ANCHOR_ADDRESS")
     anchor_interval_bars: int = Field(default=50, validation_alias="ORACLE_ANCHOR_INTERVAL_BARS")
     anchor_chain_depth: int = Field(default=16, validation_alias="ORACLE_ANCHOR_CHAIN_DEPTH")
 
@@ -77,8 +91,10 @@ def _hex(b: bytes) -> str:
 def build_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings()  # type: ignore[call-arg]
     assets = _parse_assets(cfg.assets)
+    yield_markets = _parse_assets(cfg.yield_markets)
     signer = LocalSigner(cfg.signer_pk)
     store = SnapshotStore(signer=signer, capacity_per_asset=cfg.snapshot_capacity)
+    yield_store = YieldStore(signer=signer, capacity_per_market=cfg.yield_capacity)
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-oracle/0.1"})
     sources: list[PriceSource] = []
@@ -87,6 +103,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     else:
         sources.append(BinanceSource(http_client, _BINANCE_SYMBOLS))
         sources.append(CoingeckoSource(http_client, _COINGECKO_SLUGS))
+
+    # Yield sources — Phase 2 ships the two stub feeders. Real Aave +
+    # Compound integrations land in Phase 5.
+    yield_sources: list[YieldSource] = [AaveStubSource(), CompoundStubSource()]
 
     price_poster = AnchorPoster(
         kind="price",
@@ -101,6 +121,19 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
     )
+    yield_poster = AnchorPoster(
+        kind="yield",
+        rpc_url=cfg.rpc_url,
+        signer_pk=cfg.signer_pk,
+        anchor_address=cfg.yield_anchor_address,
+        chain_id=cfg.chain_id,
+    )
+    yield_scheduler = YieldAnchorScheduler(
+        store=yield_store,
+        poster=yield_poster,
+        interval_bars=cfg.anchor_interval_bars,
+        chain_depth=cfg.anchor_chain_depth,
+    )
     poller = Poller(
         store=store,
         sources=sources,
@@ -108,13 +141,22 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         interval_sec=cfg.bar_interval_sec,
         on_snapshot=price_scheduler.on_bar,
     )
+    yield_poller = YieldPoller(
+        store=yield_store,
+        sources=yield_sources,
+        markets=yield_markets,
+        interval_sec=cfg.yield_interval_sec,
+        on_snapshot=yield_scheduler.on_bar,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         poller.start()
+        yield_poller.start()
         try:
             yield
         finally:
+            await yield_poller.stop()
             await poller.stop()
             await http_client.aclose()
 
@@ -178,16 +220,72 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "hash": "poseidon",
         }
 
+    @router.get("/yield/markets")
+    async def yield_markets_endpoint() -> dict[str, object]:
+        return {
+            "configured": yield_markets,
+            "active": yield_store.markets(),
+            "signer": signer.signer_address,
+        }
+
+    @router.get("/yield/recent")
+    async def yield_recent(
+        market_id: str = Query(...),
+        n: int = Query(default=16, ge=1, le=512),
+    ) -> dict[str, object]:
+        if market_id not in yield_markets:
+            raise HTTPException(status_code=404, detail=f"market not tracked: {market_id}")
+        snaps = yield_store.recent(market_id, n)
+        return {
+            "market_id": market_id,
+            "n": len(snaps),
+            "signer": signer.signer_address,
+            "snapshots": [
+                {
+                    "market_id": s.market_id,
+                    "apy_bps_e6": str(s.apy_bps_e6),
+                    "timestamp_ms": s.timestamp_ms,
+                    "source": s.source,
+                    "digest": _hex(s.digest),
+                    "signature": _hex(s.signature),
+                }
+                for s in snaps
+            ],
+        }
+
+    @router.get("/yield/root")
+    async def yield_root(
+        market_id: str = Query(...),
+        n: int = Query(default=16, ge=1, le=512),
+    ) -> dict[str, object]:
+        if market_id not in yield_markets:
+            raise HTTPException(status_code=404, detail=f"market not tracked: {market_id}")
+        chain_root = yield_store.chain_root(market_id, n)
+        head_ts = yield_store.head_timestamp_ms(market_id)
+        return {
+            "market_id": market_id,
+            "n": n,
+            "root": str(chain_root),
+            "root_bytes32": "0x" + chain_root.to_bytes(32, "big").hex(),
+            "head_timestamp_ms": head_ts,
+            "signer": signer.signer_address,
+            "hash": "poseidon",
+        }
+
     app = create_app(name="oracle", settings=cfg, routers=[router])
     # `create_app` builds its own lifespan around DB; we layer the poller's lifespan
     # by wrapping the app's existing one.
     app.router.lifespan_context = _compose_lifespans(app.router.lifespan_context, lifespan)
     # Surface helpers for tests.
     app.state.store = store  # type: ignore[attr-defined]
+    app.state.yield_store = yield_store  # type: ignore[attr-defined]
     app.state.poller = poller  # type: ignore[attr-defined]
+    app.state.yield_poller = yield_poller  # type: ignore[attr-defined]
     app.state.signer = signer  # type: ignore[attr-defined]
     app.state.price_anchor_poster = price_poster  # type: ignore[attr-defined]
     app.state.price_anchor_scheduler = price_scheduler  # type: ignore[attr-defined]
+    app.state.yield_anchor_poster = yield_poster  # type: ignore[attr-defined]
+    app.state.yield_anchor_scheduler = yield_scheduler  # type: ignore[attr-defined]
     return app
 
 

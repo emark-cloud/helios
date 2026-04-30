@@ -123,7 +123,10 @@ test("GET /health lists registered classes", async () => {
   const res = await request(app).get("/health");
   assert.equal(res.status, 200);
   assert.equal(res.body.service, "prover");
-  assert.deepEqual(res.body.classes.sort(), ["hello", "momentum_v1"]);
+  assert.deepEqual(
+    res.body.classes.sort(),
+    ["hello", "mean_reversion_v1", "momentum_v1", "yield_rotation_v1"],
+  );
 });
 
 test("POST /prove rejects unknown strategyClass", async () => {

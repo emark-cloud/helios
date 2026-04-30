@@ -35,6 +35,8 @@ members = [
     "services/oracle",
     "services/bot",
     "reference-strategies/momentum_v1",
+    "reference-strategies/mean_reversion_v1",
+    "reference-strategies/yield_rotation_v1",
 ]
 
 [tool.uv.sources]
@@ -49,6 +51,8 @@ helios-reputation = { workspace = true }
 helios-oracle = { workspace = true }
 helios-bot = { workspace = true }
 helios-reference-momentum-v1 = { workspace = true }
+helios-reference-mean-reversion-v1 = { workspace = true }
+helios-reference-yield-rotation-v1 = { workspace = true }
 
 [tool.ruff]
 line-length = 100

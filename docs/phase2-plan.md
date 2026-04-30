@@ -26,7 +26,7 @@ Outcome at end of Phase 2: multiple strategies per class with non-zero capital, 
 | WS1.B | `mean_reversion_v1` circuit | WS1.A | WS1.C |
 | WS1.C | `yield_rotation_v1` circuit | WS1.A | WS1.B |
 | WS2.A | Reputation engine §8.2 rewrite | WS3.A typehash bump | WS1.* |
-| WS2.B | Reference strategies (mean-rev + yield-rot) | WS1.B/C, WS4.A | each other |
+| WS2.B ✅ | Reference strategies (mean-rev + yield-rot) | WS1.B/C, WS4.A | each other |
 | WS3.A | Verifier adapters + ReputationAnchor v2 + Oracle anchors | WS1.B/C, WS2.A field set | — |
 | WS3.B | DeployPhase2 script | WS3.A | — |
 | WS4.A | Strategy SDK v0.1 (agent base, helpers, test-PyPI publish) | — | WS1.* |
@@ -119,18 +119,22 @@ Outcome at end of Phase 2: multiple strategies per class with non-zero capital, 
 
 ---
 
-## WS2.B — Reference strategies (M, ~4 days, both in parallel)
+## WS2.B — Reference strategies (M, ~4 days, both in parallel) ✅ landed 2026-04-30
 
-**Deliverables** — clone `reference-strategies/momentum_v1/` template:
-- `reference-strategies/mean_reversion_v1/` — strategy.py implements §10.3 (signal = N-period return < neg threshold for long; > pos threshold for short; exit on signal flip OR stop-loss; sizing `min(size_per_trade, available_capital × 0.5)` capped by `max_position_size_usd`; lookback 10–20 bars).
-- `reference-strategies/yield_rotation_v1/` — strategy.py implements §10.4 (scan allowlisted lending markets; identify M_from/M_to where APY differential > threshold net of bridging; exit on differential drop + hysteresis; Phase 2 = Kite-local markets only). Uses MockSwapRouter (Phase 1 pattern; Algebra not on Kite testnet).
-- Both registered via `contracts/script/RegisterPhase2Strategies.s.sol` with real stake. **Two strategies per class minimum** so cohort median/IQR is well-defined.
+**Deliverables** — cloned `reference-strategies/momentum_v1/` template:
+- `reference-strategies/mean_reversion_v1/` — strategy.py implements §10.3 (signal = N-period return < neg threshold for long; > pos threshold for short; exit on signal flip OR stop-loss; sizing `min(size_per_trade, available_capital × 0.5)` capped by `max_position_size_usd`; lookback 10–20 bars). **Shipped: `MeanReversionStrategy` with 16-bar μ/σ z-score, n_sigma_x100 entry, mean re-cross + stop-loss exits; runtime drives bar+NAV cadences; witness builder mirrors `gen-fixture-mr.js` (14 PIs, `executeWithProof` path); FastAPI shell on port 8006. 33 pytest cases passing.**
+- `reference-strategies/yield_rotation_v1/` — strategy.py implements §10.4 (scan allowlisted lending markets; identify M_from/M_to where APY differential > threshold net of bridging; exit on differential drop + hysteresis; Phase 2 = Kite-local markets only). Uses MockSwapRouter (Phase 1 pattern; Algebra not on Kite testnet). **Shipped: `YieldRotationStrategy` with `on_yield_tick` extension hook (base `on_bar` overridden to no-op since YR fires on yield cadence, not price bars); Python Poseidon-Merkle witness builder (yield depth 6, allowlist depth 4) producing 9-PI `executeYieldRotationWithProof` payloads with empty `Call[]` — Phase 2 = Kite-local-only, no real lending markets, real cross-chain rotation lands Phase 5 with LayerZero. Reuses `oracle.poseidon` via `helios-oracle` workspace dep; Phase 3 will lift into shared `helios-poseidon` package. Vector-parity test (`test_merkle.py`) reproduces `gen-fixture-yr.js` yield root + trade_hash bit-exact, locking Python Poseidon ↔ circomlibjs for tree-shaped data. FastAPI shell on port 8007. 32 pytest cases passing.**
+- Both registered via `contracts/script/RegisterPhase2Strategies.s.sol` with real stake. **Two strategies per class minimum** so cohort median/IQR is well-defined. **Shipped: script deploys a SECOND `StrategyVault` per class with distinct non-zero `paramsHash` (different `signal_threshold`/`n_sigma`/`bridging_cost` per variant) and registers via `StrategyRegistry.registerStrategy(_, CLASS_*, 5000e6)`. 5 Foundry tests assert `strategiesByClass(C).length == 2`, both active, paramsHash distinct cross-class, stake pulled from operator, deployments JSON merge preserves Phase-1 entries. Cohort math (§8.2 `min_cohort_size = 2`) now satisfied.**
+- **Prover service**: `services/prover/src/index.js` `REGISTERED_CLASSES` bumped to include `mean_reversion_v1` + `yield_rotation_v1`. 5 prover tests still pass.
+- **Oracle yield endpoints**: `/v1/yield/recent`, `/v1/yield/markets`, `/v1/yield/root` + `YieldPoller` driving `YieldStore` with Aave/Compound stub feeders. 2 new endpoint tests.
 
 **Sharing.** Both classes reuse Phase 1 `StrategyVault` UUPS impl unchanged — vault is class-agnostic; class is enforced by registry + verifier mapping.
 
-**Tests:** pytest per strategy; CI runs `helios test-proof --trade <fixture>` for each class against deployed verifier.
+**Tests:** pytest per strategy (`uv run --package helios-reference-{mean-reversion,yield-rotation}-v1 pytest …`); 65 strategy-side cases + 5 Foundry cases + 2 oracle endpoint cases all green. Full `forge test` suite remains 227 green.
 
-**Acceptance:** TODO "Multiple strategies of each class registered with non-zero capital".
+**Open follow-up (Phase 6 / WS6-gated):** deploy `RegisterPhase2Strategies.s.sol` against Kite testnet — runs once and wires `strategyVault<Class>Variant2` keys into `deployments/kite-testnet.json`. Tracked in TODO.md.
+
+**Acceptance:** TODO "Multiple strategies of each class registered with non-zero capital" ✅.
 
 ---
 

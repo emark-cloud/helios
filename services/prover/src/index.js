@@ -32,8 +32,14 @@ const PROOF_TIMEOUT_MS = 30_000;
 
 // Registered circuit classes. Adding a class requires (a) committed wasm/zkey
 // under circuits/build/<class>/, (b) a generated <Class>Verifier.sol deployed
-// via DeployPhase1.s.sol, and (c) registration on TradeAttestationVerifier.
-const REGISTERED_CLASSES = ["hello", "momentum_v1"];
+// via DeployPhase1.s.sol / DeployPhase2.s.sol, and (c) registration on
+// TradeAttestationVerifier.
+const REGISTERED_CLASSES = [
+  "hello",
+  "momentum_v1",
+  "mean_reversion_v1",
+  "yield_rotation_v1",
+];
 
 export function createApp({
   circuitsDir = DEFAULT_CIRCUITS_DIR,
