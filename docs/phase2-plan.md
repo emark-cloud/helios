@@ -8,6 +8,14 @@
 
 ---
 
+## Passport posture during Phase 2 (added 2026-04-30)
+
+Kite mainnet went live 2026-04-28; Passport public via `kpass` CLI + `@gokite-network/auth` widget + `gokite-aa-sdk`. The 2026-04-30 spike (`docs/kite-passport-integration.md` §7) confirmed the v0 Helios spec assumed primitives the AA SDK doesn't ship — specifically BIP-32 hierarchical session-key delegation. Helios now enforces the cascade in Solidity ACL, and onboarding uses the embeddable `@gokite-network/auth` widget.
+
+**Phase 2 does not touch Passport code.** Remaining Phase 2 workstreams (WS4.B, WS5, WS6, WS7) are CLI, audit page, e2e scenario, and spec-hardening — none touch `/onboard` or the AA wallet integration. The Phase 1 `[PASSPORT-STUB]` tags in the frontend stay in place through Phase 2 and migrate as a unit during Phase 4 onboarding rebuild (see `TODO.md` Phase 4 §"FE — Passport onboarding rebuild").
+
+The optional Choice G — x402-paid services on prover/oracle/audit — is also Phase 4 polish, not Phase 2 work, even though it visually pairs with Phase 2's `/audit` page. Reasoning: x402 is a demo-leverage feature, not vertical-slice critical path; folding it into Phase 4 keeps the Phase 2 timeline honest.
+
 ## Context — why this phase, why now
 
 Phase 1 landed a vertical slice: one user → Sentinel → momentum strategy → ZK-attested trade → simplified reputation → permissionless defund. The slice exists end-to-end on Kite testnet (deployer `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`, deployed 2026-04-27). What that slice cannot demonstrate is **the marketplace mechanism itself**: with one strategy class and a 2-term reputation proxy, allocation decisions are nearly deterministic and there is no signal divergence between strategies.
@@ -211,7 +219,7 @@ Outcome at end of Phase 2: multiple strategies per class with non-zero capital, 
 - `frontend/src/components/audit/ComponentBreakdown.tsx` — per-component card.
 - `frontend/src/components/audit/CohortDistribution.tsx` — sparkline showing strategy's position in cohort.
 
-Tokens-only (CLAUDE.md Tailwind rule); `[PASSPORT-STUB]` comment tags preserved per memory `project_kite_passport_block`.
+Tokens-only (CLAUDE.md Tailwind rule). `/audit` is read-only and doesn't touch onboarding; existing `[PASSPORT-STUB]` tags in `/onboard` stay untouched until the Phase 4 onboarding rebuild migrates them as a unit (see `docs/kite-passport-integration.md` §6 + `TODO.md` Phase 4).
 
 **Acceptance:** TODO "/audit page exposes the inputs for every strategy's current score".
 

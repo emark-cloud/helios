@@ -29,7 +29,7 @@
 
 ## 1. The product, in one paragraph
 
-Helios is a programmatic capital market for AI trading agents. A user signs one meta-strategy, and an allocator agent autonomously routes their capital across competing trading strategies — rewarding the best performers, firing the worst. Every trade carries a cryptographic proof that it matches the strategy's declared class. It's a trader's instrument, not a consumer product. Users come with serious money and serious questions: *Where is my capital right now? What's it doing? Who's managing it? What rules are they operating under? Can I trust what I'm seeing?* Every page answers these.
+Helios is a programmatic capital market for AI trading agents. A user approves one meta-strategy via a Kite Passport passkey, and an allocator agent autonomously routes their capital across competing trading strategies — rewarding the best performers, firing the worst. Every trade carries a cryptographic proof that it matches the strategy's declared class. It's a trader's instrument, not a consumer product. Users come with serious money and serious questions: *Where is my capital right now? What's it doing? Who's managing it? What rules are they operating under? Can I trust what I'm seeing?* Every page answers these.
 
 Read `SPEC.md` for the technical depth. For design purposes, what matters is: this is infrastructure for people who already know what a Sharpe ratio is, and who have been burned before by opaque "AI-managed" products.
 
@@ -293,10 +293,10 @@ Needs:
 - Customization panel — asset universe, max per-strategy, drawdown threshold, max fee rate, rebalance cadence — all editable
 - Live preview of what this meta-strategy will do ("this configuration will allocate across roughly 3-5 strategies, with average fee 18%, drawdown circuit at 15%")
 - Allocator picker — Sentinel (default) or Helix (alternative), each with a card showing fee, ranking approach, reputation, current users, stake
-- A plainspoken summary of the signed commitment, just before the sign button
-- The sign button itself — one click, Kite Passport modal, then the cascade begins
+- A plainspoken summary of the commitment, just before the approve button
+- The approve button itself — one click, Kite Passport passkey prompt, then the cascade begins
 
-Feel: calm, deliberate. The user is about to sign a commitment. No rush. No marketing copy.
+Feel: calm, deliberate. The user is about to commit capital. No rush. No marketing copy.
 
 ### 9.3 `/dashboard` — priority HIGHEST
 
@@ -386,7 +386,7 @@ These three interactions are where design effort concentrates.
 
 ### 10.1 The cascade
 
-User signs the meta-strategy. In the next ~15 seconds, capital flows from their wallet into the allocator vault, then into individual strategy vaults, then strategies start executing their first trades.
+User approves the meta-strategy via a Passport passkey. In the next ~15 seconds, capital flows from their Passport-issued AA wallet into UserVault, the allocator-delegation event lands, and the first strategy allocations confirm — strategies start executing their first trades.
 
 The interaction should make the hierarchy visible: user → allocator → N strategies. Not as an illustration but as the actual dashboard layout revealing itself. Each stage completes and the next begins — the sunburst grows from the center outward, the strategies table populates row by row, the activity rail prints events as they happen on-chain.
 
@@ -500,7 +500,7 @@ That's the entire smooth-motion list. Everything else steps.
 - **Styling:** Tailwind CSS. Design tokens exposed as CSS variables; Tailwind config mirrors them.
 - **Chart library:** Recharts as base, with custom component wrappers (axes, tooltips, legends styled to match). The sunburst uses Nivo or d3 directly.
 - **Icon library:** Lucide, restyled — strokes and weights normalized to the system. Don't ship default Lucide.
-- **Wallet:** wagmi v2 + viem. MetaMask, Coinbase Wallet, Rabby support required.
+- **Wallet:** Phase 1 used wagmi v2 + viem with MetaMask/Coinbase/Rabby as Passport stubs. Phase 4 onboarding rebuild swaps to `@gokite-network/auth` (Particle-Network-backed Passport widget) + `gokite-aa-sdk` for the user-facing flow. Operator-facing tools (`helios deploy`, allocator/strategy services) keep plain EOAs.
 - **Real-time:** WebSocket connection for live events (activity rail, NAV updates, reputation updates). Fallback to polling on disconnect.
 
 ### 14.2 Responsive behavior

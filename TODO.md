@@ -16,7 +16,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 - [x] Goldsky account + `GOLDSKY_API_KEY` provisioned; CLI pinned in `subgraph/package.json`, project "Helios" reachable. Full `pnpm --filter subgraph deploy` runs in Phase 1 once `subgraph.yaml` has datasources.
 - [x] Vercel project `helios-frontend` linked to `emark-cloud/helios` (root `frontend/`, production = `main`); preview deploys auto-fire on PRs. `VERCEL_TOKEN` in `.env`. See `deploy/vercel-notes.md`.
 - [x] VPS reservation — Servarica Montreal (8 GB / 2 dedicated cores / 250 GB NVMe, Ubuntu 24.04.4 LTS) at `helios@38.49.216.27`. Bootstrap complete: Docker 29.4 / Node 20.20 / PM2 5.4 / nginx 1.24 installed; helios user created with sudo+docker; UFW restricts to 22/80/443; 2 GB swap; sshd hardened to key-only auth (password auth blocked at protocol level). SSH key at `~/.ssh/helios_vps`. Deploy services via `pm2 start deploy/ecosystem.config.cjs` once Phase 1 services are ready.
-- [ ] **BLOCKED (external)** — Kite Passport smoke test against live testnet. Public launch of Passport pending per Kite team announcement (2026-04-25); hackathon deadline extended ≥2 weeks. Phase 1 work proceeds with EOA-signature stubs at every Passport touchpoint (see `docs/kite-passport-notes.md` for the swap-in checklist).
+- [x] **Unblocked 2026-04-30** — Kite mainnet went live 2026-04-28 (chain 2366); Passport public via `kpass` CLI + `@gokite-network/auth` widget + `gokite-aa-sdk`. SDK-tarball spike (2026-04-30) confirmed three things that diverge from the v0 spec: (a) **no BIP-32 hierarchical session-key delegation** in the AA SDK — cascade authority must be enforced in Solidity ACL, not in identity-derivation; (b) the user-onboarding surface is **`@gokite-network/auth`** (Particle-Network-backed embeddable widget), distinct from the **`kpass` CLI** which targets AI-agent x402 flows; (c) the AA wallet supports arbitrary contract calls, so the funding flow into `UserVault` is a single batched userOp. Spec rewrite landed in `Helios.md` (§1.3, §2.1, §3, §4, §5.1, §6.2, §7.2, §11.3, §12.1, §14.1, §15) and `docs/kite-passport-notes.md`. Live `/onboard` integration is Phase 4 work — see Phase 4 §"FE — Passport onboarding rebuild" below.
 
 ### OP — Infra & scaffolding
 - [x] Initialize monorepo at `/home/emark/helios/` with `pnpm` workspace + `uv` Python workspace
@@ -79,7 +79,7 @@ Current phase: **Phase 1** (Phase 0 complete except for items requiring user act
 
 **Goal.** One full end-to-end thread: user signature → ZK-attested momentum trade → reputation update → scenario-driven drawdown → auto-defund → reallocation. Kite only. Momentum only. Sentinel only.
 
-**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI); Goldsky `helios/v0.1.1` synced 100% against Track B addresses. Remaining: fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; manual decision-cycle + motion-budget audit; release tag. **VPS service deploy deferred to Phase 6** (decision 2026-04-27 — TLS + signer-key registration + Dockerfile shims are Phase 6 deploy-hardening work). Externally-blocked Passport smoke test remains an Outstanding Phase 0 carry-over.
+**Status (2026-04-27).** Backend vertical slice **complete**: WS1 (contracts), WS2.A (momentum circuit), WS2.B (services: prover/reputation/oracle/subgraph), WS2.C (Sentinel), WS2.D (momentum strategy), WS3 (scenario + e2e, including Track B live deploy to Kite testnet), and WS4 (frontend: `/onboard`, `/dashboard`, `/strategies` + shared chrome) all merged to `main`. WS5 cleanup is **in progress** on `phase-1-cleanup` — Phase 0 Hello vestige retired; `forge coverage` aggregate now 97.54% lines (gated ≥85% in CI); Goldsky `helios/v0.1.1` synced 100% against Track B addresses. Remaining: fresh-clone 10-min acceptance test; Lighthouse perf gate on `/dashboard`; manual decision-cycle + motion-budget audit; release tag. **VPS service deploy deferred to Phase 6** (decision 2026-04-27 — TLS + signer-key registration + Dockerfile shims are Phase 6 deploy-hardening work). Passport unblocked 2026-04-30 (mainnet live, SDK spike landed) — `[PASSPORT-STUB]` migration is now Phase 4 work; see Phase 4 §"FE — Passport onboarding rebuild".
 
 ### CX — Contracts ✅ (merged to main 2026-04-25 — WS1)
 - [x] `UserVault.sol` — MetaStrategy struct, `setMetaStrategy`, `deposit`, `delegateToAllocator(sessionTTL)`, `withdraw`, `settleAllocatorFee`. UUPS upgradeable.
@@ -371,6 +371,31 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `/onboard` error UX — `OnboardClient.tsx:72-74` surfaces raw `Failed to fetch` when Sentinel is unreachable, hiding that the signature succeeded. Distinguish "signed but allocator unreachable" (retryable, signature kept) from "signing failed" (rejected/aborted). Surfaced during Tier 1 local-testing 2026-04-28.
 - [ ] Sentinel observes on-chain events so the dashboard reflects Tier 3 cascades. Today `e2e_scenario.py` drives `AllocatorVault` directly and `services/sentinel` only emits events from its own decision loop, so the activity rail stays blank during scenario runs even though the chain trail is correct (`AllocationCreated`, `StrategyDefunded`, `NAVReported`). Wire a chain-watcher (Goldsky-against-anvil or direct `eth_getLogs` poller) so chain events become `SentinelEvent`s on the WS feed. Closes the local-testing.md Tier 3 caveat. Surfaced 2026-04-28.
 
+### FE — Passport onboarding rebuild (added 2026-04-30 from `docs/kite-passport-integration.md`)
+
+Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport widget. Choice C from the integration proposal: Passport for onboarding/funding, AA SDK for execution, on-chain ACL cascade. **Migrates every `[PASSPORT-STUB]` tag in the frontend.**
+
+- [ ] Add `@gokite-network/auth@0.1.16` and `gokite-aa-sdk@1.0.15` to `frontend/package.json` (pin exact)
+- [ ] `.env.example` — replace `KITE_PASSPORT_SIGNER_PK` with `NEXT_PUBLIC_PARTICLE_PROJECT_ID`, `NEXT_PUBLIC_PARTICLE_CLIENT_KEY`, `NEXT_PUBLIC_PARTICLE_APP_ID`, `NEXT_PUBLIC_AA_ENTRYPOINT_ADDRESS`, `NEXT_PUBLIC_AA_FACTORY_ADDRESS` (from Kite docs)
+- [ ] `frontend/src/app/onboard/OnboardClient.tsx` — replace MetaMask connect + `personal_sign` flow with `GokiteNetwork.login()` + `SmartAccount.getAddress()` per `docs/kite-passport-notes.md` Pattern 1
+- [ ] Build the batched onboarding userOp: `USDC.approve(UserVault)` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator` — submitted as a single paymaster-sponsored userOp via `sdk.sendUserOperationAndWait`
+- [ ] Drop the `signature` parameter from `UserVault.setMetaStrategy` if still present (AA wallet's userOp signature is verified at the EntryPoint level — no separate EIP-712 path needed). Confirm Phase 1 contracts already have this shape; if not, schedule a UUPS-upgrade alongside the onboarding flip.
+- [ ] Migrate every `[PASSPORT-STUB]` comment tag — search the frontend for the marker, swap each to the new flow, drop the tag once verified
+- [ ] Re-record the demo voiceover per `Helios.md §14.1` — passkey, no MetaMask popup
+- [ ] Re-run `scripts/e2e-scenario.sh` and confirm the Phase 1 vertical-slice acceptance criteria still pass against the new flow
+
+### FE — x402 paid services (Phase 2 demo polish, layered in Phase 4 — Choice G from integration proposal)
+
+The "Allocator pays prover via x402" headline demo beat. Optional but high-leverage: it makes the agent-economy framing tangible in the live demo.
+
+- [ ] x402-aware FastAPI middleware shared across `services/prover`, `services/oracle`, `services/reputation` (audit endpoint)
+- [ ] Pricing curves per service — per-snapshot, per-proof, per-audit-read; commit defaults in service config
+- [ ] Pieverse facilitator integration (`https://facilitator.pieverse.io`, scheme `gokite-aa`, `POST /v2/verify` + `/v2/settle`)
+- [ ] Sentinel allocator-side: x402 client lib that consumes 402 responses, attaches `X-Payment` header drawn from the allocator's spending session
+- [ ] `/dashboard` activity rail surfaces `X402_SETTLED` events (Allocator → service tx) — small inline badge, Kitescan link to the settle tx
+- [ ] Resolve open questions from `docs/kite-passport-notes.md` §"Open questions": Pieverse mainnet/testnet endpoint split, canonical mainnet USDC for Passport settlement
+- [ ] Demo-script update: add a "0:50 — Allocator pays for the proof" beat showing the x402 settle in real-time
+
 ### FE — Telegram bot
 - [ ] `@helios_market_bot` deployed, token in `TELEGRAM_BOT_TOKEN`
 - [ ] Event subscriptions consume the allocator WS stream
@@ -383,6 +408,8 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] All surfaces from `DESIGN.md §9` live
 - [ ] Scenario mode from Phase 1 replays at full visual fidelity — cascade animates staggered, auto-defund lands as thermostat moment, Telegram pings in sync
 - [ ] An external designer reviewing the live app says "Bloomberg meets Vercel v0," not "DeFi app"
+- [ ] Passport onboarding rebuild merged: zero `[PASSPORT-STUB]` tags remain in frontend; `/onboard` is one passkey approval; e2e scenario green
+- [ ] (Optional Choice G) x402 paid services live: prover, oracle, audit endpoints; Sentinel pays via x402 in the activity rail during the demo
 
 ---
 

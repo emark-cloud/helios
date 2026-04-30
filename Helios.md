@@ -54,20 +54,20 @@ Existing AI trading products are either fully custodial or fully self-hosted. Ne
 
 ### 1.3 The Helios solution
 
-A user signs **one** meta-strategy. For example:
+A user approves **one** meta-strategy. For example:
 
 > *"Allocate up to $10,000 across momentum strategies trading BTC/ETH/SOL/BNB. Maximum 30% in any single strategy, max 5 strategies total. Only consider strategies with a 30-day Sharpe > 1.5 and stake at risk > $5,000. Rebalance weekly. If any strategy hits 15% drawdown from its high-water mark on my capital, defund immediately. Maximum performance fee: 25%."*
 
-From that single signature, a cascade unfolds autonomously:
+From that single passkey approval — a Kite Passport login that funds and configures the user's vault — a cascade unfolds autonomously:
 
-1. The user's **Allocator Agent** queries the **Strategy Registry**, ranks eligible strategies by reputation, and delegates capital portions via Kite's hierarchical sessions.
+1. The user's **Allocator Agent** queries the **Strategy Registry**, ranks eligible strategies by reputation, and delegates capital portions via on-chain allocations gated by the meta-strategy.
 2. **Strategy Agents** receive their allocations and begin trading on whichever chain has the best venue (Kite, Base, or Arbitrum). Every trade comes with a **Groth16 proof** binding the executed calldata to the strategy's declared class.
 3. The **Reputation Engine**, indexed by Goldsky, continuously updates strategy scores based on realized, ZK-attested P&L.
 4. When a strategy hits its drawdown threshold, the allocator **automatically defunds it** and reroutes the capital to the next-best-ranked eligible strategy.
 5. Performance fees flow through **x402** — strategy agents earn from allocators only on realized profit above the high-water mark; allocators earn from users on the same basis.
 6. **LayerZero** carries reputation deltas back to Kite when strategies execute on other chains, keeping the registry canonical.
 
-The user signed once. Everything else happens autonomously, under cryptographic constraints, with every action auditable on-chain.
+The user approved once. Everything else happens autonomously, under cryptographic constraints, with every action auditable on-chain.
 
 ### 1.4 Why this is the right shape
 
@@ -93,9 +93,9 @@ Helios maps to this brief at every level:
 
 | Hackathon emphasis | Helios mapping |
 |---|---|
-| **Agent-first, not human-first** | The user signs one meta-strategy and never touches the system again. The allocator agent makes all subsequent decisions; strategy agents execute; reputation engine scores; defunds happen autonomously. |
-| **End-to-end autonomous execution** | A single user signature triggers: capital cascade → strategy execution → ZK proof generation → on-chain verification → reputation update → fee settlement → potential defund and reallocation. Every step is automated. |
-| **Use Kite's identity, payment, governance, verification** | Identity: hierarchical Passport delegation (user → allocator → strategy). Payment: x402 performance fees + state-channel micropayments. Governance: programmable spending rules in the AA SDK. Verification: ZK proofs anchored on-chain. |
+| **Agent-first, not human-first** | The user approves one meta-strategy and never touches the system again. The allocator agent makes all subsequent decisions; strategy agents execute; reputation engine scores; defunds happen autonomously. |
+| **End-to-end autonomous execution** | A single passkey approval triggers: capital cascade → strategy execution → ZK proof generation → on-chain verification → reputation update → fee settlement → potential defund and reallocation. Every step is automated. |
+| **Use Kite's identity, payment, governance, verification** | Identity: Passport-issued ERC-4337 smart account (`@gokite-network/auth` + `gokite-aa-sdk`) with on-chain allocator delegation. Payment: x402 performance fees + state-channel micropayments. Governance: meta-strategy bounds enforced in Solidity on every allocator call. Verification: ZK proofs anchored on-chain. |
 | **Agentic Trading & Portfolio Management track** | Direct hit on three of the track's bullet points: trading agents (the strategy agents), portfolio agents and liquidation defense (the allocator's drawdown enforcement), reputation/scoring/capital delegation agents (the entire mechanism). |
 | **Long-term aligned, beyond the hackathon** | Helios is a real market mechanism. Coinbase Ventures (lead hackathon partner) explicitly invests in agent-economy infrastructure; this is a category-level product, not a feature. |
 | **Cross-chain** | Strategies trade on Base/Arbitrum where venues are deeper; reputation flows back via LayerZero. Kite is the canonical identity and accounting layer. |
@@ -106,11 +106,11 @@ The hackathon's stated thesis — *"AI agents should not just talk. They should 
 
 Kite has three architectural primitives that no other chain offers in combination. Helios uses all three as load-bearing, not cosmetic.
 
-**1. Hierarchical BIP-32 identity (User → Agent → Session).** Helios uses this directly: the user is the root authority; the allocator agent is delegated authority; each strategy capital deployment is a session with bounded budget and time. Compromising a session affects only one strategy's allocation; compromising an allocator stays bounded by the user's meta-strategy constraints. The user's keys never leave their enclave.
+**1. Passport-issued ERC-4337 identity (User → AA wallet → on-chain allocator delegation).** Helios uses Kite Passport's embeddable widget (`@gokite-network/auth`, Particle-MPC backed) to issue a smart-account wallet for the user on first login. From that wallet, the user calls `UserVault.setMetaStrategy` and `UserVault.delegateToAllocator`; the allocator's authority is then a Solidity-enforced ACL keyed on its registered EOA. Compromising the allocator's key stays bounded by the meta-strategy (every allocation reverts on out-of-bounds amount or asset); the user's session is non-custodial via Particle's MPC and revocable at any time. This is a deliberate softening of the v0 spec's "BIP-32 hierarchical, root keys never leave the enclave" claim — the actual `gokite-aa-sdk` exposes ERC-4337 + paymaster, not session-key delegation, so we enforce the cascade in Solidity rather than in identity-derivation.
 
-**2. Programmable spending rules (temporal, conditional, hierarchical).** The AA SDK's `ClientAgentVault` lets us encode rules like "max $500 per trade, max $2,000 per 24h, only to allowlisted routers, only between 09:00-17:00 UTC." Helios extends this with conditional triggers: "if strategy drawdown > 15% relative to user's allocation high-water mark, freeze further trades and trigger defund."
+**2. ERC-4337 smart-account spending bounds + paymaster.** The AA wallet supports batched userOps and ERC-20 paymaster sponsorship. Helios uses both: onboarding deposits batch `USDC.approve(UserVault, amount)` + `UserVault.deposit(amount)` into a single userOp, and strategy operators submit gasless `executeWithProof` userOps via paymaster sponsorship. Conditional triggers like "if strategy drawdown > 15%, freeze trades and trigger defund" live in `AllocatorVault` Solidity, not in the AA wallet itself.
 
-**3. x402 micropayments and state channels.** Performance fees flow through x402. Strategy agents subscribe to data providers (price oracles, signal feeds) via x402 sessions. Where applicable, allocator-to-strategy quote and rebalance signals can use state channels for sub-cent latency.
+**3. x402 micropayments and state channels.** Performance fees flow through x402. Strategy agents subscribe to data providers (price oracles, signal feeds) via x402 sessions issued through the same Passport wallet. Where applicable, allocator-to-strategy quote and rebalance signals can use state channels for sub-cent latency. Phase 2 demo polish exposes the prover, oracle, and audit endpoints as x402-paid services so the Allocator literally pays for proofs through the Pieverse facilitator — making the agent-economy beat tangible during the live demo.
 
 ---
 
@@ -118,8 +118,8 @@ Kite has three architectural primitives that no other chain offers in combinatio
 
 | Term | Definition |
 |---|---|
-| **User** | The human who deposits capital and signs a meta-strategy. Holds root authority. |
-| **Meta-strategy** | The user's signed declaration of allocation policy: capital cap, asset universe, allowed strategy classes, max per-strategy concentration, drawdown thresholds, max acceptable fee rate, rebalancing cadence. |
+| **User** | The human who deposits capital and approves a meta-strategy via a Passport passkey login. Holds root authority over their AA wallet. |
+| **Meta-strategy** | The user's approved declaration of allocation policy: capital cap, asset universe, allowed strategy classes, max per-strategy concentration, drawdown thresholds, max acceptable fee rate, rebalancing cadence. Stored on-chain in `UserVault.userMetaStrategies`; the AA wallet is the only address authorized to write it. |
 | **Allocator Agent** | An autonomous agent that reads a user's meta-strategy and routes their capital across strategies. Holds delegated authority from the user. Earns a performance fee on the user's net realized profit above the user's high-water mark. |
 | **Strategy Agent** | An autonomous trading agent of a declared class (e.g. momentum, mean-reversion, yield-rotation). Receives allocations from one or more allocators. Executes trades on Kite or other chains. Submits ZK proofs of every trade. Earns performance fees on realized profit per allocation. |
 | **Strategy Class** | A formal declaration of what kind of trades a strategy agent is permitted to make. Encoded as a circuit-checkable specification. Examples: `momentum_v1` (long when N-period return > threshold, short or flat otherwise), `mean_reversion_v1`, `yield_rotation_v1`. |
@@ -145,16 +145,17 @@ Kite has three architectural primitives that no other chain offers in combinatio
 ```
                         ┌─────────────────────────────────────┐
                         │            USER (Human)             │
-                        │   Signs meta-strategy via Kite      │
-                        │   Passport. Holds root authority.   │
+                        │   Approves meta-strategy via Kite   │
+                        │   Passport (passkey). AA wallet     │
+                        │   holds root authority.             │
                         └──────────────┬──────────────────────┘
-                                       │ 1 signature
+                                       │ 1 passkey approval
                                        ▼
                   ┌────────────────────────────────────────┐
                   │       USER VAULT (Kite, AA SDK)        │
                   │  Holds capital. Enforces meta-strategy │
-                  │  constraints. Issues sub-delegations   │
-                  │  to one Allocator Agent.               │
+                  │  constraints. Authorizes an Allocator   │
+                  │  Agent (on-chain ACL).                 │
                   └─────────────────┬──────────────────────┘
                                     │
                                     ▼
@@ -211,7 +212,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 | Layer | What lives here | Trust model |
 |---|---|---|
 | **L0: Settlement** | Kite L1 (canonical), Base, Arbitrum (execution venues) | Inherits chain security |
-| **L1: Identity** | Kite Passport (User → Allocator → Strategy delegation chain) | BIP-32 hierarchical, root keys never exposed |
+| **L1: Identity** | Kite Passport (Particle-MPC EOA → ERC-4337 smart account → on-chain allocator/strategy ACL) | Non-custodial via Particle MPC; cascade authority enforced in Solidity rather than in key derivation |
 | **L2: Capital custody** | UserVault, AllocatorVault, StrategyVault (all AA SDK contracts) | Programmable spending rules, ZK-gated execution |
 | **L3: Strategy registry** | StrategyRegistry contract on Kite | Permissionless registration, stake-gated participation |
 | **L4: Verification** | TradeAttestationVerifier (per chain), Groth16 verifier contracts | Mathematical — invalid proofs cannot pass |
@@ -221,10 +222,10 @@ Kite has three architectural primitives that no other chain offers in combinatio
 
 ### 4.3 The data flow lifecycle
 
-A complete cycle from user signature to first reallocation:
+A complete cycle from user approval to first reallocation:
 
 ```
-T+0s      User signs meta-strategy via Kite Passport
+T+0s      User approves meta-strategy via Kite Passport (passkey)
 T+1s      UserVault deployed; capital deposited; AllocatorAgent assigned
 T+5s      Allocator queries Goldsky for top-N eligible strategies
 T+10s     Allocator computes target allocation; issues sub-delegations
@@ -259,8 +260,8 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 **Journey.**
 
 1. **Discovery.** Maya finds Helios via the hackathon demo, the live web app, or a Telegram referral.
-2. **Onboarding.** Connects wallet, mints a Kite Passport (or links existing), deposits 1,000 USDC into a UserVault. Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
-3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Signs once via Passport.
+2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. Funds the wallet with 1,000 USDC (Banxa fiat or `bridge.gokite.ai` cross-chain). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
+3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves once via passkey — the frontend submits a paymaster-sponsored userOp that batches `USDC.approve` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator` in a single transaction.
 4. **Activation.** Within 30 seconds, dashboard shows her capital allocated across 3-5 strategies. Dashboard shows current NAV, allocated capital per strategy, recent trades, current reputation rankings.
 5. **Ongoing.** Telegram bot pings her on meaningful events: strategy added, strategy defunded, weekly P&L summary, fee accrued. She can adjust meta-strategy at any time (next rebalance picks up changes).
 6. **Withdrawal.** Hits "Withdraw" — capital pulls from all strategies, performance fees settle, USDC returns to her wallet. End-to-end ~10 minutes.
@@ -349,13 +350,13 @@ Total Solidity surface area: roughly 2,430 LoC, plus generated Groth16 verifiers
 
 ### 6.2 `UserVault`
 
-The user's capital home. Built on Kite's AA SDK (`ClientAgentVault` pattern, UUPS upgradeable, EntryPoint-routed).
+The user's capital home. UUPS-upgradeable, owned by the user's Passport-issued ERC-4337 smart account; meta-strategy writes are gated by `msg.sender == owner` (the AA wallet), so the user's passkey approval at the Passport layer flows through to on-chain authorization without a separate EIP-712 signature path.
 
 **State.**
 
 ```solidity
 struct MetaStrategy {
-    bytes32 metaStrategyHash;       // Poseidon hash of the user's signed meta-strategy
+    bytes32 metaStrategyHash;       // Poseidon hash of the meta-strategy fields below; emitted in MetaStrategySet
     address[] allowedStrategyClasses;
     address[] allowedAssets;
     address[] allowedChains;
@@ -366,6 +367,11 @@ struct MetaStrategy {
     uint256 maxFeeRateBps;          // e.g., 2500 = 25%
     uint256 rebalanceCadenceSec;
     uint64  validUntil;
+    uint16  defundTwapBars;         // §6.3 anti-grief bars (Phase 2 schema; Phase 4 enforcement)
+    uint16  defundBondBps;          // §6.3 anti-grief bond
+    uint32  defundConfirmBlocks;    // §6.3 anti-grief confirmation window
+    uint16  bootstrapShareBps;      // §8.7 cold-start pool (Sentinel honors)
+    uint32  minAttestedTrades;      // §8.7 cold-start eligibility threshold
 }
 
 mapping(address => MetaStrategy) public userMetaStrategies;
@@ -376,18 +382,18 @@ mapping(address => uint256) public userHighWaterMark; // for allocator fee accru
 **Key functions.**
 
 ```solidity
-function setMetaStrategy(MetaStrategy calldata meta, bytes calldata signature) external;
-function deposit(uint256 amount) external;
-function delegateToAllocator(address allocator, uint256 sessionTTL) external;
+function setMetaStrategy(MetaStrategy calldata meta) external;
+function deposit(uint256 amount) external;                     // typically batched with USDC.approve in one userOp
+function delegateToAllocator(address allocator) external;       // on-chain ACL; revoke = call again with address(0)
 function withdraw(uint256 amount) external;
 function settleAllocatorFee() external;
 ```
 
 **Trust constraints.**
 
-- Only the user (root key) can `setMetaStrategy` or `withdraw`.
-- The allocator can pull capital up to the user's allocated portion, but cannot exceed the meta-strategy's `maxCapital`.
-- Any out-of-bounds delegation reverts in `delegateToAllocator`.
+- Only the AA wallet (the user, via their Passport login) can `setMetaStrategy`, `delegateToAllocator`, or `withdraw`. Authorization is `msg.sender == owner` enforced by the AA wallet's userOp signature check at the EntryPoint.
+- The allocator can pull capital up to the user's allocated portion, but cannot exceed the meta-strategy's `maxCapital`. Out-of-bounds allocations revert in `AllocatorVault`.
+- Allocator delegation has no on-chain TTL in v1 — revocation is `delegateToAllocator(address(0))`. A session TTL field could be added in v2 if Passport ships expiring delegations natively.
 - `settleAllocatorFee` computes fee = `max(0, currentNAV - userHighWaterMark) * allocatorFeeRate`. Updates HWM atomically.
 
 ### 6.3 `AllocatorVault`
@@ -705,7 +711,8 @@ Helios runs four off-chain services. All are stateless (with state persisted to 
    │     (Python)        │          │  (read-only)           │
    └────┬────────────────┘          └────────────────────────┘
         │ delegate / defund / rebalance
-        │ signed via Kite Passport session
+        │ submitted as userOps from the
+        │ allocator's registered EOA
         ▼
    ┌─────────────────────┐
    │  Kite RPC + Bundler │
@@ -746,7 +753,7 @@ A Python FastAPI service implementing the reference allocator. Stateless (state 
 
 **Core responsibilities.**
 
-1. **User onboarding.** Accept user's signed meta-strategy. Validate signature. Persist hash and constraints. Issue session delegation from UserVault to AllocatorVault.
+1. **User onboarding.** Read the user's `MetaStrategy` from `UserVault` (set by the user's AA wallet via the frontend). Persist hash and constraints. Confirm the user has called `delegateToAllocator(this)` so on-chain ACL grants this allocator authority.
 2. **Strategy discovery.** Periodically (every 60s) query Goldsky subgraph for active strategies matching the meta-strategy's allowed classes and assets. Filter by minimum stake, minimum reputation, available capacity.
 3. **Ranking and allocation.** Apply the ranking function (Section 8) to eligible strategies. Compute target allocation given the user's `maxPerStrategyBps`, `maxStrategiesCount`, and current capital. Diff against current allocation. Issue delta operations.
 4. **Drawdown monitoring.** Every 5 minutes, poll each StrategyVault's NAV. Compute drawdown from per-allocation HWM. If breached, emit defund tx immediately.
@@ -756,7 +763,7 @@ A Python FastAPI service implementing the reference allocator. Stateless (state 
 **Key endpoints.**
 
 ```
-POST /v1/users/{user}/meta-strategy        — submit signed meta-strategy
+POST /v1/users/{user}/meta-strategy        — register the user (allocator reads on-chain MetaStrategy after this call)
 GET  /v1/users/{user}/dashboard            — current allocation + NAVs + fees + history
 GET  /v1/users/{user}/timeline             — chronological event log
 POST /v1/users/{user}/withdraw             — initiate full unwinding
@@ -1345,10 +1352,10 @@ class MyVolAdjustedAllocator(BaseAllocator):
 
 That's the complete surface an allocator operator must implement. The SDK handles:
 
-- User onboarding (accepting signed meta-strategies, validating constraints)
+- User onboarding (reading meta-strategies from `UserVault`, validating constraints)
 - Drawdown monitoring at 60s cadence
 - Fee crystallization at HWM thresholds
-- Defund and rebalance transaction submission via Kite Passport sessions
+- Defund and rebalance transaction submission as userOps from the allocator's registered EOA
 - Goldsky integration for strategy discovery and reputation reads
 - ReputationAnchor integration for allocator's own reputation score
 - WebSocket event emission for dashboards/bots
@@ -1528,13 +1535,13 @@ The rule: **Kite is identity + accounting + small-position execution. Base is la
 
 | Chain | Function in Helios | Why this chain |
 |---|---|---|
-| **Kite (2368 testnet, 2366 mainnet)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies can also *execute* here — momentum and mean-reversion strategies trading WKITE / USDC.e / WETH on the **Algebra Integral** concentrated-liquidity DEX. Bridged USDC.e and USDT (Lucid Labs) provide stablecoin settlement; Lucid bridge controllers connect to Avalanche and Celo. | Kite is the only chain with the **AA SDK + Passport hierarchical identity stack** we need for the cascade delegation. The Algebra DEX gives us a real (if small-cap) execution venue. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX** — only spot via Algebra — which is why the v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 17). |
+| **Kite (2368 testnet, 2366 mainnet)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies can also *execute* here — momentum and mean-reversion strategies trading WKITE / USDC.e / WETH on the **Algebra Integral** concentrated-liquidity DEX. Bridged USDC.e and USDT (Lucid Labs) provide stablecoin settlement; Lucid bridge controllers connect to Avalanche and Celo. | Kite is the only chain with the **Passport-issued ERC-4337 smart-account stack + paymaster + x402** we lean on for one-passkey onboarding, gasless strategy execution, and the agent-economy demo beat. The Algebra DEX gives us a real (if small-cap) execution venue. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX** — only spot via Algebra — which is why the v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 17). |
 | **Base (8453 mainnet, 84532 Sepolia testnet)** | **Deep-liquidity spot execution.** Strategy agents trading large-cap pairs (ETH/USDC, WBTC/USDC, SOL/USDC) on **Uniswap V4 hooks**. This is where momentum and mean-reversion strategies that need real liquidity for $10k+ position sizes execute. Per-chain TradeAttestationVerifier deployments verify Groth16 proofs locally; trade attestations and NAV deltas batch back to Kite via LayerZero OApp. | Base has the **deepest spot liquidity** in the L2 ecosystem and Uniswap V4 is the most mature concentrated-liquidity venue. **Coinbase Ventures is the lead hackathon partner** — using Base meaningfully (not decoratively) is a narrative win. Cheap gas, fast finality, and a maturing agent-tooling ecosystem (Base Account, OnchainKit) align with our identity model. |
 | **Arbitrum (42161 mainnet, 421614 Sepolia testnet)** | **Multi-protocol yield surface.** Yield rotation strategies move capital between **Aave V3, Compound V3**, and other lending markets here. Also serves as a secondary spot venue (Camelot V3, Uniswap V3) for diversification of execution venues — useful if Base experiences an outage or unusual MEV conditions. | Arbitrum has the **deepest set of mature lending markets** in the L2 ecosystem (Aave V3 alone has billions in TVL there). Yield rotation strategies need a venue with multiple competing protocols to be meaningful. The cross-chain rate differential between Arbitrum, Base, and Kite is exactly what makes `yield_rotation_v1` an economically interesting strategy class. |
 
 #### Why these three and not others
 
-- **Why not Solana?** No native Kite-style hierarchical identity primitive. Cross-VM bridging adds complexity beyond the demo's value.
+- **Why not Solana?** No native Kite-style Passport + paymaster + x402 stack. Cross-VM bridging adds complexity beyond the demo's value.
 - **Why not Optimism?** Functionally similar to Base; would add deployment surface without adding distinct capability.
 - **Why not Avalanche C-Chain?** Considered, since Kite originated as an Avalanche subnet and Lucid bridge controllers run on Avalanche. Defer to post-hackathon — Avalanche becomes the natural next chain to add given the existing Lucid bridge primitives.
 - **Why not BSC, given it's the obvious meme-trading chain?** Out of scope — Helios's v1 asset universe is crypto majors. BSC integration is reasonable for v2 if a meme-focused strategy class is added.
@@ -1656,7 +1663,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **[0:00–0:20] The setup.** Web app open, dashboard view. Voiceover: *"Maya wants to put $1,000 to work in AI trading agents. She doesn't want to babysit it. She doesn't want to give up custody. She wants policy guardrails. Let's see what one signature gets her."*
 
-**[0:20–0:50] The signature.** Open the meta-strategy builder. Pick the "Balanced" template, customize asset universe to BTC/ETH/SOL. Briefly hover the allocator selector showing Sentinel (default, "Official Reference") vs Helix (the SDK-built alternative, "Official Reference"); keep Sentinel for the demo flow. Sign via Kite Passport (one MetaMask popup). Voiceover: *"She chooses an allocator — Sentinel is the reference, but anyone can deploy their own. That's the only thing she does. From here, everything is autonomous."*
+**[0:20–0:50] The approval.** Open the meta-strategy builder. Pick the "Balanced" template, customize asset universe to BTC/ETH/SOL. Briefly hover the allocator selector showing Sentinel (default, "Official Reference") vs Helix (the SDK-built alternative, "Official Reference"); keep Sentinel for the demo flow. Approve via Kite Passport — one passkey prompt, no MetaMask popup. The frontend submits a single batched userOp ( `USDC.approve` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator`) sponsored by the paymaster. Voiceover: *"She chooses an allocator — Sentinel is the reference, but anyone can deploy their own. One passkey approval is the only thing she does. From here, everything is autonomous and on-chain."*
 
 **[0:50–1:30] The cascade.** Dashboard updates in real-time. Show Sentinel picking 4 strategies across the three chains. Show the first ZK-attested trade landing on each. Telegram pings appear: *"Sentinel deployed $300 to MomentumKite-A, $250 to MeanRevBase-B, $250 to MomentumArb-C, $200 to YieldRotationArb-D."* Voiceover: *"Each trade carries a ZK proof binding it to the strategy's declared class. A momentum agent literally cannot execute a yield rotation and have it count. This is the trustless layer underneath."*
 
@@ -1686,8 +1693,8 @@ A protocol that handles capital must articulate its trust model honestly. This s
 
 | Component | Trust required | Why |
 |---|---|---|
-| User's root key | Self-custody (user's responsibility) | Standard EVM model |
-| Kite Passport derivation | Trust BIP-32 + Kite's identity contracts | Inherits Kite's security model |
+| User's Passport identity | **Trust Particle Network MPC** (the EOA backing the AA wallet is an MPC share, not a hardware-held key) | Documented limitation; v2 considers a self-custody migration path once `gokite-aa-sdk` exposes a "claim ownership to external EOA" flow |
+| Kite Passport infrastructure | Trust `@gokite-network/auth` + `gokite-aa-sdk` + Kite's EntryPoint and SmartAccountFactory contracts | Inherits Kite's security model and Particle Network's MPC security model |
 | Strategy operator | **Limited trust** — they can't violate class invariants (ZK-enforced) but they can run a strategy that loses money | The economic model handles this: bad strategies lose reputation and capital |
 | Allocator operator | **Limited trust** — they can't violate user's meta-strategy (on-chain enforced) but they can rank suboptimally | Multiple allocators allow market competition |
 | Reputation Engine signer | **Trusted** in v1 (single signer); **trust-minimized** in v2 (multi-sig); **trustless** in v3 (ZK-attested computation) | Documented limitation with clear roadmap |
@@ -1712,8 +1719,11 @@ Defense: `defundStrategy` is permissionless when drawdown threshold is breached.
 **Threat: Reputation Engine is bribed to inflate a strategy's score.**
 Defense: v1 limitation. Mitigated by: (a) the engine code is open-source and the inputs are public on-chain, so any inflation is detectable by re-running the math; (b) the v2 multi-sig model; (c) the v3 ZK computation.
 
-**Threat: User's meta-strategy is signed but later compromised.**
-Defense: User retains root authority. They can revoke their allocator delegation and withdraw at any time. The session has a TTL.
+**Threat: User's Passport credentials are compromised.**
+Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw. This is the same threat model as any custodial-MPC product (Particle, Privy, Magic). Mitigation: Particle's email + passkey 2FA, plus the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time. v2 considers an "external owner" flow that lets a power user point the AA wallet at a hardware-held EOA.
+
+**Threat: Allocator's delegation key is compromised.**
+Defense: The on-chain ACL bounds the attacker to the meta-strategy — they cannot exceed `maxCapital`, allocate to disallowed asset classes, or change the user's drawdown threshold. The user revokes by calling `delegateToAllocator(address(0))`.
 
 **Threat: Smart contract bug.**
 Defense: The Solidity surface is intentionally small (~2,430 LoC). Audit-friendly. Pre-launch, we run static analysis (Slither, Mythril), property-based tests (Echidna), and aim for a community audit pass.
