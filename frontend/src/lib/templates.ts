@@ -43,6 +43,11 @@ export const TEMPLATES: Record<TemplateKey, Template> = {
       drawdown_threshold_bps: 1_000, // 10%
       max_fee_rate_bps: 300, // 3%
       rebalance_cadence_sec: 3_600, // 1h
+      // Cold-start: conservative users still seed the long tail, but at
+      // half the default share — fresh strategies are riskier per
+      // Helios.md §8.7.
+      bootstrap_share_bps: 500, // 5%
+      min_attested_trades: 50,
     },
   },
   balanced: {
@@ -60,6 +65,8 @@ export const TEMPLATES: Record<TemplateKey, Template> = {
       drawdown_threshold_bps: 1_500, // 15%
       max_fee_rate_bps: 500, // 5%
       rebalance_cadence_sec: 1_800, // 30m
+      bootstrap_share_bps: 1_000, // 10%
+      min_attested_trades: 50,
     },
   },
   aggressive: {
@@ -77,6 +84,10 @@ export const TEMPLATES: Record<TemplateKey, Template> = {
       drawdown_threshold_bps: 2_500, // 25%
       max_fee_rate_bps: 800, // 8%
       rebalance_cadence_sec: 900, // 15m
+      // Aggressive users seed the long tail more heavily — bigger
+      // bootstrap share, smaller graduation gate.
+      bootstrap_share_bps: 1_500, // 15%
+      min_attested_trades: 30,
     },
   },
 };

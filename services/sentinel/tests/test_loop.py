@@ -46,17 +46,26 @@ def _user_meta(
     )
 
 
-def _candidate(sid: str, *, rep: float = 0.8) -> StrategyCandidate:
+def _candidate(
+    sid: str,
+    *,
+    rep: float = 0.8,
+    trades_attested: int = 100,
+    stake: int = 5_000,
+) -> StrategyCandidate:
+    # Default `trades_attested=100` keeps existing tests above the WS7.B
+    # bootstrap-pool gate; cold-start tests opt in by passing 0.
     return StrategyCandidate(
         strategy_id=sid,
         declared_class="momentum_v1",
         chain_id=2368,
         operator="0x" + "cc" * 20,
         fee_rate_bps=1_000,
-        stake_amount_usd=5_000,
+        stake_amount_usd=stake,
         max_capacity_usd=100_000,
         current_allocations_usd=0,
         reputation_score=rep,
+        trades_attested=trades_attested,
     )
 
 
@@ -309,6 +318,37 @@ async def test_full_scenario_allocate_drawdown_reallocate() -> None:
     defund_idx = next(i for i, e in enumerate(drained) if e.kind == "STRATEGY_DEFUNDED")
     realloc_idx = next(i for i, e in enumerate(drained) if e.kind == "ALLOCATION_INCREASED")
     assert defund_idx < realloc_idx
+
+
+@pytest.mark.asyncio
+async def test_cold_start_strategy_receives_bootstrap_allocation() -> None:
+    """WS7.B acceptance: a brand-new strategy with zero attested trades and
+    near-zero reputation still receives a bootstrap allocation through the
+    Sentinel loop within one rebalance cycle, even when the user's main
+    rank filter would exclude it.
+    """
+    veteran = _candidate("0x" + "11" * 20, rep=0.85, trades_attested=500)
+    fresh = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0, stake=10_000)
+    loop, store, onchain = _build([veteran, fresh])
+
+    # bootstrap_share_bps=1000 (10%) is the SDK default — leave it alone.
+    user = store.upsert_user(_user_meta(max_per_strategy_bps=10_000))
+    user.delegated_capital_usd = 10_000
+
+    await loop.tick_once(now=1_000)
+
+    by_strat = {
+        c.strategy: c.amount for c in onchain.pending if c.method == "allocateToStrategy"
+    }
+    # Both strategies funded — fresh one out of the bootstrap pool, veteran
+    # out of the main pool.
+    assert fresh.strategy_id in by_strat
+    assert veteran.strategy_id in by_strat
+    # 10% bootstrap of 10_000 = 1_000.
+    assert by_strat[fresh.strategy_id] == 1_000
+    # Veteran absorbs the remaining 9_000 (only main-pool candidate with
+    # non-zero rank).
+    assert by_strat[veteran.strategy_id] == 9_000
 
 
 @pytest.mark.asyncio

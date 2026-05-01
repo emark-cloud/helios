@@ -102,20 +102,27 @@ async def test_ninety_day_window_used(signer: ReputationSigner) -> None:
 
 @pytest.mark.asyncio
 async def test_cohort_normalizes_across_class(signer: ReputationSigner) -> None:
-    """A class with two strategies — the stronger trender outscores the weaker."""
+    """A class with three strategies — the stronger trender outscores the weaker.
+
+    WS7.B requires `MIN_COHORT_SIZE = 3` for non-fallback cohort stats; with
+    only two strategies in a class the engine falls back to raw Sharpe and
+    both strong/weak trenders clip to `perf = 1.0`, hiding the cross-strategy
+    ranking. Three peers is the smallest cohort that still produces a
+    meaningful median + range.
+    """
     cls = "0x" + "11" * 32
     strong = _state(strategy_id="0x" + "01" * 20, declared_class=cls, nav_drift=0.003)
+    mid = _state(strategy_id="0x" + "03" * 20, declared_class=cls, nav_drift=0.0015)
     weak = _state(strategy_id="0x" + "02" * 20, declared_class=cls, nav_drift=0.0005)
-    engine = ReputationEngine(_StubGoldsky([strong, weak]), signer, poll_interval_sec=60)  # type: ignore[arg-type]
+    engine = ReputationEngine(_StubGoldsky([strong, mid, weak]), signer, poll_interval_sec=60)  # type: ignore[arg-type]
     updates = await engine.tick_once(now_unix=_NOW)
     by_id = {u.state.strategy_id: u for u in updates}
     assert by_id[strong.strategy_id].outputs.score_e4 > by_id[weak.strategy_id].outputs.score_e4
-    # Cohort size 2 → either fallback or non-fallback depending on spread.
-    # In any case, both strategies see the same cohort context object.
+    # All three peers see the same cohort context object.
     assert (
         by_id[strong.strategy_id].cohort.win_30d.size
         == by_id[weak.strategy_id].cohort.win_30d.size
-        == 2
+        == 3
     )
 
 

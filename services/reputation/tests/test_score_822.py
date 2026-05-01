@@ -30,8 +30,9 @@ from reputation.score import (
 
 
 def _example_cohort() -> CohortContext:
-    # Cohort of 2 strategies per window → median=1.5, IQR=range=1.0 across all windows.
-    s = cohort_stats([1.0, 2.0])
+    # Cohort of 3 strategies per window — smallest non-fallback size after WS7.B.
+    # median=1.5, IQR=range=1.0 across all windows (matches the §8.2 example).
+    s = cohort_stats([1.0, 1.5, 2.0])
     return CohortContext(win_7d=s, win_30d=s, win_90d=s)
 
 
@@ -114,7 +115,8 @@ def test_negative_performance_when_below_cohort() -> None:
         total_proof_attempts=10,
         stake_e18=10**18,
         max_stake_in_class_e18=10**18,
-        trades_attested=0,
+        # Non-zero so we exercise the post-bootstrap formula, not the WS7.B floor.
+        trades_attested=10,
     )
     out = compute_score(inputs, cohort)
     # All windows: (0.5 - 1.5) / 1.0 = -1.0 → perf raw = -1.0 → clip → -1.0
@@ -185,3 +187,60 @@ def test_annualized_sharpe_negative_with_declining_nav() -> None:
         for d in range(20)
     ]
     assert annualized_sharpe_from_nav(series) < 0.0
+
+
+# ── WS7.B cold-start floor (`Helios.md §8.7`) ─────────────────────
+
+
+def _cold_start_inputs(trades: int, *, stake_e18: int = 5_000 * 10**18) -> ScoreInputs:
+    return ScoreInputs(
+        sharpes=WindowSharpe(sharpe_7d=2.5, sharpe_30d=2.0, sharpe_90d=1.8),
+        max_drawdown_bps_90d=0,
+        valid_proofs=trades,
+        total_proof_attempts=trades,
+        stake_e18=stake_e18,
+        max_stake_in_class_e18=50_000 * 10**18,
+        trades_attested=trades,
+    )
+
+
+def test_zero_trades_returns_stake_only_floor() -> None:
+    out = compute_score(_cold_start_inputs(trades=0), _example_cohort())
+    # Floor = w_stake × StakeScore. All other components zeroed in the floor branch.
+    expected_stake = math.log(6) / math.log(51)
+    assert math.isclose(out.components.stake, expected_stake, rel_tol=1e-9)
+    assert out.components.performance == 0.0
+    assert out.components.risk == 0.0
+    assert out.components.proof == 0.0
+    assert out.components.age == 0.0
+    expected_score = round(10_000 * (W_STAKE * expected_stake))
+    assert out.score_e4 == expected_score
+
+
+def test_zero_trades_zero_stake_floors_to_zero() -> None:
+    out = compute_score(
+        _cold_start_inputs(trades=0, stake_e18=0), _example_cohort()
+    )
+    assert out.components.stake == 0.0
+    assert out.score_e4 == 0
+
+
+def test_score_monotonic_non_decrease_as_proofs_accumulate() -> None:
+    # As `trades_attested` rises from 0 → small → mature, the score should
+    # never collapse below the cold-start floor (in expectation, with
+    # cohort-neutral perf and a flat risk profile).
+    cohort = _example_cohort()
+    floor = compute_score(_cold_start_inputs(trades=0), cohort).score_e4
+    after_first = compute_score(_cold_start_inputs(trades=1), cohort).score_e4
+    after_many = compute_score(_cold_start_inputs(trades=250), cohort).score_e4
+    assert after_first >= floor
+    assert after_many >= after_first
+
+
+def test_components_hash_distinguishes_floor_from_full_formula() -> None:
+    # A cold-start strategy and a same-stake strategy with track record must
+    # not collide on `componentsHash` — the on-chain anchor needs to see them
+    # as distinct epochs (`Helios.md §8.2` v2 typehash).
+    cold = compute_score(_cold_start_inputs(trades=0), _example_cohort())
+    warm = compute_score(_cold_start_inputs(trades=100), _example_cohort())
+    assert cold.components_hash != warm.components_hash

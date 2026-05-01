@@ -36,17 +36,22 @@ def _candidate(
     cls: str = "momentum_v1",
     capacity: int = 100_000,
     deployed: int = 0,
+    stake: int = 5_000,
+    trades_attested: int = 100,
 ) -> StrategyCandidate:
+    # Default `trades_attested=100` keeps the main-pool baseline intact;
+    # cold-start tests opt in by passing `trades_attested=0`.
     return StrategyCandidate(
         strategy_id=sid,
         declared_class=cls,
         chain_id=2368,
         operator="0x" + "cc" * 20,
         fee_rate_bps=fee,
-        stake_amount_usd=5_000,
+        stake_amount_usd=stake,
         max_capacity_usd=capacity,
         current_allocations_usd=deployed,
         reputation_score=rep,
+        trades_attested=trades_attested,
     )
 
 
@@ -114,6 +119,104 @@ def test_allocate_split_two_strategies_score_weighted() -> None:
     # Weights are proportional to score: 0.6 / (0.6+0.4) = 60%
     assert t1.capital_usd == 6_000
     assert t2.capital_usd == 4_000
+
+
+# ── WS7.B reputation cold-start (Helios.md §8.7) ─────────────────
+
+
+def test_bootstrap_pool_funds_cold_start_strategy_excluded_by_main_filter() -> None:
+    # Cold-start strategy: zero attested trades AND zero reputation. Main
+    # pool's rank product collapses to 0 (rep × … = 0) so it gets nothing
+    # there. The bootstrap pool reserves 10% of capital for it anyway.
+    a = SentinelAllocator()
+    user = _meta(max_per_strategy_bps=10_000, max_strategies_count=2)
+    warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=200)
+    cold = _candidate(
+        "0x" + "22" * 20, rep=0.0, trades_attested=0, stake=10_000
+    )
+    targets = {t.strategy_id: t for t in a.allocate(user, [warm, cold], capital=10_000)}
+    assert cold.strategy_id in targets
+    # 10% bootstrap of 10_000 = 1_000, fully claimed by the only cold candidate.
+    assert targets[cold.strategy_id].capital_usd == 1_000
+    # Warm strategy still wins the remaining 9_000 in the main pool.
+    assert targets[warm.strategy_id].capital_usd == 9_000
+
+
+def test_bootstrap_pool_stake_weighted_with_flat_perf_prior() -> None:
+    # Two cold-start strategies, identical reputation (=0). Stake-weighted
+    # split inside the bootstrap pool — main pool has nothing to allocate
+    # because both candidates have zero rank product.
+    a = SentinelAllocator()
+    user = _meta(
+        bootstrap_share_bps=10_000,  # 100% bootstrap to isolate the math
+        max_per_strategy_bps=10_000,
+        max_strategies_count=2,
+    )
+    big = _candidate("0x" + "11" * 20, rep=0.0, trades_attested=0, stake=8_000)
+    small = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0, stake=2_000)
+    targets = {t.strategy_id: t for t in a.allocate(user, [big, small], capital=10_000)}
+    # 8_000 / (8_000 + 2_000) = 80% to big, 20% to small.
+    assert targets[big.strategy_id].capital_usd == 8_000
+    assert targets[small.strategy_id].capital_usd == 2_000
+
+
+def test_bootstrap_pool_unused_falls_back_to_main() -> None:
+    # All candidates are graduated (trades_attested >= min). Bootstrap pool
+    # finds nothing, so its 10% rolls over and the warm strategy receives
+    # the entire capital from the main pool.
+    a = SentinelAllocator()
+    user = _meta(max_per_strategy_bps=10_000, max_strategies_count=2)
+    warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=500)
+    [t] = a.allocate(user, [warm], capital=10_000)
+    assert t.capital_usd == 10_000
+
+
+def test_bootstrap_eligibility_respects_class_and_fee_filters() -> None:
+    # Cold-start strategy with the wrong class is NOT bootstrap-eligible —
+    # the user's hard constraints (class, fee) still bind. Bootstrap budget
+    # rolls back to the main pool.
+    a = SentinelAllocator()
+    user = _meta(max_per_strategy_bps=10_000, max_strategies_count=2)
+    warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=500)
+    wrong_class = _candidate(
+        "0x" + "22" * 20,
+        rep=0.0,
+        trades_attested=0,
+        cls="yield_rotation_v1",
+    )
+    targets = {t.strategy_id: t for t in a.allocate(user, [warm, wrong_class], capital=10_000)}
+    assert wrong_class.strategy_id not in targets
+    assert targets[warm.strategy_id].capital_usd == 10_000
+
+
+def test_bootstrap_share_bps_zero_disables_pool() -> None:
+    a = SentinelAllocator()
+    user = _meta(
+        bootstrap_share_bps=0,
+        max_per_strategy_bps=10_000,
+        max_strategies_count=2,
+    )
+    warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=500)
+    cold = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0)
+    targets = {t.strategy_id: t for t in a.allocate(user, [warm, cold], capital=10_000)}
+    # Without a bootstrap pool, the cold-start strategy gets nothing.
+    assert cold.strategy_id not in targets
+    assert targets[warm.strategy_id].capital_usd == 10_000
+
+
+def test_per_strategy_cap_applies_after_pool_merge() -> None:
+    # A strategy that is bootstrap-eligible AND wins the main pool should
+    # not exceed `max_per_strategy_bps` after the pools are merged.
+    a = SentinelAllocator()
+    user = _meta(
+        bootstrap_share_bps=10_000,  # 100% bootstrap
+        max_per_strategy_bps=4_000,
+        max_strategies_count=2,
+    )
+    only = _candidate("0x" + "11" * 20, rep=0.0, trades_attested=0, stake=10_000)
+    [t] = a.allocate(user, [only], capital=10_000)
+    # Cap enforced even when the bootstrap pool would happily allocate 100%.
+    assert t.capital_usd == 4_000
 
 
 def test_diff_allocations_emits_signed_deltas() -> None:

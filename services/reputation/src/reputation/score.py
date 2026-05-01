@@ -112,10 +112,39 @@ class ScoreOutputs:
 
 
 def compute_score(inputs: ScoreInputs, cohort: CohortContext) -> ScoreOutputs:
+    stake = _stake(inputs.stake_e18, inputs.max_stake_in_class_e18)
+
+    # WS7.B cold-start floor (`Helios.md §8.7`). With zero attested trades the
+    # other four components have no signal yet — performance/risk/proof are
+    # undefined and `_age` already collapses to 0. Returning `w_stake × stake`
+    # gives a fresh strategy a non-zero, monotonic-in-stake floor that the
+    # bootstrap pool can rank against, instead of forcing it to zero until the
+    # first attested trade arrives. As proofs accumulate the full formula
+    # takes over and the score is non-decreasing in expectation.
+    if inputs.trades_attested <= 0:
+        floor = W_STAKE * stake
+        score_e4 = max(-10_000, min(10_000, round(10_000 * floor)))
+        components = ScoreComponents(
+            performance=0.0, risk=0.0, proof=0.0, stake=stake, age=0.0
+        )
+        zero_breakdown = PerformanceBreakdown(
+            sharpe_7d=inputs.sharpes.sharpe_7d,
+            sharpe_30d=inputs.sharpes.sharpe_30d,
+            sharpe_90d=inputs.sharpes.sharpe_90d,
+            norm_7d=0.0,
+            norm_30d=0.0,
+            norm_90d=0.0,
+        )
+        return ScoreOutputs(
+            score_e4=score_e4,
+            components=components,
+            components_hash=hash_components(components),
+            perf_breakdown=zero_breakdown,
+        )
+
     perf, breakdown = _performance(inputs.sharpes, cohort)
     risk = _risk(inputs.max_drawdown_bps_90d)
     proof = _proof(inputs.valid_proofs, inputs.total_proof_attempts)
-    stake = _stake(inputs.stake_e18, inputs.max_stake_in_class_e18)
     age = _age(inputs.trades_attested)
 
     aggregate = W_PERF * perf + W_RISK * risk + W_PROOF * proof + W_STAKE * stake + W_AGE * age

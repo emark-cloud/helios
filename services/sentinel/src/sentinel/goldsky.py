@@ -28,6 +28,7 @@ query StrategyDirectory {
     stakeAmount
     maxCapacity
     currentReputation
+    totalAttestedTrades
     allocations(first: 200, where: { defundedAt: 0 }) {
       capitalDeployed
     }
@@ -47,6 +48,7 @@ class StrategyDirectoryRow:
     max_capacity_usd: int
     current_allocations_usd: int
     reputation_score_e4: int
+    trades_attested: int = 0
 
 
 class SentinelGoldsky:
@@ -95,6 +97,7 @@ class SentinelGoldsky:
             max_capacity_usd=_to_int(raw.get("maxCapacity")),
             current_allocations_usd=deployed,
             reputation_score_e4=_to_int(raw.get("currentReputation")),
+            trades_attested=_to_int(raw.get("totalAttestedTrades")),
         )
 
 
@@ -113,6 +116,7 @@ def _to_candidate(row: StrategyDirectoryRow) -> StrategyCandidate:
         max_capacity_usd=row.max_capacity_usd,
         current_allocations_usd=row.current_allocations_usd,
         reputation_score=rep_float,
+        trades_attested=row.trades_attested,
     )
 
 

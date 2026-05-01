@@ -16,18 +16,28 @@ def test_below_min_cohort_returns_neutral() -> None:
     assert normalize(1.5, s) == 1.5
 
 
-def test_min_cohort_size_constant_matches_plan() -> None:
-    # WS2.A draft pinned at 2; WS7.B will bump to 3. Guard the contract here.
-    assert MIN_COHORT_SIZE == 2
+def test_min_cohort_size_constant() -> None:
+    # WS7.B pins the constant at 3 — guards against silent drift.
+    assert MIN_COHORT_SIZE == 3
 
 
-def test_two_strategy_cohort_uses_range_as_iqr_proxy() -> None:
-    # IQR is undefined for n<4; we use the full range as the spread proxy.
+def test_two_strategy_cohort_falls_back_to_raw_sharpe() -> None:
+    # n=2 is below MIN_COHORT_SIZE → raw-Sharpe fallback per Helios.md §8.7.
     s = cohort_stats([1.0, 2.0])
+    assert s.is_fallback is True
+    assert s.median == 0.0
+    assert s.iqr == 1.0
+    # normalize collapses to identity: (s - 0) / 1 == s.
+    assert math.isclose(normalize(1.0, s), 1.0)
+    assert math.isclose(normalize(2.0, s), 2.0)
+
+
+def test_three_strategy_cohort_uses_range_as_iqr_proxy() -> None:
+    # Smallest non-fallback cohort. IQR is undefined for n<4; use the range.
+    s = cohort_stats([1.0, 1.5, 2.0])
     assert s.is_fallback is False
     assert s.median == 1.5
     assert s.iqr == 1.0  # range = 2.0 - 1.0
-    # Normalize: (1.0 - 1.5) / 1.0 = -0.5
     assert math.isclose(normalize(1.0, s), -0.5)
     assert math.isclose(normalize(2.0, s), 0.5)
 

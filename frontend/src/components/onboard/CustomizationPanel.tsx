@@ -10,7 +10,7 @@
 
 "use client";
 
-import type { ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 
 import { Numeric } from "@/components/atoms/Numeric";
 import { cn } from "@/lib/cn";
@@ -31,6 +31,8 @@ export type CustomizationPanelProps = {
 };
 
 export function CustomizationPanel({ value, onChange }: CustomizationPanelProps): JSX.Element {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   function patch<K extends keyof TemplateForm>(key: K, next: TemplateForm[K]): void {
     onChange({ ...value, [key]: next });
   }
@@ -141,6 +143,50 @@ export function CustomizationPanel({ value, onChange }: CustomizationPanelProps)
           <Numeric>{value.max_strategies_count}</Numeric>
         </div>
       </Field>
+
+      <div className="md:col-span-2">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          aria-expanded={advancedOpen}
+          className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-secondary"
+        >
+          <span aria-hidden>{advancedOpen ? "▾" : "▸"}</span>
+          Advanced
+        </button>
+        {advancedOpen ? (
+          <div className="mt-4 grid grid-cols-1 gap-6 border-t border-surface-line pt-6 md:grid-cols-2">
+            <BpsSlider
+              label="Cold-start share"
+              hint="Reserve a slice of capital for new strategies that haven't yet attested enough trades to rank in the main pool."
+              value={value.bootstrap_share_bps}
+              onChange={(bps) => patch("bootstrap_share_bps", bps)}
+              min={0}
+              max={3_000}
+              step={250}
+            />
+            <Field
+              label="Graduation threshold"
+              hint="Strategies above this many attested trades exit the cold-start pool and rank with the main filter."
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={500}
+                  step={10}
+                  value={value.min_attested_trades}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    patch("min_attested_trades", Number.parseInt(e.target.value, 10))
+                  }
+                  className="flex-1 accent-[var(--accent-amber)]"
+                />
+                <Numeric>{value.min_attested_trades}</Numeric>
+              </div>
+            </Field>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

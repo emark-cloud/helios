@@ -28,6 +28,13 @@ class MetaStrategy(BaseModel):
     max_fee_rate_bps: int
     rebalance_cadence_sec: int
     valid_until: int  # unix timestamp
+    # WS7.B reputation cold-start (`Helios.md §8.7`). `bootstrap_share_bps` of
+    # total capital is reserved for strategies with `trades_attested <
+    # min_attested_trades`; the rest follows the allocator's main rank function.
+    # Defaults match `docs/phase2-plan.md §WS7.B` (10% bootstrap, 50 trades to
+    # graduate).
+    bootstrap_share_bps: int = 1000
+    min_attested_trades: int = 50
 
 
 class StrategyCandidate(BaseModel):
@@ -46,6 +53,10 @@ class StrategyCandidate(BaseModel):
     realized_volatility_30d: float = 0.0
     sharpe_30d: float = 0.0
     max_drawdown_30d_bps: int = 0
+    # Lifetime attested-trade count from the strategy registry / subgraph.
+    # WS7.B uses this to gate the bootstrap pool: strategies under
+    # `MetaStrategy.min_attested_trades` are eligible for cold-start capital.
+    trades_attested: int = 0
 
     def capacity_factor(self) -> float:
         if self.max_capacity_usd <= 0:

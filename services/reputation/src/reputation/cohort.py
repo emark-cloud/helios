@@ -3,12 +3,15 @@
 For each class and each window (7d/30d/90d), the engine collects every active
 strategy's window Sharpe and computes the cohort median + IQR. A given
 strategy's normalized Sharpe is `(Sharpe - median) / IQR`. When the cohort is
-too thin to define those statistics meaningfully, this module returns a neutral
-fallback (median = 0, IQR = 1) so a normalized Sharpe of `Sharpe` itself is
-returned — the cold-start path documented in `Helios.md §8.7`.
+too thin to define those statistics meaningfully, this module returns the
+explicit raw-Sharpe fallback documented in `Helios.md §8.7`: median = 0,
+IQR = 1, so `normalize(s, ...)` collapses to `(s - 0) / 1 = s`. This is the
+cold-start path — a fresh class with fewer than `MIN_COHORT_SIZE` active
+strategies cannot have meaningful cross-strategy ranking, so each strategy
+is judged against the absolute zero baseline until the cohort fills out.
 
-Phase 2 / WS2.A keeps `MIN_COHORT_SIZE = 2`. WS7.B bumps it to 3 alongside the
-explicit raw-Sharpe fallback.
+WS7.B sets `MIN_COHORT_SIZE = 3` (was 2 in the WS2.A draft) so the median +
+range proxy used for n=2/3 is never computed against a single peer.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-MIN_COHORT_SIZE = 2
+MIN_COHORT_SIZE = 3
 
 
 @dataclass(frozen=True, slots=True)

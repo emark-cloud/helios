@@ -32,6 +32,11 @@ class MetaStrategyPayload(BaseModel):
     max_fee_rate_bps: int = Field(ge=0, le=10_000)
     rebalance_cadence_sec: int = Field(ge=60)
     valid_until: int = Field(ge=0)
+    # WS7.B reputation cold-start (`Helios.md §8.7`). See `MetaStrategy` in
+    # the allocator SDK for the semantics; defaults match
+    # `docs/phase2-plan.md §WS7.B` and the on-chain meta-strategy spec.
+    bootstrap_share_bps: int = Field(default=1000, ge=0, le=10_000)
+    min_attested_trades: int = Field(default=50, ge=0)
     signature: str = Field(default="0x")  # [PASSPORT-STUB]
 
     def to_sdk_meta(self) -> SDKMetaStrategy:
@@ -47,6 +52,8 @@ class MetaStrategyPayload(BaseModel):
             max_fee_rate_bps=self.max_fee_rate_bps,
             rebalance_cadence_sec=self.rebalance_cadence_sec,
             valid_until=self.valid_until,
+            bootstrap_share_bps=self.bootstrap_share_bps,
+            min_attested_trades=self.min_attested_trades,
         )
 
 

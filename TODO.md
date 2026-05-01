@@ -271,11 +271,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [x] WS3.A also landed: `StrategyRegistry.setMarketAllowlistRoot(class, root)` (owner-gated) — canonical root for `yield_rotation_v1` allowlist proofs. (Circuit currently treats the root as a private witness, so on-chain enforcement of "operator used the canonical root" requires promoting it to a public input — documented as a v2 circuit change.)
 
 **WS7.B — Reputation cold-start mechanism (SX)**
-- [ ] Engine: cohort-size fallback in `services/reputation/src/reputation/cohort.py` already at `min_cohort_size = 2` per WS2.A — bump to `min_cohort_size = 3` and add the explicit raw-Sharpe fallback documented in `Helios.md §8.7`
-- [ ] Engine: stake-only score floor when `trades_attested == 0` → `score = w_stake × StakeScore`; unit test
-- [ ] Sentinel: `bootstrap_share_bps` field on the meta-strategy schema (default 1000 = 10%); allocator reserves that share for strategies with `trades_attested < min_attested_trades` (default 50), allocated stake-weighted with flat performance prior
-- [ ] Sentinel unit + scenario tests: cold-start strategy receives bootstrap allocation even when the user's main filter (e.g., Sharpe ≥ 1.5) excludes it
-- [ ] `docs/reputation-math.md` documents the three cold-start components
+- [x] Engine: cohort-size fallback in `services/reputation/src/reputation/cohort.py` already at `min_cohort_size = 2` per WS2.A — bump to `min_cohort_size = 3` and add the explicit raw-Sharpe fallback documented in `Helios.md §8.7`
+- [x] Engine: stake-only score floor when `trades_attested == 0` → `score = w_stake × StakeScore`; unit test
+- [x] Sentinel: `bootstrap_share_bps` field on the meta-strategy schema (default 1000 = 10%); allocator reserves that share for strategies with `trades_attested < min_attested_trades` (default 50), allocated stake-weighted with flat performance prior
+- [x] Sentinel unit + scenario tests: cold-start strategy receives bootstrap allocation even when the user's main filter (e.g., Sharpe ≥ 1.5) excludes it
+- [x] `docs/reputation-math.md` documents the three cold-start components
 
 **WS7.C — Auto-defund griefing + NAV signer (CX/SX, spec only in Phase 2)**
 - [ ] `Helios.md §6.3 / §6.4` updated — done as part of this workstream
@@ -294,7 +294,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md`
 - [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs
 - [ ] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch
-- [ ] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel
+- [x] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel (`services/sentinel/tests/test_loop.py::test_cold_start_strategy_receives_bootstrap_allocation`)
 - [ ] WS7.C: meta-strategy schema carries the three defund fields; AllocatorVault tests assert the fields are stored even though they are not yet enforced (enforcement is Phase 4)
 
 ---
