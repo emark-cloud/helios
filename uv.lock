@@ -1003,10 +1003,14 @@ name = "helios-cli"
 version = "0.1.0"
 source = { editable = "packages/helios-cli" }
 dependencies = [
+    { name = "eth-account" },
     { name = "helios-allocator-sdk" },
+    { name = "helios-contracts-abi" },
     { name = "helios-strategy-sdk" },
+    { name = "httpx" },
     { name = "rich" },
     { name = "typer" },
+    { name = "web3" },
 ]
 
 [package.optional-dependencies]
@@ -1018,13 +1022,17 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "eth-account", specifier = ">=0.13" },
     { name = "helios-allocator-sdk", editable = "packages/allocator-sdk" },
+    { name = "helios-contracts-abi", editable = "packages/contracts-abi-py" },
     { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "rich", specifier = ">=13.9" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "typer", specifier = ">=0.13" },
+    { name = "web3", specifier = ">=7.4" },
 ]
 provides-extras = ["dev"]
 

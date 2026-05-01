@@ -252,10 +252,16 @@ Branch: `phase-1-frontend`. PR per page per `docs/phase1-plan.md` convention. Bu
 - [x] `StrategyAgent` base class with `declared_class`, `asset_universe`, `max_position_size_usd`, `fee_rate_bps`, `on_bar`, `size_trade`, `should_exit`. **`packages/strategy-sdk/src/helios/agent.py` formalized: `on_bar` abstract, `size_trade`/`should_exit` non-abstract with safe defaults (clamp to `max_position_size_usd` ∧ `available_capital`; default `should_exit=False`). Internal `_set_capital` / `_set_position` hooks land for backtest + runtime. 7 unit tests cover declared-class enforcement, sizing clamps, and manifest pass-through.**
 - [x] Backtest harness: `packages/strategy-sdk/src/helios/backtest.py` ships `run_backtest(strategy, prices, …)` returning a `BacktestReport` with NAV series, fills, Sharpe, max-DD, win rate, realized P&L. Pure-Python (no numpy); `helios.nav.NAVTracker` provides O(1) drawdown + Sharpe matching `services/reputation/windows.py` annualisation. CLI integration is WS4.B.
 - [x] Local simulator: `synthesize_random_walk(assets, bars, seed)` (deterministic LCG + Box-Muller-lite) feeds `run_backtest` for CI smoke tests; 25 SDK pytest cases cover engine, NAV math, and synth determinism. CLI surface (`helios simulate`) is WS4.B.
-- [ ] Deploy helper: `helios deploy --strategy ./my.py --vps user@server` packages Docker image and bootstraps the agent
-- [ ] Stake management: `helios stake top-up --amount N`
-- [ ] Proof testing: `helios test-proof --trade <spec>` runs a full proof cycle locally
-- [ ] Docs: `docs/operator-guide.md`
+
+### SX — CLI subcommands (WS4.B landed 2026-05-01)
+- [x] `helios backtest --strategy ./my.py --period 90d` — wires WS4.A `run_backtest` + `synthesize_random_walk`; writes markdown report (NAV ASCII chart + full `BacktestReport` fields) to `docs/backtests/<class>/<name>_<period>.md`. Periods: `7d / 30d / 90d / 180d` at 1-hour bar cadence.
+- [x] `helios simulate --strategy ./my.py --minutes 60` — deterministic 1-min mocked-market loop; per-10-bar status prints; finishes <1 sec; CI-usable.
+- [x] `helios deploy --strategy ./my.py --vps user@host` — renders `templates/Dockerfile.strategy` (shipped in-package) + scp/ssh bootstrap (`docker build` + `docker run --restart unless-stopped`). Defaults to dry-run; `--execute` to apply. Optional `--requirements` for extra Python deps.
+- [x] `helios stake top-up|initiate-withdrawal|claim-withdrawal --strategy-id <addr> --amount N` — auto-loads `StrategyRegistry`/`USDC` from `contracts/deployments/<chain>.json`; top-up issues two txs (`USDC.approve` + `topUpStake`); honors `KITE_RPC_URL` / `OPERATOR_PK` env; `--dry-run` for plan-only.
+- [x] `helios test-proof --trade <spec.json>` — POSTs `{strategyClass, witnessInputs}` to `PROVER_URL/prove`; packs snarkjs proof into 256-byte `uint256[8]` form (matches `runtime._proof_to_bytes`); read-calls `TradeAttestationVerifier.verify(declaredClass, proof, publicInputs)`. `--skip-onchain` for CI.
+- [x] Helpers: `_loader` (one-strategy-per-file enforcement), `_deployments` (env-overridable address lookup), `_proof` (snarkjs encoder + `bytes32` class IDs), `_chain` (`StakeClient` + `VerifierReader`).
+- [x] Tests: 28 pytest cases under `packages/helios-cli/tests/` (loader, deployments, proof encoder, all five subcommands via `typer.testing.CliRunner` with monkeypatched httpx + chain clients). Pyright + ruff clean.
+- [x] Docs: `docs/operator-guide.md` — install → write strategy → backtest → simulate → test-proof → deploy → stake → reputation, plus a troubleshooting matrix.
 
 ### CX/SX — Spec hardening (WS7) — added 2026-04-29 from spec review
 
@@ -486,7 +492,7 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 - [ ] Secrets in VPS env only, never committed
 
 ### Docs
-- [ ] `docs/operator-guide.md` — how to ship a strategy
+- [x] `docs/operator-guide.md` — how to ship a strategy (landed 2026-05-01 with WS4.B)
 - [ ] `docs/allocator-guide.md` — how to ship a competing allocator
 - [ ] `docs/reputation-math.md` — the §8 formula, annotated + worked examples
 - [ ] `docs/circuit-specs.md` — Circom circuit invariants per class
