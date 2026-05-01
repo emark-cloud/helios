@@ -101,6 +101,11 @@ export const IHeliosOAppAbi = [
             "name": "actorType",
             "type": "uint8",
             "internalType": "enum IReputationAnchor.ActorType"
+          },
+          {
+            "name": "componentsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },

@@ -228,6 +228,13 @@ def step_set_meta(ctx: Ctx) -> bytes:
         2_500,  # maxFeeRateBps
         3_600,  # rebalanceCadenceSec (1h)
         0,  # validUntil (never expires)
+        # WS7.C — auto-defund knobs. Pass zeros; UserVault substitutes
+        # `MetaStrategyLib.DEFAULT_DEFUND_*` defaults on first write
+        # (twapBars=3, bondBps=50, confirmBlocks=25). Phase 2 stores
+        # them; Phase 4 wires AllocatorVault enforcement.
+        0,  # defundTwapBars
+        0,  # defundBondBps
+        0,  # defundConfirmBlocks
     )
     # [PASSPORT-STUB] EIP-712 sig — UserVault.setMetaStrategy doesn't verify
     # in Phase 1, but we sign over a structurally-valid payload so the
