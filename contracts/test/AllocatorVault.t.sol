@@ -115,7 +115,10 @@ contract AllocatorVaultTest is Test {
                 drawdownThresholdBps: DD_THRESHOLD_BPS,
                 maxFeeRateBps: 2500,
                 rebalanceCadenceSec: 1 days,
-                validUntil: uint64(block.timestamp + 30 days)
+                validUntil: uint64(block.timestamp + 30 days),
+                defundTwapBars: MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS,
+                defundBondBps: MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS,
+                defundConfirmBlocks: MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS
             })
         );
         userVault.setAllocator(user, address(allocatorVault));
@@ -272,7 +275,10 @@ contract AllocatorVaultTest is Test {
                 drawdownThresholdBps: DD_THRESHOLD_BPS,
                 maxFeeRateBps: 2500,
                 rebalanceCadenceSec: 0,
-                validUntil: uint64(block.timestamp + 30 days)
+                validUntil: uint64(block.timestamp + 30 days),
+                defundTwapBars: MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS,
+                defundBondBps: MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS,
+                defundConfirmBlocks: MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS
             })
         );
         vm.prank(operator);

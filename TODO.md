@@ -278,10 +278,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [x] `docs/reputation-math.md` documents the three cold-start components
 
 **WS7.C — Auto-defund griefing + NAV signer (CX/SX, spec only in Phase 2)**
-- [ ] `Helios.md §6.3 / §6.4` updated — done as part of this workstream
-- [ ] Add fields to `MetaStrategy` schema in `UserVault`: `defundTwapBars` (default 3), `defundBondBps` (default 50), `defundConfirmBlocks` (default 25); update tests
+- [x] `Helios.md §6.3 / §6.4` updated — done as part of this workstream
+- [x] Add fields to `MetaStrategy` schema in `UserVault`: `defundTwapBars` (default 3), `defundBondBps` (default 50), `defundConfirmBlocks` (default 25); update tests (round-trip + zero→default; UserVault.t.sol `test_SetMetaStrategy_RoundTripsDefundFields` + `test_SetMetaStrategy_AppliesDefundDefaultsWhenZero`)
+- [x] Frontend `/onboard` Advanced disclosure surfaces the three defaults read-only (`CustomizationPanel.tsx::DefundDefaults`); tuning controls + bond UX deferred to Phase 4
 - [ ] **Implementation deferred to Phase 4** — TWAP/bond/confirm-window logic in `AllocatorVault.defundStrategy`; Phase 2 only commits the spec shape and meta-strategy fields so existing scenarios still pass
-- [ ] Phase 4 task tracker: add a checkbox in Phase 4 §"FE — System polish" for the bond UX on `/dashboard`
+- [x] Phase 4 task tracker: bond UX checkbox added to Phase 4 §"FE — System polish"
 
 **WS7.D — Stake-weighting honest framing (docs only)**
 - [x] `Helios.md §8.1` principle 2 reframed as deliberate tradeoff — done
@@ -295,7 +296,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs
 - [ ] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch
 - [x] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel (`services/sentinel/tests/test_loop.py::test_cold_start_strategy_receives_bootstrap_allocation`)
-- [ ] WS7.C: meta-strategy schema carries the three defund fields; AllocatorVault tests assert the fields are stored even though they are not yet enforced (enforcement is Phase 4)
+- [x] WS7.C: meta-strategy schema carries the three defund fields; UserVault tests assert round-trip + default-on-zero; AllocatorVault test fixtures construct the new fields even though enforcement is deferred to Phase 4
 
 ---
 
@@ -363,6 +364,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] Cross-chain rep update — chain badge pulse, in-flight indicator, resolve on arrival (don't hide LayerZero latency)
 
 ### FE — System polish
+- [ ] Auto-defund bond UX on `/dashboard` (WS7.C Phase 4 portion). Surface "defund pending confirmation" state in the activity rail, expose `defundTwapBars` / `defundBondBps` / `defundConfirmBlocks` controls in onboard (currently read-only in `CustomizationPanel.tsx::DefundDefaults`), and walk the trigger caller through posting + reclaiming the bond. Pairs with `AllocatorVault.defundStrategy` enforcement landing the same phase.
 - [ ] Keyboard navigation per `DESIGN.md §5.5`: `J/K`, `/`, `Esc`, `G D`, `G S`, `G A`, `?` shortcut menu
 - [ ] Reduced-motion media query reduces every signature interaction to instant
 - [ ] Focus rings visible and amber-toned

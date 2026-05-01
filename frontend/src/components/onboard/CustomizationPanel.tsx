@@ -155,35 +155,38 @@ export function CustomizationPanel({ value, onChange }: CustomizationPanelProps)
           Advanced
         </button>
         {advancedOpen ? (
-          <div className="mt-4 grid grid-cols-1 gap-6 border-t border-surface-line pt-6 md:grid-cols-2">
-            <BpsSlider
-              label="Cold-start share"
-              hint="Reserve a slice of capital for new strategies that haven't yet attested enough trades to rank in the main pool."
-              value={value.bootstrap_share_bps}
-              onChange={(bps) => patch("bootstrap_share_bps", bps)}
-              min={0}
-              max={3_000}
-              step={250}
-            />
-            <Field
-              label="Graduation threshold"
-              hint="Strategies above this many attested trades exit the cold-start pool and rank with the main filter."
-            >
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={500}
-                  step={10}
-                  value={value.min_attested_trades}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    patch("min_attested_trades", Number.parseInt(e.target.value, 10))
-                  }
-                  className="flex-1 accent-[var(--accent-amber)]"
-                />
-                <Numeric>{value.min_attested_trades}</Numeric>
-              </div>
-            </Field>
+          <div className="mt-4 flex flex-col gap-6 border-t border-surface-line pt-6">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <BpsSlider
+                label="Cold-start share"
+                hint="Reserve a slice of capital for new strategies that haven't yet attested enough trades to rank in the main pool."
+                value={value.bootstrap_share_bps}
+                onChange={(bps) => patch("bootstrap_share_bps", bps)}
+                min={0}
+                max={3_000}
+                step={250}
+              />
+              <Field
+                label="Graduation threshold"
+                hint="Strategies above this many attested trades exit the cold-start pool and rank with the main filter."
+              >
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={500}
+                    step={10}
+                    value={value.min_attested_trades}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      patch("min_attested_trades", Number.parseInt(e.target.value, 10))
+                    }
+                    className="flex-1 accent-[var(--accent-amber)]"
+                  />
+                  <Numeric>{value.min_attested_trades}</Numeric>
+                </div>
+              </Field>
+            </div>
+            <DefundDefaults />
           </div>
         ) : null}
       </div>
@@ -207,6 +210,47 @@ function Field({
         {hint ? <div className="mt-1 text-xs text-fg-secondary">{hint}</div> : null}
       </div>
       {children}
+    </div>
+  );
+}
+
+/// WS7.C — surface the auto-defund defaults the contract applies when the
+/// caller passes zero. Read-only in Phase 2; Phase 4 wires the controls and
+/// the bond UX on /dashboard.
+function DefundDefaults(): JSX.Element {
+  return (
+    <div className="rounded-md border border-surface-line bg-surface-base/40 p-4">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        Auto-defund safety
+      </div>
+      <p className="mt-2 text-xs text-fg-secondary">
+        Defunding requires the drawdown breach to persist across multiple oracle TWAP
+        snapshots and the trigger caller to post a refundable bond. Defaults below — tuning
+        ships in Phase 4.
+      </p>
+      <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+        <DefundRow label="TWAP bars" value="3" hint="5-min snapshots a breach must hold" />
+        <DefundRow label="Trigger bond" value="0.50%" hint="bps of the position, refunded on confirm" />
+        <DefundRow label="Confirm window" value="25 blocks" hint="bond slashed if NAV recovers" />
+      </dl>
+    </div>
+  );
+}
+
+function DefundRow({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}): JSX.Element {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase tracking-[0.14em] text-fg-muted">{label}</dt>
+      <dd className="mt-0.5 font-mono text-fg-primary">{value}</dd>
+      <div className="mt-0.5 text-[11px] text-fg-secondary">{hint}</div>
     </div>
   );
 }

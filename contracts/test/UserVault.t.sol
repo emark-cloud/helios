@@ -59,7 +59,10 @@ contract UserVaultTest is Test {
             drawdownThresholdBps: 1500,
             maxFeeRateBps: 2500,
             rebalanceCadenceSec: 1 days,
-            validUntil: uint64(block.timestamp + 30 days)
+            validUntil: uint64(block.timestamp + 30 days),
+            defundTwapBars: 5,
+            defundBondBps: 100,
+            defundConfirmBlocks: 50
         });
     }
 
@@ -93,6 +96,34 @@ contract UserVaultTest is Test {
         vm.prank(user);
         vm.expectRevert(UserVault.MetaAssetNotAllowed.selector);
         vault.setMetaStrategy(m, "");
+    }
+
+    /// WS7.C — explicit non-zero defund knobs round-trip through storage.
+    function test_SetMetaStrategy_RoundTripsDefundFields() public {
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+
+        MetaStrategyLib.MetaStrategy memory stored = vault.metaStrategyOf(user);
+        assertEq(stored.defundTwapBars, 5);
+        assertEq(stored.defundBondBps, 100);
+        assertEq(stored.defundConfirmBlocks, 50);
+    }
+
+    /// WS7.C — zero defund inputs are replaced by the spec defaults so that
+    /// onboarding payloads built before the field existed keep working.
+    function test_SetMetaStrategy_AppliesDefundDefaultsWhenZero() public {
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        m.defundTwapBars = 0;
+        m.defundBondBps = 0;
+        m.defundConfirmBlocks = 0;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+
+        MetaStrategyLib.MetaStrategy memory stored = vault.metaStrategyOf(user);
+        assertEq(stored.defundTwapBars, MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS);
+        assertEq(stored.defundBondBps, MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS);
+        assertEq(stored.defundConfirmBlocks, MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS);
     }
 
     // ── deposit ─────────────────────────────────────────────────────

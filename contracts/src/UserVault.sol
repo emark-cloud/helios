@@ -107,10 +107,22 @@ contract UserVault is
             }
             if (!found) revert MetaAssetNotAllowed();
         }
-        _metas[msg.sender] = meta;
+        // WS7.C — fill in the auto-defund defaults when the caller passes
+        // zero so existing onboarding payloads keep working unchanged.
+        MetaStrategyLib.MetaStrategy memory stored = meta;
+        if (stored.defundTwapBars == 0) {
+            stored.defundTwapBars = MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS;
+        }
+        if (stored.defundBondBps == 0) {
+            stored.defundBondBps = MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS;
+        }
+        if (stored.defundConfirmBlocks == 0) {
+            stored.defundConfirmBlocks = MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS;
+        }
+        _metas[msg.sender] = stored;
         _metaSignatures[msg.sender] = signature;
         _users[msg.sender].metaSet = true;
-        emit MetaStrategySet(msg.sender, meta.metaStrategyHash);
+        emit MetaStrategySet(msg.sender, stored.metaStrategyHash);
     }
 
     // ── Deposit / Withdraw ──────────────────────────────────────────
