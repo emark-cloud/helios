@@ -174,4 +174,4 @@ RPC_URL="$RPC_URL" DEPLOYMENTS_FILE="$DEPLOYMENTS_FILE" PROVER_URL="$PROVER_URL"
   --rpc-url "$RPC_URL" --deployments "$DEPLOYMENTS_FILE" \
   --prover-url "$PROVER_URL"
 
-echo "[e2e] WS6 PR2.B acceptance: GREEN"
+echo "[e2e] WS6 PR2.C acceptance: GREEN"

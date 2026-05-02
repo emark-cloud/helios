@@ -265,10 +265,187 @@ def build_mean_reversion_witness(
     )
 
 
+# ── yield_rotation_v1 ────────────────────────────────────────────
+
+YIELD_DEPTH = 6  # 64 markets per yield-oracle snapshot
+ALLOW_DEPTH = 4  # 16 markets in the registry allowlist
+
+
+@dataclass(frozen=True, slots=True)
+class YieldRotationWitness:
+    """Result of `build_yield_rotation_witness`. Unlike momentum and
+    mean-rev, YR has no `params_hash` — the operator-set `signal_threshold`
+    and `bridging_cost` are folded into the trade_hash directly, and the
+    on-chain `_validateAndVerifyYR` does not enforce any params binding
+    (TODO(WS7.A) — Poseidon-on-Solidity dependency, tracked in
+    `contracts/src/StrategyVault.sol`)."""
+
+    inputs: dict[str, Any]
+    yield_oracle_root: int
+    markets_allowlist_root: int
+
+
+def _build_poseidon_tree(leaves: list[int], depth: int) -> tuple[int, list[list[int]]]:
+    """Poseidon Merkle tree with internal nodes = `Poseidon([left, right])`.
+    Returns (root, levels). levels[0] is the leaf row; levels[depth] is the
+    root row. Mirrors `circuits/scripts/gen-fixture-yr.js::buildTree`."""
+    expected = 1 << depth
+    if len(leaves) != expected:
+        raise ValueError(f"expected {expected} leaves, got {len(leaves)}")
+    levels: list[list[int]] = [list(leaves)]
+    for _ in range(depth):
+        cur = levels[-1]
+        nxt = [poseidon_hash([cur[i], cur[i + 1]]) for i in range(0, len(cur), 2)]
+        levels.append(nxt)
+    return levels[depth][0], levels
+
+
+def _merkle_inclusion(
+    levels: list[list[int]], index: int, depth: int
+) -> tuple[list[str], list[str]]:
+    """Inclusion proof for a leaf at `index`. Mirrors `proveInclusion`
+    in gen-fixture-yr.js: `path_indices[i] == "0"` means the sibling
+    sits to the right at level i; "1" means it sits to the left."""
+    path_indices: list[str] = []
+    siblings: list[str] = []
+    idx = index
+    for d in range(depth):
+        is_left = idx % 2 == 0
+        sib_idx = idx + 1 if is_left else idx - 1
+        path_indices.append("0" if is_left else "1")
+        siblings.append(str(levels[d][sib_idx]))
+        idx >>= 1
+    return path_indices, siblings
+
+
+# Canonical 4-market test cosmos. Values mirror `gen-fixture-yr.js` so
+# the witness shape is identical to the verifier-only fixture, but with
+# a per-call allocator_address and nonce for the e2e.
+_MARKETS: dict[str, int] = {
+    "AAVE_USDC": 1,
+    "COMPOUND_USDC": 2,
+    "AAVE_USDT": 3,
+    "COMPOUND_USDT": 4,
+}
+_APY_BPS: dict[str, int] = {
+    "AAVE_USDC": 420,
+    "COMPOUND_USDC": 550,
+    "AAVE_USDT": 380,
+    "COMPOUND_USDT": 500,
+}
+# Indices in the leaf rows (insertion order). Used to derive Merkle paths.
+_MARKET_ORDER: list[str] = ["AAVE_USDC", "COMPOUND_USDC", "AAVE_USDT", "COMPOUND_USDT"]
+
+
+def build_yield_rotation_witness(
+    *,
+    allocator_vault: str,
+    nonce: int,
+    block_window_end: int,
+    from_market: str = "AAVE_USDC",
+    to_market: str = "COMPOUND_USDC",
+    amount_rotating: int = 1 * 10**18,
+    signal_threshold_bps: int = 80,
+    bridging_cost_bps: int = 30,
+) -> YieldRotationWitness:
+    """Build a yield_rotation_v1 witness for a rotation between two of
+    the four canonical markets. Defaults track `gen-fixture-yr.js`:
+    AAVE_USDC (420 bps) → COMPOUND_USDC (550 bps), threshold 80,
+    bridging 30 ⇒ differential 130 ≥ 110 (passes Constraint 6)."""
+    if from_market not in _MARKETS or to_market not in _MARKETS:
+        raise ValueError(f"unknown market in {(from_market, to_market)!r}")
+    if from_market == to_market:
+        raise ValueError("from_market == to_market violates Constraint 5")
+
+    # Leaves are pre-Poseidon-hashed: yield leaf = Poseidon(market_id, apy);
+    # allowlist leaf = Poseidon(market_id). Pad both trees up to 2^depth.
+    yield_leaves = [
+        poseidon_hash([_MARKETS[m], _APY_BPS[m]]) for m in _MARKET_ORDER
+    ]
+    yield_pad = poseidon_hash([0, 0])
+    while len(yield_leaves) < (1 << YIELD_DEPTH):
+        yield_leaves.append(yield_pad)
+    yield_root, yield_levels = _build_poseidon_tree(yield_leaves, YIELD_DEPTH)
+
+    allow_leaves = [poseidon_hash([_MARKETS[m]]) for m in _MARKET_ORDER]
+    allow_pad = poseidon_hash([0])
+    while len(allow_leaves) < (1 << ALLOW_DEPTH):
+        allow_leaves.append(allow_pad)
+    allow_root, allow_levels = _build_poseidon_tree(allow_leaves, ALLOW_DEPTH)
+
+    from_idx = _MARKET_ORDER.index(from_market)
+    to_idx = _MARKET_ORDER.index(to_market)
+
+    yp_from_indices, yp_from_siblings = _merkle_inclusion(yield_levels, from_idx, YIELD_DEPTH)
+    yp_to_indices, yp_to_siblings = _merkle_inclusion(yield_levels, to_idx, YIELD_DEPTH)
+    ap_from_indices, ap_from_siblings = _merkle_inclusion(allow_levels, from_idx, ALLOW_DEPTH)
+    ap_to_indices, ap_to_siblings = _merkle_inclusion(allow_levels, to_idx, ALLOW_DEPTH)
+
+    declared_class_field = class_id_as_field("yield_rotation_v1")
+    allocator_field = int(allocator_vault, 16)
+    m_from_field = _MARKETS[from_market]
+    m_to_field = _MARKETS[to_market]
+
+    # 11-element trade_hash — note no strategy_vault, but YES allowlist
+    # root + signal_threshold + bridging_cost (so the prover can't lie
+    # about either). Field order MUST match circuits/yield_rotation_v1.circom:202.
+    trade_hash = poseidon_hash(
+        [
+            declared_class_field,
+            m_from_field,
+            m_to_field,
+            amount_rotating,
+            yield_root,
+            allocator_field,
+            nonce,
+            block_window_end,
+            signal_threshold_bps,
+            bridging_cost_bps,
+            allow_root,
+        ]
+    )
+
+    inputs: dict[str, Any] = {
+        # Public — circuit's `main { public [...] }`.
+        "trade_hash": str(trade_hash),
+        "declared_class": str(declared_class_field),
+        "m_from": str(m_from_field),
+        "m_to": str(m_to_field),
+        "amount_rotating": str(amount_rotating),
+        "yield_oracle_root": str(yield_root),
+        "allocator_address": str(allocator_field),
+        "nonce": str(nonce),
+        "block_window_end": str(block_window_end),
+        # Private witness.
+        "apy_from": str(_APY_BPS[from_market]),
+        "apy_to": str(_APY_BPS[to_market]),
+        "signal_threshold": str(signal_threshold_bps),
+        "bridging_cost": str(bridging_cost_bps),
+        "markets_allowlist_root": str(allow_root),
+        "yield_path_indices_from": yp_from_indices,
+        "yield_siblings_from": yp_from_siblings,
+        "yield_path_indices_to": yp_to_indices,
+        "yield_siblings_to": yp_to_siblings,
+        "allow_path_indices_from": ap_from_indices,
+        "allow_siblings_from": ap_from_siblings,
+        "allow_path_indices_to": ap_to_indices,
+        "allow_siblings_to": ap_to_siblings,
+    }
+    return YieldRotationWitness(
+        inputs=inputs,
+        yield_oracle_root=yield_root,
+        markets_allowlist_root=allow_root,
+    )
+
+
 __all__ = [
+    "ALLOW_DEPTH",
     "MeanReversionWitness",
     "MomentumWitness",
     "PRICE_OBSERVATIONS",
+    "YIELD_DEPTH",
+    "YieldRotationWitness",
     "build_mean_reversion_witness",
     "build_momentum_witness",
+    "build_yield_rotation_witness",
 ]

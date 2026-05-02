@@ -62,6 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _phase2_witness import (  # noqa: E402
     build_mean_reversion_witness,
     build_momentum_witness,
+    build_yield_rotation_witness,
 )
 
 # Reuse the helios-cli encoder for proof bytes — single source of truth
@@ -480,6 +481,60 @@ def step_emit_mean_reversion_trades(ctx: Ctx) -> None:
         )
 
 
+# ── PR2.C — yield-rotation trade flow ─────────────────────
+
+
+def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
+    """Drive a real Groth16 yield_rotation_v1 rotation on each of the 2
+    YR vaults. Distinct from momentum/mean-rev:
+
+      - 9 public inputs (no params_hash, no strategy_vault).
+      - Witness includes Poseidon Merkle inclusion proofs against both
+        a 64-leaf yield-oracle tree and a 16-leaf allowlist tree —
+        constructed in `_phase2_witness::build_yield_rotation_witness`
+        with the same 4-market test cosmos as `gen-fixture-yr.js`
+        (AAVE_USDC / COMPOUND_USDC / AAVE_USDT / COMPOUND_USDT).
+      - On-chain entry point is `executeYieldRotationWithProof`, not
+        `executeWithProof`.
+      - No `commitInitialParamsHash` step — the YR class binds
+        operator parameters via the trade_hash itself, not a separate
+        params slot. The on-chain side's params-binding TODO is a
+        Phase 5+ Poseidon-on-Solidity dependency (see comment at
+        contracts/src/StrategyVault.sol::executeYieldRotationWithProof).
+
+    Primary rotates AAVE_USDC → COMPOUND_USDC (130bps differential);
+    variant2 rotates AAVE_USDT → COMPOUND_USDT (120bps). Both clear
+    the threshold + bridging cost (110 bps).
+    """
+    print("\n[7] executeYieldRotationWithProof × 2 yield-rotation vaults")
+    yr_vaults: list[tuple[str, Contract, str, str]] = [
+        ("strategyVaultYieldRotation",         ctx.strategy_vaults[4], "AAVE_USDC", "COMPOUND_USDC"),
+        ("strategyVaultYieldRotationVariant2", ctx.strategy_vaults[5], "AAVE_USDT", "COMPOUND_USDT"),
+    ]
+    for nonce_offset, (key, vault, from_m, to_m) in enumerate(yr_vaults):
+        print(f"  ── {key} ({from_m} → {to_m}) ──")
+        block = ctx.w3.eth.block_number
+        witness = build_yield_rotation_witness(
+            allocator_vault=ctx.allocator_vault.address,
+            nonce=nonce_offset,
+            block_window_end=block + 100,
+            from_market=from_m,
+            to_market=to_m,
+        )
+        print("    proving (snarkjs.fullProve)…")
+        result = _prove(ctx.prover_url, "yield_rotation_v1", witness.inputs)
+        proof_bytes = proof_to_bytes(result["proof"])
+        public_inputs = public_signals_to_uints(result["publicSignals"])
+        if len(proof_bytes) != 256:
+            raise RuntimeError(f"proof bytes length {len(proof_bytes)} != 256")
+        print("    executeYieldRotationWithProof → expect YieldRotationAttested")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            vault.functions.executeYieldRotationWithProof(proof_bytes, public_inputs, []),
+        )
+
+
 # ── Assertions ───────────────────────────────────────────────
 
 
@@ -562,6 +617,45 @@ def assert_pr2b_mean_reversion_trades(ctx: Ctx, start_block: int) -> None:
     print("\nPR2.B: real-proof mean-reversion flow GREEN")
 
 
+def assert_pr2c_yield_rotation_trades(ctx: Ctx, start_block: int) -> None:
+    """One YieldRotationAttested event per YR vault, going through the
+    real YieldRotationV1Verifier. Distinct event from TradeAttested —
+    YR has no asset-pair / amount-out semantics, the on-chain emit
+    carries (m_from, m_to, amount_rotating, yield_oracle_root)."""
+    print("\n=== PR2.C yield-rotation-class assertions ===")
+    primary, variant2 = ctx.strategy_vaults[4], ctx.strategy_vaults[5]
+    primary_logs = _logs(primary, "YieldRotationAttested", start_block)
+    variant2_logs = _logs(variant2, "YieldRotationAttested", start_block)
+    assert len(primary_logs) >= 1, (
+        f"expected ≥1 YieldRotationAttested on {primary.address} (primary YR), got 0"
+    )
+    assert len(variant2_logs) >= 1, (
+        f"expected ≥1 YieldRotationAttested on {variant2.address} (variant2 YR), got 0"
+    )
+    primary_hash = primary_logs[0]["args"]["tradeHash"]
+    variant2_hash = variant2_logs[0]["args"]["tradeHash"]
+    primary_from = primary_logs[0]["args"]["mFrom"]
+    primary_to = primary_logs[0]["args"]["mTo"]
+    variant2_from = variant2_logs[0]["args"]["mFrom"]
+    variant2_to = variant2_logs[0]["args"]["mTo"]
+    assert primary_hash != variant2_hash, "YR trade_hashes collided across vaults"
+    assert (primary_from, primary_to) == (1, 2), (
+        f"primary rotation expected AAVE_USDC(1) → COMPOUND_USDC(2), got {primary_from} → {primary_to}"
+    )
+    assert (variant2_from, variant2_to) == (3, 4), (
+        f"variant2 rotation expected AAVE_USDT(3) → COMPOUND_USDT(4), got {variant2_from} → {variant2_to}"
+    )
+    print(
+        f"  ✓ YieldRotationAttested on primary  {primary.address} "
+        f"(mkt {primary_from}→{primary_to}, hash={primary_hash.hex()[:10]}…)"
+    )
+    print(
+        f"  ✓ YieldRotationAttested on variant2 {variant2.address} "
+        f"(mkt {variant2_from}→{variant2_to}, hash={variant2_hash.hex()[:10]}…)"
+    )
+    print("\nPR2.C: real-proof yield-rotation flow GREEN")
+
+
 # ── Driver ───────────────────────────────────────────────────
 
 
@@ -595,11 +689,13 @@ def main() -> int:
     step_allocate_all(ctx)
     step_emit_momentum_trades(ctx)
     step_emit_mean_reversion_trades(ctx)
+    step_emit_yield_rotation_trades(ctx)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
     assert_pr2b_mean_reversion_trades(ctx, start_block)
-    print("\nWS6 PR2.B e2e: GREEN")
+    assert_pr2c_yield_rotation_trades(ctx, start_block)
+    print("\nWS6 PR2.C e2e: GREEN")
     return 0
 
 
