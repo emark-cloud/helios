@@ -50,6 +50,13 @@ query StrategyState($since: BigInt!) {
       capitalDeployed
       defundedAt
     }
+    paramsRotations(
+      first: 100
+      orderBy: timestamp
+      orderDirection: desc
+    ) {
+      timestamp
+    }
   }
 }
 """
@@ -79,6 +86,13 @@ class StrategyState:
     capital_deployed_e18: int  # current, summed across allocation events
     trades_90d: list[TradeEvent]
     nav_snapshots_90d: list[NavEvent]
+    # WS7.A: unix-second timestamp of the most recent
+    # `StrategyRegistry.ParamsRotated` event for this strategy. The
+    # engine resets the AgeScore + PerformanceScore windows to start
+    # at this epoch (track-record breaks visibly across rotations).
+    # Risk + proof are unaffected so a strategy can't escape its
+    # drawdown / proof history by rotating params. 0 = never rotated.
+    last_rotation_epoch: int = 0
 
 
 class GoldskyClient:
@@ -137,6 +151,10 @@ def _parse_strategy(raw: dict[str, Any]) -> StrategyState:
         if a.get("defundedAt") in (None, "0", 0)
     )
 
+    rotations: list[dict[str, Any]] = list(raw.get("paramsRotations") or [])
+    # Query orders by timestamp desc — first row is the most recent. 0 if none.
+    last_rotation = _to_int(rotations[0].get("timestamp")) if rotations else 0
+
     return StrategyState(
         strategy_id=str(raw.get("id")),
         declared_class=str(raw.get("declaredClass") or ""),
@@ -145,6 +163,7 @@ def _parse_strategy(raw: dict[str, Any]) -> StrategyState:
         capital_deployed_e18=capital,
         trades_90d=trades,
         nav_snapshots_90d=nav,
+        last_rotation_epoch=last_rotation,
     )
 
 
