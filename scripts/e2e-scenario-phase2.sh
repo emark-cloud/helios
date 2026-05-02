@@ -140,6 +140,28 @@ echo "[e2e] forge script RegisterPhase2Strategies → $DEPLOYMENTS_FILE (layered
 }
 echo "[e2e] deploy+register pipeline complete; addresses at $DEPLOYMENTS_FILE"
 
+# ── 4.5. RegisterFreshStrategy (PR3.5.C) ─────────────────────────
+# Bolts on a 7th vault (`strategyVaultMomentumVariant3`) with zero
+# track record so the WS7.B sentinel bootstrap pool has something
+# to allocate cold-start capital to in step_drive_bootstrap_pool.
+echo "[e2e] forge script RegisterFreshStrategy → $DEPLOYMENTS_FILE (layered)"
+(
+  cd contracts
+  DEPLOYER_PK="$DEPLOYER_PK" \
+    USDC="$USDC_ADDR" \
+    STRATEGY_REGISTRY="$STRATEGY_REGISTRY_ADDR" \
+    ALLOCATOR_VAULT="$ALLOCATOR_VAULT_ADDR" \
+    TRADE_VERIFIER="$TRADE_VERIFIER_ADDR" \
+    SWAP_ROUTER="$SWAP_ROUTER_ADDR" \
+    OUT_LABEL="$OUT_LABEL" \
+    forge script script/RegisterFreshStrategy.s.sol \
+    --rpc-url "$RPC_URL" --broadcast --silent
+) >/tmp/helios-e2e-phase2-fresh.log 2>&1 || {
+  echo "[e2e] RegisterFreshStrategy failed; tail of log:"
+  tail -50 /tmp/helios-e2e-phase2-fresh.log
+  exit 1
+}
+
 # ── 5. prover service ────────────────────────────────────────────
 # PR2.A onwards drives real Groth16 proofs against the registered
 # verifiers. The prover wraps snarkjs.fullProve and reads the .wasm /
@@ -174,4 +196,4 @@ RPC_URL="$RPC_URL" DEPLOYMENTS_FILE="$DEPLOYMENTS_FILE" PROVER_URL="$PROVER_URL"
   --rpc-url "$RPC_URL" --deployments "$DEPLOYMENTS_FILE" \
   --prover-url "$PROVER_URL"
 
-echo "[e2e] WS6 PR3.5 acceptance: GREEN"
+echo "[e2e] WS6 PR3.5.C acceptance: GREEN"

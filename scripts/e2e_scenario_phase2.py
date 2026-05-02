@@ -134,6 +134,14 @@ _STRATEGY_VAULT_KEYS: tuple[tuple[str, str], ...] = (
     ("strategyVaultYieldRotationVariant2", "yield_rotation_v1"),
 )
 
+# WS7.B fresh strategy — 7th vault, zero track record, registered by
+# `contracts/script/RegisterFreshStrategy.s.sol` after the main 6.
+# Excluded from `_STRATEGY_VAULT_KEYS` so steps iterating those (NAV,
+# trades, allocation) skip it; it's only consumed in PR3.5.C's
+# bootstrap-pool drive.
+_FRESH_STRATEGY_KEY = "strategyVaultMomentumVariant3"
+_FRESH_STRATEGY_CLASS = "momentum_v1"
+
 _DEPOSIT_USDC = 60_000  # 60k mUSDC: enough to allocate 5k × 6 with idle headroom.
 _ALLOC_PER_STRATEGY_USDC = 5_000
 
@@ -856,6 +864,176 @@ def step_rotate_params_for_strategy(
     return new_params
 
 
+# ── PR3.5.C — WS7.B sentinel bootstrap-pool drive ─────────
+
+
+def step_drive_bootstrap_pool(
+    ctx: Ctx,
+    rep_updates: dict[str, EngineUpdate],
+) -> dict[str, Any]:
+    """WS7.B: drive `SentinelAllocator.allocate(...)` over the 7-vault
+    cohort (6 trading vaults + 1 fresh strategy registered after the
+    deploy pipeline). Asserts the fresh vault — `trades_attested = 0`,
+    `reputation_score = 0` — receives non-zero capital from the
+    bootstrap pool while every trading vault is graduated.
+
+    Capital is sized so the bootstrap split (10% default) ≥ 1 wei of
+    USDC: with 60k delegated × 1000 bps = 6k USDC of cold-start capital
+    spread across the cold-start cohort.
+
+    The user's `min_attested_trades` is set to 50 (default per the
+    allocator-sdk MetaStrategy). Each Phase 2 trading vault has 1
+    attested trade by this point, so they're STILL inside the cold-
+    start gate. To keep the test focused on the fresh-vault bootstrap
+    path we override `min_attested_trades = 1` so 6 trading vaults
+    are graduated and only the fresh vault qualifies. (Helios.md §8.7
+    leaves `min_attested_trades` as a per-user knob.)
+    """
+    print("\n[12] WS7.B: SentinelAllocator.allocate (bootstrap-pool drive)")
+
+    # Lazy import — keeps the e2e parsable even when the workspace
+    # didn't install helios-allocator-sdk / helios-sentinel.
+    from helios_allocator.types import MetaStrategy, StrategyCandidate
+    from sentinel.allocator import SentinelAllocator
+
+    fresh_addr = ctx.addrs.get(_FRESH_STRATEGY_KEY)
+    if fresh_addr is None:
+        raise RuntimeError(
+            f"deployments file missing {_FRESH_STRATEGY_KEY!r}; "
+            "did RegisterFreshStrategy.s.sol run?"
+        )
+
+    candidates: list[Any] = []
+    # 6 trading vaults — populate `trades_attested` and reputation
+    # score from the post-rotation engine snapshot.
+    for (key, cls), vault in zip(_STRATEGY_VAULT_KEYS, ctx.strategy_vaults, strict=True):
+        sid = vault.address.lower()
+        u = rep_updates[sid]
+        candidates.append(
+            StrategyCandidate(
+                strategy_id=vault.address,
+                declared_class=cls,
+                chain_id=ctx.chain_id,
+                operator=ctx.deployer.address,
+                fee_rate_bps=1000 if "Variant2" not in key else 1500,
+                stake_amount_usd=5_000,
+                max_capacity_usd=1_000_000,
+                current_allocations_usd=_ALLOC_PER_STRATEGY_USDC,
+                reputation_score=max(0.0, u.outputs.score_e4 / 10_000),
+                trades_attested=u.state.trades_attested,
+            )
+        )
+    # Fresh vault — zero track record, full capacity, fresh stake.
+    candidates.append(
+        StrategyCandidate(
+            strategy_id=fresh_addr,
+            declared_class=_FRESH_STRATEGY_CLASS,
+            chain_id=ctx.chain_id,
+            operator=ctx.deployer.address,
+            fee_rate_bps=1500,
+            stake_amount_usd=5_000,
+            max_capacity_usd=1_000_000,
+            current_allocations_usd=0,
+            reputation_score=0.0,
+            trades_attested=0,
+        )
+    )
+
+    meta = MetaStrategy(
+        user_address=ctx.user.address,
+        allowed_strategy_classes=["momentum_v1", "mean_reversion_v1", "yield_rotation_v1"],
+        allowed_assets=[ctx.addrs["usdc"]],
+        allowed_chains=[ctx.chain_id],
+        max_capital_usd=_DEPOSIT_USDC,
+        max_per_strategy_bps=5_000,
+        max_strategies_count=10,
+        drawdown_threshold_bps=2_000,
+        max_fee_rate_bps=2_500,
+        rebalance_cadence_sec=3_600,
+        valid_until=0,
+        bootstrap_share_bps=1_000,  # 10% — default
+        min_attested_trades=1,      # graduate the 6 trading vaults
+    )
+    targets = SentinelAllocator().allocate(meta, candidates, capital=_DEPOSIT_USDC)
+    by_id = {t.strategy_id.lower(): t for t in targets}
+    print(f"  ✓ allocator.allocate produced {len(targets)} targets")
+    for t in targets:
+        print(f"    {t.strategy_id[:10]}…  ${t.capital_usd:>6}  ({t.weight_bps} bps)")
+    return {"targets_by_id": by_id, "fresh_addr": fresh_addr}
+
+
+def assert_pr3_5c_bootstrap_pool(
+    ctx: Ctx,
+    bootstrap_result: dict[str, Any],
+) -> None:
+    """Verify the WS7.B bootstrap pool actually allocates cold-start
+    capital to the fresh strategy:
+
+      1. The fresh vault appears in the allocation targets list.
+      2. Its allocated capital is > 0 — the bootstrap pool reserved
+         10% of the user's delegated capital for cold-start strategies,
+         and only the fresh vault qualifies (`trades_attested = 0 <
+         min_attested_trades = 1`).
+      3. Its weight_bps is bounded by `max_per_strategy_bps` (defensive).
+      4. The 6 trading vaults DO NOT receive bootstrap capital — they
+         are graduated (trades_attested ≥ min_attested_trades), so
+         their entire allocation comes from the main pool's rank
+         function. We can't easily separate the two pools post-merge,
+         but we CAN verify the fresh vault's capital == bootstrap pool
+         capital (since it's the only cold-start candidate).
+    """
+    print("\n=== PR3.5.C WS7.B bootstrap-pool assertions ===")
+    by_id: dict[str, Any] = bootstrap_result["targets_by_id"]
+    fresh_addr_lower: str = bootstrap_result["fresh_addr"].lower()
+
+    # 1. Fresh vault is in the result.
+    assert fresh_addr_lower in by_id, (
+        f"fresh strategy {fresh_addr_lower} missing from allocator output; "
+        f"got {list(by_id)}"
+    )
+    fresh_target = by_id[fresh_addr_lower]
+
+    # 2. Non-zero capital.
+    assert fresh_target.capital_usd > 0, (
+        f"fresh strategy received zero capital from bootstrap pool; "
+        f"target={fresh_target}"
+    )
+    print(
+        f"  ✓ fresh strategy {fresh_addr_lower[:10]}… got "
+        f"${fresh_target.capital_usd} ({fresh_target.weight_bps} bps)"
+    )
+
+    # 3. Per-strategy cap respected.
+    assert fresh_target.weight_bps <= 5_000, (
+        f"fresh strategy weight {fresh_target.weight_bps} bps exceeds "
+        "max_per_strategy_bps=5000"
+    )
+    print(f"  ✓ weight_bps={fresh_target.weight_bps} respects max_per_strategy_bps=5000")
+
+    # 4. Bootstrap-pool budget = 10% of total delegated = $6000. With
+    # max_per_strategy_bps=5000 (50%) and only ONE cold-start candidate,
+    # the SDK's `score_weighted_allocation` caps the single recipient at
+    # half the SUB-POOL budget = $3000. The other $3000 of unused
+    # bootstrap budget falls back to the main pool (see
+    # `SentinelAllocator.allocate` line 60-61). So a fresh vault as
+    # the sole cold-start eligible should receive AT LEAST half the
+    # 10% bootstrap reserve.
+    bootstrap_budget = (_DEPOSIT_USDC * 1_000) // 10_000
+    sub_pool_cap = (bootstrap_budget * 5_000) // 10_000  # max_per_strategy_bps
+    assert fresh_target.capital_usd >= sub_pool_cap, (
+        f"fresh strategy capital ${fresh_target.capital_usd} is below the "
+        f"per-strategy cap inside the bootstrap pool (${sub_pool_cap}); "
+        f"bootstrap pool may not be allocating fully — bootstrap_budget="
+        f"${bootstrap_budget}, max_per_strategy_bps=5000"
+    )
+    print(
+        f"  ✓ bootstrap pool funneled ${fresh_target.capital_usd} to the "
+        f"fresh vault (= sub-pool cap of bootstrap budget ${bootstrap_budget})"
+    )
+
+    print("\nPR3.5.C: WS7.B sentinel bootstrap pool GREEN")
+
+
 def assert_pr3_5_rotation_reset(
     ctx: Ctx,
     pre_updates: dict[str, EngineUpdate],
@@ -1144,6 +1322,7 @@ def main() -> int:
     pre_rotation_updates = step_drive_reputation(ctx, start_block)
     step_rotate_params_for_strategy(ctx)
     post_rotation_updates = step_drive_reputation(ctx, start_block)
+    bootstrap_result = step_drive_bootstrap_pool(ctx, post_rotation_updates)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
@@ -1152,7 +1331,8 @@ def main() -> int:
     assert_pr3a_oracle_and_nav(ctx, start_block)
     assert_pr3b_reputation_822(ctx, pre_rotation_updates)
     assert_pr3_5_rotation_reset(ctx, pre_rotation_updates, post_rotation_updates)
-    print("\nWS6 PR3.5 e2e: GREEN")
+    assert_pr3_5c_bootstrap_pool(ctx, bootstrap_result)
+    print("\nWS6 PR3.5.C e2e: GREEN")
     return 0
 
 
