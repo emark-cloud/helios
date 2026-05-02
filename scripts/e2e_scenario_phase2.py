@@ -48,6 +48,7 @@ from helios_contracts_abi import (
 )
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
+    IOracleAnchor_ABI,
     IStrategyRegistry_ABI,
     IStrategyVault_ABI,
     IUserVault_ABI,
@@ -63,6 +64,13 @@ from _phase2_witness import (  # noqa: E402
     build_mean_reversion_witness,
     build_momentum_witness,
     build_yield_rotation_witness,
+)
+from _phase2_oracle_nav import (  # noqa: E402
+    ANCHOR_COMMITS_PER_ANCHOR,
+    DAY_SEC,
+    NAV_SAMPLES_PER_VAULT,
+    NavTrajectoryDriver,
+    OracleAnchorDriver,
 )
 
 # Reuse the helios-cli encoder for proof bytes — single source of truth
@@ -134,8 +142,14 @@ class Ctx:
     allocator_vault: Contract
     strategy_registry: Contract
     strategy_vaults: list[Contract]
+    oracle_price_anchor: Contract
+    oracle_yield_anchor: Contract
     usdc: Contract
     prover_url: str
+    # Synthetic now-of-the-scenario in unix seconds. Used to anchor
+    # both the NAV trajectory daily samples (PR3.A) and the
+    # reputation engine's 90d slice (PR3.B). Set in `_setup`.
+    synthetic_now_sec: int = 0
 
 
 # ── Setup ────────────────────────────────────────────────────
@@ -215,6 +229,22 @@ def _setup(rpc_url: str, deployments: Path, prover_url: str) -> Ctx:
         address=Web3.to_checksum_address(addrs["usdc"]),
         abi=_ERC20_MINT_ABI,
     )
+    # Phase 2 oracle anchors come from `DeployPhase2.s.sol::_deployAnchors`.
+    # Pre-PR3, the e2e didn't reference them — gate so a Phase-1-only
+    # deployments file produces a clear error if PR3 ever runs against it.
+    for k in ("oraclePriceAnchor", "oracleYieldAnchor"):
+        if k not in addrs:
+            raise RuntimeError(
+                f"deployments file missing {k!r}; did DeployPhase2.s.sol run?"
+            )
+    oracle_price_anchor = w3.eth.contract(
+        address=Web3.to_checksum_address(addrs["oraclePriceAnchor"]),
+        abi=IOracleAnchor_ABI,
+    )
+    oracle_yield_anchor = w3.eth.contract(
+        address=Web3.to_checksum_address(addrs["oracleYieldAnchor"]),
+        abi=IOracleAnchor_ABI,
+    )
     return Ctx(
         w3=w3,
         chain_id=chain_id,
@@ -225,8 +255,15 @@ def _setup(rpc_url: str, deployments: Path, prover_url: str) -> Ctx:
         allocator_vault=allocator_vault,
         strategy_registry=strategy_registry,
         strategy_vaults=strategy_vaults,
+        oracle_price_anchor=oracle_price_anchor,
+        oracle_yield_anchor=oracle_yield_anchor,
         usdc=usdc,
         prover_url=prover_url,
+        # Pin the scenario clock to wall-clock now. NAV trajectories
+        # span [-29d, 0d] from this point; the reputation engine's 90d
+        # window cutoff (ts - 90d) is also computed against this anchor
+        # in PR3.B.
+        synthetic_now_sec=int(time.time()),
     )
 
 
@@ -535,6 +572,63 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
         )
 
 
+# ── PR3.A — oracle anchor cadence + NAV trajectories ──────
+
+
+def step_drive_oracle_anchors(ctx: Ctx) -> dict[str, int]:
+    """Post `ANCHOR_COMMITS_PER_ANCHOR` price + yield commits to the
+    deployed oracle anchors. Each commit covers a `10-bar` slice of the
+    90d / 200-bar window. Roots are deterministic non-zero placeholders;
+    the contracts only check signature recovery + window monotonicity.
+
+    Returns a `{kind: count}` summary used by `assert_pr3a_oracle`.
+    """
+    print(
+        f"\n[8] OraclePriceAnchor + OracleYieldAnchor commits "
+        f"× {ANCHOR_COMMITS_PER_ANCHOR} each (1 per 10 bars)"
+    )
+    base_ts_sec = ctx.synthetic_now_sec - 90 * DAY_SEC
+    driver = OracleAnchorDriver(
+        w3=ctx.w3,
+        chain_id=ctx.chain_id,
+        signer_pk=_OPERATOR_PK,
+        price_anchor=ctx.oracle_price_anchor,
+        yield_anchor=ctx.oracle_yield_anchor,
+        base_ts_sec=base_ts_sec,
+    )
+    price_receipts, yield_receipts = driver.drive(_send, ctx.deployer)
+    print(
+        f"  ✓ price commits posted: {len(price_receipts)}; "
+        f"yield commits posted: {len(yield_receipts)}"
+    )
+    return {"price": len(price_receipts), "yield": len(yield_receipts)}
+
+
+def step_drive_nav_trajectories(ctx: Ctx) -> dict[str, int]:
+    """Post `NAV_SAMPLES_PER_VAULT` daily NAV updates per vault, oldest
+    first. Trajectories diverge across vaults by design — see
+    `_phase2_oracle_nav.trajectory_for` for the signal map. The output
+    is an input to PR3.B's reputation engine drive (cohort math
+    consumes the resulting NAVReported event stream).
+    """
+    print(f"\n[9] reportNAV × {NAV_SAMPLES_PER_VAULT} samples × 6 vaults (daily cadence)")
+    vaults_by_role = {
+        key: vault
+        for (key, _cls), vault in zip(_STRATEGY_VAULT_KEYS, ctx.strategy_vaults, strict=True)
+    }
+    driver = NavTrajectoryDriver(
+        w3=ctx.w3,
+        chain_id=ctx.chain_id,
+        signer_pk=_OPERATOR_PK,
+        synthetic_now_sec=ctx.synthetic_now_sec,
+    )
+    receipts = driver.drive(_send, ctx.deployer, vaults_by_role)
+    counts = {role: len(rs) for role, rs in receipts.items()}
+    for role, n in counts.items():
+        print(f"  ✓ {role}: {n} NAV updates")
+    return counts
+
+
 # ── Assertions ───────────────────────────────────────────────
 
 
@@ -656,6 +750,65 @@ def assert_pr2c_yield_rotation_trades(ctx: Ctx, start_block: int) -> None:
     print("\nPR2.C: real-proof yield-rotation flow GREEN")
 
 
+def assert_pr3a_oracle_and_nav(ctx: Ctx, start_block: int) -> None:
+    """Verify the cadence drivers landed:
+
+      - `Committed` events on both oracle anchors == ANCHOR_COMMITS_PER_ANCHOR
+      - `NAVReported` events per vault == NAV_SAMPLES_PER_VAULT
+      - Each anchor's commit windows are strictly monotonic (the
+        contract enforces this; we cross-check that the read path
+        agrees with the write path).
+      - NAV trajectories are non-degenerate per vault (final NAV
+        differs from initial).
+    """
+    print("\n=== PR3.A oracle-anchor + NAV-trajectory assertions ===")
+
+    price_logs = _logs(ctx.oracle_price_anchor, "Committed", start_block)
+    yield_logs = _logs(ctx.oracle_yield_anchor, "Committed", start_block)
+    assert len(price_logs) == ANCHOR_COMMITS_PER_ANCHOR, (
+        f"expected {ANCHOR_COMMITS_PER_ANCHOR} OraclePriceAnchor.Committed events, "
+        f"got {len(price_logs)}"
+    )
+    assert len(yield_logs) == ANCHOR_COMMITS_PER_ANCHOR, (
+        f"expected {ANCHOR_COMMITS_PER_ANCHOR} OracleYieldAnchor.Committed events, "
+        f"got {len(yield_logs)}"
+    )
+    # Window monotonicity — contract refuses overlap, but check that
+    # adjacency is exact (windowStart_n == windowEnd_{n-1}).
+    for label, logs in (("price", price_logs), ("yield", yield_logs)):
+        prev_end = None
+        for ev in logs:
+            ws = int(ev["args"]["windowStart"])
+            we = int(ev["args"]["windowEnd"])
+            assert we > ws, f"{label} commit window not strictly positive: {ws}..{we}"
+            if prev_end is not None:
+                assert ws == prev_end, (
+                    f"{label} commit cadence broken: ws={ws} prev_we={prev_end}"
+                )
+            prev_end = we
+    print(
+        f"  ✓ OraclePriceAnchor.Committed × {len(price_logs)} (monotonic windows)"
+    )
+    print(
+        f"  ✓ OracleYieldAnchor.Committed × {len(yield_logs)} (monotonic windows)"
+    )
+
+    for (key, _cls), vault in zip(_STRATEGY_VAULT_KEYS, ctx.strategy_vaults, strict=True):
+        nav_logs = _logs(vault, "NAVReported", start_block)
+        assert len(nav_logs) == NAV_SAMPLES_PER_VAULT, (
+            f"{key}: expected {NAV_SAMPLES_PER_VAULT} NAVReported events, "
+            f"got {len(nav_logs)}"
+        )
+        first = int(nav_logs[0]["args"]["totalNAV"])
+        last = int(nav_logs[-1]["args"]["totalNAV"])
+        assert first != last, (
+            f"{key}: NAV trajectory is flat (start={first}, end={last}); "
+            "should diverge by class"
+        )
+    print("  ✓ NAVReported × 30 per vault, 6 distinct trajectories")
+    print("\nPR3.A: oracle anchor cadence + NAV trajectories GREEN")
+
+
 # ── Driver ───────────────────────────────────────────────────
 
 
@@ -690,12 +843,15 @@ def main() -> int:
     step_emit_momentum_trades(ctx)
     step_emit_mean_reversion_trades(ctx)
     step_emit_yield_rotation_trades(ctx)
+    step_drive_oracle_anchors(ctx)
+    step_drive_nav_trajectories(ctx)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
     assert_pr2b_mean_reversion_trades(ctx, start_block)
     assert_pr2c_yield_rotation_trades(ctx, start_block)
-    print("\nWS6 PR2.C e2e: GREEN")
+    assert_pr3a_oracle_and_nav(ctx, start_block)
+    print("\nWS6 PR3.A e2e: GREEN")
     return 0
 
 
