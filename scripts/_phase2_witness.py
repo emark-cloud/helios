@@ -151,4 +151,124 @@ def build_momentum_witness(
     )
 
 
-__all__ = ["MomentumWitness", "PRICE_OBSERVATIONS", "build_momentum_witness"]
+@dataclass(frozen=True, slots=True)
+class MeanReversionWitness:
+    """Result of `build_mean_reversion_witness`. Same shape as
+    `MomentumWitness` — distinct dataclass for type-clarity at call sites.
+    """
+
+    inputs: dict[str, Any]
+    params_hash: bytes
+
+
+def build_mean_reversion_witness(
+    *,
+    strategy_vault: str,
+    allocator_vault: str,
+    nonce: int,
+    block_window_start: int,
+    block_window_end: int,
+    price_observations: list[int],
+    max_position_size: int = 5 * 10**18,
+    max_slippage_bps: int = 50,
+    n_sigma_x100: int = 200,
+    stop_loss_price: int = 0,
+    asset_in_idx: int = 0,
+    asset_out_idx: int = 0,
+    amount_in: int = 1 * 10**18,
+) -> MeanReversionWitness:
+    """Build a long-entry mean_reversion_v1 witness against the deployed
+    vault.
+
+    The defaults track `circuits/scripts/gen-fixture-mr.js`: 16-bar
+    series with 15 bars at one price and the last at a deep dip. Long
+    entry triggers when `160_000 * dev_last_sq >= n_sigma_x100² *
+    sum_sq_devs`, with the additional sign constraint that the last
+    bar lies below the 16-bar mean (`sum_total >= 16 * price_last`).
+    `n_sigma_x100` slot in `params_hash` is what momentum calls
+    `signal_threshold` — same field position, different semantics
+    (e.g. `200` ⇒ 2.00σ).
+    """
+    if len(price_observations) != PRICE_OBSERVATIONS:
+        raise ValueError(
+            f"price_observations must be exactly {PRICE_OBSERVATIONS} bars"
+        )
+    if amount_in > max_position_size:
+        raise ValueError("amount_in > max_position_size violates circuit constraint 1")
+
+    # Last bar must be strictly below the 16-bar mean for a long entry.
+    sum_total = sum(price_observations)
+    if 16 * price_observations[15] >= sum_total:
+        raise ValueError(
+            "long entry requires price_last below the 16-bar mean "
+            "(sum_total > 16 * price_observations[15])"
+        )
+
+    min_amount_out = amount_in * (10_000 - max_slippage_bps) // 10_000
+
+    strategy_vault_field = int(strategy_vault, 16)
+    allocator_field = int(allocator_vault, 16)
+    declared_class_field = class_id_as_field("mean_reversion_v1")
+
+    # `signal_threshold` is the params slot we're storing n_sigma_x100 in.
+    params_hash = poseidon_hash(
+        [max_position_size, max_slippage_bps, n_sigma_x100, stop_loss_price]
+    )
+
+    oracle_root = poseidon_chain(price_observations)
+
+    trade_direction = 1  # long entry
+    trade_hash = poseidon_hash(
+        [
+            strategy_vault_field,
+            declared_class_field,
+            params_hash,
+            allocator_field,
+            asset_in_idx,
+            asset_out_idx,
+            amount_in,
+            min_amount_out,
+            trade_direction,
+            nonce,
+        ]
+    )
+
+    inputs: dict[str, Any] = {
+        "trade_hash": str(trade_hash),
+        "declared_class": str(declared_class_field),
+        "strategy_vault": str(strategy_vault_field),
+        "params_hash": str(params_hash),
+        "allocator_address": str(allocator_field),
+        "asset_in_idx": str(asset_in_idx),
+        "asset_out_idx": str(asset_out_idx),
+        "amount_in": str(amount_in),
+        "min_amount_out": str(min_amount_out),
+        "trade_direction": str(trade_direction),
+        "nonce": str(nonce),
+        "block_window_start": str(block_window_start),
+        "block_window_end": str(block_window_end),
+        "oracle_root": str(oracle_root),
+        "max_position_size": str(max_position_size),
+        "max_slippage_bps": str(max_slippage_bps),
+        "signal_threshold": str(n_sigma_x100),  # field name fixed by circuit
+        "stop_loss_price": str(stop_loss_price),
+        "price_observations": [str(p) for p in price_observations],
+        "is_long_entry": "1",
+        "is_short_entry": "0",
+        "is_exit": "0",
+        "is_signal_flip": "0",
+        "is_stop_loss": "0",
+    }
+    return MeanReversionWitness(
+        inputs=inputs,
+        params_hash=params_hash.to_bytes(32, "big"),
+    )
+
+
+__all__ = [
+    "MeanReversionWitness",
+    "MomentumWitness",
+    "PRICE_OBSERVATIONS",
+    "build_mean_reversion_witness",
+    "build_momentum_witness",
+]

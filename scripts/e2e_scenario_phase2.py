@@ -59,7 +59,10 @@ from web3.contract.contract import Contract
 # lives next to this file; ensure the dir is on the path so imports
 # resolve when we're invoked from anywhere.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _phase2_witness import build_momentum_witness  # noqa: E402
+from _phase2_witness import (  # noqa: E402
+    build_mean_reversion_witness,
+    build_momentum_witness,
+)
 
 # Reuse the helios-cli encoder for proof bytes — single source of truth
 # for the snarkjs Fp2 imag/real swap. Available via uv workspace.
@@ -343,12 +346,15 @@ def _kite_long_series_b() -> list[int]:
     return [int(1.55e18 + i * 7e15) for i in range(16)]  # 1.55 → 1.655
 
 
-def _prove(prover_url: str, witness_inputs: dict[str, Any]) -> dict[str, Any]:
+def _prove(
+    prover_url: str, strategy_class: str, witness_inputs: dict[str, Any]
+) -> dict[str, Any]:
     """Synchronous httpx call to the local prover service. snarkjs proof gen
-    on the momentum_v1 circuit clocks ~2-5s on dev hardware; allow 60s."""
+    clocks ~2-10s per proof on dev hardware (mean-reversion is ~2x momentum
+    by constraint count); allow 60s."""
     resp = httpx.post(
         f"{prover_url.rstrip('/')}/prove",
-        json={"strategyClass": "momentum_v1", "witnessInputs": witness_inputs},
+        json={"strategyClass": strategy_class, "witnessInputs": witness_inputs},
         timeout=60.0,
     )
     if resp.status_code != 200:
@@ -399,13 +405,73 @@ def step_emit_momentum_trades(ctx: Ctx) -> None:
         )
         # 3. Generate proof.
         print("    proving (snarkjs.fullProve)…")
-        result = _prove(ctx.prover_url, witness.inputs)
+        result = _prove(ctx.prover_url, "momentum_v1", witness.inputs)
         proof_bytes = proof_to_bytes(result["proof"])
         public_inputs = public_signals_to_uints(result["publicSignals"])
         if len(proof_bytes) != 256:
             raise RuntimeError(f"proof bytes length {len(proof_bytes)} != 256")
         # 4. Submit on-chain. trades=[] so no swap is performed; the
         #    StrategyVault still verifies the proof + emits TradeAttested.
+        print("    executeWithProof → expect TradeAttested")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            vault.functions.executeWithProof(proof_bytes, public_inputs, []),
+        )
+
+
+# ── PR2.B — mean-reversion trade flow ──────────────────────
+
+
+# Two distinct 16-bar series satisfying the n-sigma long-entry rule:
+# 15 bars at one price, last bar at a deep dip well below the
+# 16-bar mean. Different magnitudes → different oracle_root +
+# trade_hash across the two vaults.
+def _meanrev_long_series_a() -> list[int]:
+    return [int(1.00e21)] * 15 + [int(0.70e21)]  # 30% dip on bar 15
+
+
+def _meanrev_long_series_b() -> list[int]:
+    return [int(1.20e21)] * 15 + [int(0.84e21)]  # same ratio, shifted
+
+
+def step_emit_mean_reversion_trades(ctx: Ctx) -> None:
+    """Drive a real Groth16 mean_reversion_v1 trade on each of the 2
+    mean-rev vaults. Same shape as the momentum step but the witness
+    builder enforces the n-sigma entry constraint instead of the
+    momentum delta one. `signal_threshold` slot is reused as
+    `n_sigma_x100` (200 ⇒ 2.00σ).
+    """
+    print("\n[6] commitInitialParamsHash + executeWithProof × 2 mean-reversion vaults")
+    mr_vaults: list[tuple[str, Contract, list[int]]] = [
+        ("strategyVaultMeanReversion",         ctx.strategy_vaults[2], _meanrev_long_series_a()),
+        ("strategyVaultMeanReversionVariant2", ctx.strategy_vaults[3], _meanrev_long_series_b()),
+    ]
+    for nonce_offset, (key, vault, prices) in enumerate(mr_vaults):
+        print(f"  ── {key} ──")
+        block = ctx.w3.eth.block_number
+        witness = build_mean_reversion_witness(
+            strategy_vault=vault.address,
+            allocator_vault=ctx.allocator_vault.address,
+            nonce=nonce_offset,
+            block_window_start=block,
+            block_window_end=block + 100,
+            price_observations=prices,
+        )
+        print(f"    commitInitialParamsHash({witness.params_hash.hex()[:10]}…)")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            ctx.strategy_registry.functions.commitInitialParamsHash(
+                vault.address, witness.params_hash
+            ),
+        )
+        print("    proving (snarkjs.fullProve)…")
+        result = _prove(ctx.prover_url, "mean_reversion_v1", witness.inputs)
+        proof_bytes = proof_to_bytes(result["proof"])
+        public_inputs = public_signals_to_uints(result["publicSignals"])
+        if len(proof_bytes) != 256:
+            raise RuntimeError(f"proof bytes length {len(proof_bytes)} != 256")
         print("    executeWithProof → expect TradeAttested")
         _send(
             ctx.w3,
@@ -475,6 +541,27 @@ def assert_pr2a_momentum_trades(ctx: Ctx, start_block: int) -> None:
     print("\nPR2.A: real-proof momentum flow GREEN")
 
 
+def assert_pr2b_mean_reversion_trades(ctx: Ctx, start_block: int) -> None:
+    """One TradeAttested event per mean-reversion vault, going through the
+    real MeanReversionV1Verifier."""
+    print("\n=== PR2.B mean-reversion-class assertions ===")
+    primary, variant2 = ctx.strategy_vaults[2], ctx.strategy_vaults[3]
+    primary_logs = _logs(primary, "TradeAttested", start_block)
+    variant2_logs = _logs(variant2, "TradeAttested", start_block)
+    assert len(primary_logs) >= 1, (
+        f"expected ≥1 TradeAttested on {primary.address} (primary mean-rev), got 0"
+    )
+    assert len(variant2_logs) >= 1, (
+        f"expected ≥1 TradeAttested on {variant2.address} (variant2 mean-rev), got 0"
+    )
+    primary_hash = primary_logs[0]["args"]["tradeHash"]
+    variant2_hash = variant2_logs[0]["args"]["tradeHash"]
+    assert primary_hash != variant2_hash, "trade_hashes collided across vaults"
+    print(f"  ✓ TradeAttested on primary    {primary.address} (hash={primary_hash.hex()[:10]}…)")
+    print(f"  ✓ TradeAttested on variant2   {variant2.address} (hash={variant2_hash.hex()[:10]}…)")
+    print("\nPR2.B: real-proof mean-reversion flow GREEN")
+
+
 # ── Driver ───────────────────────────────────────────────────
 
 
@@ -507,10 +594,12 @@ def main() -> int:
     step_deposit_and_delegate(ctx)
     step_allocate_all(ctx)
     step_emit_momentum_trades(ctx)
+    step_emit_mean_reversion_trades(ctx)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
-    print("\nWS6 PR2.A e2e: GREEN")
+    assert_pr2b_mean_reversion_trades(ctx, start_block)
+    print("\nWS6 PR2.B e2e: GREEN")
     return 0
 
 
