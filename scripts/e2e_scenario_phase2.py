@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_utils.crypto import keccak
@@ -47,11 +48,25 @@ from helios_contracts_abi import (
 )
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
+    IStrategyRegistry_ABI,
     IStrategyVault_ABI,
     IUserVault_ABI,
 )
 from web3 import Web3
 from web3.contract.contract import Contract
+
+# Local witness builder + proof helpers. `scripts/_phase2_witness.py`
+# lives next to this file; ensure the dir is on the path so imports
+# resolve when we're invoked from anywhere.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _phase2_witness import build_momentum_witness  # noqa: E402
+
+# Reuse the helios-cli encoder for proof bytes — single source of truth
+# for the snarkjs Fp2 imag/real swap. Available via uv workspace.
+from helios_cli._proof import (  # noqa: E402
+    proof_to_bytes,
+    public_signals_to_uints,
+)
 
 # ── Anvil default keys (deterministic mnemonic).
 # Operator = anvil[0] = deployer per DeployPhase1.s.sol.
@@ -113,8 +128,10 @@ class Ctx:
     user: Any
     user_vault: Contract
     allocator_vault: Contract
+    strategy_registry: Contract
     strategy_vaults: list[Contract]
     usdc: Contract
+    prover_url: str
 
 
 # ── Setup ────────────────────────────────────────────────────
@@ -157,7 +174,7 @@ def _send(w3: Web3, account: Any, fn: Any, *, gas_buffer: float = 1.2) -> dict[s
     return dict(receipt)
 
 
-def _setup(rpc_url: str, deployments: Path) -> Ctx:
+def _setup(rpc_url: str, deployments: Path, prover_url: str) -> Ctx:
     w3 = _wait_for_rpc(rpc_url)
     chain_id = w3.eth.chain_id
     addrs = _load_addresses(deployments)
@@ -179,6 +196,10 @@ def _setup(rpc_url: str, deployments: Path) -> Ctx:
     allocator_vault = w3.eth.contract(
         address=Web3.to_checksum_address(addrs["allocatorVault"]), abi=IAllocatorVault_ABI
     )
+    strategy_registry = w3.eth.contract(
+        address=Web3.to_checksum_address(addrs["strategyRegistry"]),
+        abi=IStrategyRegistry_ABI,
+    )
     strategy_vaults = [
         w3.eth.contract(
             address=Web3.to_checksum_address(addrs[key]),
@@ -198,8 +219,10 @@ def _setup(rpc_url: str, deployments: Path) -> Ctx:
         user=user,
         user_vault=user_vault,
         allocator_vault=allocator_vault,
+        strategy_registry=strategy_registry,
         strategy_vaults=strategy_vaults,
         usdc=usdc,
+        prover_url=prover_url,
     )
 
 
@@ -303,6 +326,94 @@ def step_allocate_all(ctx: Ctx) -> None:
         )
 
 
+# ── PR2.A — momentum trade flow ─────────────────────────────
+
+
+# Two distinct 16-bar series so the resulting `oracle_root` and
+# `trade_hash` differ across the two momentum vaults — primary trades
+# at bars 0..15 of `scenarios/phase2-multi-class.json::KITE/USDT`
+# (the early uptrend leg), variant2 trades at bars 8..23 (still in
+# the uptrend but offset). Both ramps satisfy the 1% signal threshold
+# trivially.
+def _kite_long_series_a() -> list[int]:
+    return [int(1.50e18 + i * 5e15) for i in range(16)]  # 1.50 → 1.575
+
+
+def _kite_long_series_b() -> list[int]:
+    return [int(1.55e18 + i * 7e15) for i in range(16)]  # 1.55 → 1.655
+
+
+def _prove(prover_url: str, witness_inputs: dict[str, Any]) -> dict[str, Any]:
+    """Synchronous httpx call to the local prover service. snarkjs proof gen
+    on the momentum_v1 circuit clocks ~2-5s on dev hardware; allow 60s."""
+    resp = httpx.post(
+        f"{prover_url.rstrip('/')}/prove",
+        json={"strategyClass": "momentum_v1", "witnessInputs": witness_inputs},
+        timeout=60.0,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"prover {resp.status_code}: {resp.text}")
+    return resp.json()
+
+
+def step_emit_momentum_trades(ctx: Ctx) -> None:
+    """Drive a real Groth16 momentum_v1 trade on each of the 2 momentum
+    vaults. Per vault:
+      1. commitInitialParamsHash with our chosen Poseidon(params) — the
+         vaults were registered with placeholder paramsHash values; the
+         circuit binds params_hash to the private witness so the manifest
+         hash MUST match a real Poseidon-of-params.
+      2. Build full witness (oracle_root, trade_hash all computed via
+         the canonical Poseidon helper) → POST to prover.
+      3. Pack the returned proof into 256-byte calldata; submit to
+         StrategyVault.executeWithProof with trades=[] so we don't
+         exercise the swap router (PR2 is about the proof path).
+    """
+    print("\n[5] commitInitialParamsHash + executeWithProof × 2 momentum vaults")
+    momentum_vaults: list[tuple[str, Contract, list[int]]] = [
+        ("strategyVaultMomentum",         ctx.strategy_vaults[0], _kite_long_series_a()),
+        ("strategyVaultMomentumVariant2", ctx.strategy_vaults[1], _kite_long_series_b()),
+    ]
+    for nonce_offset, (key, vault, prices) in enumerate(momentum_vaults):
+        print(f"  ── {key} ──")
+        # 1. Build witness so we know params_hash to commit.
+        block = ctx.w3.eth.block_number
+        witness = build_momentum_witness(
+            strategy_vault=vault.address,
+            allocator_vault=ctx.allocator_vault.address,
+            nonce=nonce_offset,
+            # Generous window: the e2e mints blocks ~1s apart, momentum proof
+            # generation takes a few seconds, so end + 100 is safe.
+            block_window_start=block,
+            block_window_end=block + 100,
+            price_observations_e18=prices,
+        )
+        # 2. Commit the params hash on-chain. Operator = deployer per Phase 1.
+        print(f"    commitInitialParamsHash({witness.params_hash.hex()[:10]}…)")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            ctx.strategy_registry.functions.commitInitialParamsHash(
+                vault.address, witness.params_hash
+            ),
+        )
+        # 3. Generate proof.
+        print("    proving (snarkjs.fullProve)…")
+        result = _prove(ctx.prover_url, witness.inputs)
+        proof_bytes = proof_to_bytes(result["proof"])
+        public_inputs = public_signals_to_uints(result["publicSignals"])
+        if len(proof_bytes) != 256:
+            raise RuntimeError(f"proof bytes length {len(proof_bytes)} != 256")
+        # 4. Submit on-chain. trades=[] so no swap is performed; the
+        #    StrategyVault still verifies the proof + emits TradeAttested.
+        print("    executeWithProof → expect TradeAttested")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            vault.functions.executeWithProof(proof_bytes, public_inputs, []),
+        )
+
+
 # ── Assertions ───────────────────────────────────────────────
 
 
@@ -339,6 +450,31 @@ def assert_pr1_skeleton(ctx: Ctx, start_block: int) -> None:
     print("\nPR1 skeleton: deploy + meta-strategy + 6-way allocation GREEN")
 
 
+def assert_pr2a_momentum_trades(ctx: Ctx, start_block: int) -> None:
+    """One TradeAttested event per momentum vault, going through the
+    real MomentumV1Verifier (DeployPhase2 swapped in the real adapters).
+    Cohort completeness for momentum_v1 is satisfied — this is the
+    first time a real Groth16 proof has landed for any class in repo
+    history.
+    """
+    print("\n=== PR2.A momentum-class assertions ===")
+    primary, variant2 = ctx.strategy_vaults[0], ctx.strategy_vaults[1]
+    primary_logs = _logs(primary, "TradeAttested", start_block)
+    variant2_logs = _logs(variant2, "TradeAttested", start_block)
+    assert len(primary_logs) >= 1, (
+        f"expected ≥1 TradeAttested on {primary.address} (primary momentum), got 0"
+    )
+    assert len(variant2_logs) >= 1, (
+        f"expected ≥1 TradeAttested on {variant2.address} (variant2 momentum), got 0"
+    )
+    primary_hash = primary_logs[0]["args"]["tradeHash"]
+    variant2_hash = variant2_logs[0]["args"]["tradeHash"]
+    assert primary_hash != variant2_hash, "trade_hashes collided across vaults"
+    print(f"  ✓ TradeAttested on primary    {primary.address} (hash={primary_hash.hex()[:10]}…)")
+    print(f"  ✓ TradeAttested on variant2   {variant2.address} (hash={variant2_hash.hex()[:10]}…)")
+    print("\nPR2.A: real-proof momentum flow GREEN")
+
+
 # ── Driver ───────────────────────────────────────────────────
 
 
@@ -351,12 +487,17 @@ def main() -> int:
             "DEPLOYMENTS_FILE", "contracts/deployments/anvil-kite-phase2.json"
         ),
     )
+    parser.add_argument(
+        "--prover-url",
+        default=os.environ.get("PROVER_URL", "http://127.0.0.1:8004"),
+    )
     args = parser.parse_args()
 
-    ctx = _setup(args.rpc_url, Path(args.deployments))
+    ctx = _setup(args.rpc_url, Path(args.deployments), args.prover_url)
     print(f"connected: chainId={ctx.chain_id} @ {args.rpc_url}")
     print(f"  deployer={ctx.deployer.address}")
     print(f"  user    ={ctx.user.address}")
+    print(f"  prover  ={ctx.prover_url}")
     print(f"  6 strategy vaults loaded from {args.deployments}\n")
 
     start_block = ctx.w3.eth.block_number
@@ -365,9 +506,11 @@ def main() -> int:
     step_set_meta(ctx)
     step_deposit_and_delegate(ctx)
     step_allocate_all(ctx)
+    step_emit_momentum_trades(ctx)
 
     assert_pr1_skeleton(ctx, start_block)
-    print("\nWS6 PR1 e2e: GREEN")
+    assert_pr2a_momentum_trades(ctx, start_block)
+    print("\nWS6 PR2.A e2e: GREEN")
     return 0
 
 

@@ -40,8 +40,17 @@ DEPLOYER_PK="${DEPLOYER_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae
 OUT_LABEL="${OUT_LABEL:-anvil-kite-phase2}"
 DEPLOYMENTS_FILE="contracts/deployments/${OUT_LABEL}.json"
 
+PROVER_HTTP_PORT="${PROVER_HTTP_PORT:-8004}"
+PROVER_URL="${PROVER_URL:-http://127.0.0.1:${PROVER_HTTP_PORT}}"
+
 ANVIL_PID=""
+PROVER_PID=""
 cleanup() {
+  if [[ -n "$PROVER_PID" ]] && kill -0 "$PROVER_PID" 2>/dev/null; then
+    echo "[e2e] stopping prover (pid=$PROVER_PID)"
+    kill "$PROVER_PID" 2>/dev/null || true
+    wait "$PROVER_PID" 2>/dev/null || true
+  fi
   if [[ -n "$ANVIL_PID" ]] && kill -0 "$ANVIL_PID" 2>/dev/null; then
     echo "[e2e] stopping anvil (pid=$ANVIL_PID)"
     kill "$ANVIL_PID" 2>/dev/null || true
@@ -131,10 +140,38 @@ echo "[e2e] forge script RegisterPhase2Strategies → $DEPLOYMENTS_FILE (layered
 }
 echo "[e2e] deploy+register pipeline complete; addresses at $DEPLOYMENTS_FILE"
 
-# ── 5. drive scenario ─────────────────────────────────────────────
-echo "[e2e] driving Phase 2 scenario..."
-RPC_URL="$RPC_URL" DEPLOYMENTS_FILE="$DEPLOYMENTS_FILE" \
-  uv run --package helios-sentinel python scripts/e2e_scenario_phase2.py \
-  --rpc-url "$RPC_URL" --deployments "$DEPLOYMENTS_FILE"
+# ── 5. prover service ────────────────────────────────────────────
+# PR2.A onwards drives real Groth16 proofs against the registered
+# verifiers. The prover wraps snarkjs.fullProve and reads the .wasm /
+# .zkey artifacts from circuits/build/<class>/ — those are checked in,
+# no rebuild needed. Skip-flag for CI-level boots that pre-spawn it.
+if [[ -z "${SKIP_PROVER_BOOT:-}" ]]; then
+  if ! curl -sf -m 1 "$PROVER_URL/health" >/dev/null 2>&1; then
+    echo "[e2e] booting prover (port=$PROVER_HTTP_PORT)"
+    PROVER_HTTP_PORT="$PROVER_HTTP_PORT" \
+      node services/prover/src/index.js \
+      >/tmp/helios-e2e-phase2-prover.log 2>&1 &
+    PROVER_PID=$!
+    # Wait for /health — snarkjs imports + circuit registration take ~1-2s.
+    for _ in $(seq 1 30); do
+      if curl -sf -m 1 "$PROVER_URL/health" >/dev/null 2>&1; then break; fi
+      sleep 0.5
+    done
+    if ! curl -sf -m 1 "$PROVER_URL/health" >/dev/null 2>&1; then
+      echo "[e2e] prover failed to come up; tail of log:"
+      tail -30 /tmp/helios-e2e-phase2-prover.log
+      exit 1
+    fi
+  else
+    echo "[e2e] prover already up; reusing"
+  fi
+fi
 
-echo "[e2e] WS6 PR1 acceptance: GREEN"
+# ── 6. drive scenario ─────────────────────────────────────────────
+echo "[e2e] driving Phase 2 scenario..."
+RPC_URL="$RPC_URL" DEPLOYMENTS_FILE="$DEPLOYMENTS_FILE" PROVER_URL="$PROVER_URL" \
+  uv run --package helios-sentinel python scripts/e2e_scenario_phase2.py \
+  --rpc-url "$RPC_URL" --deployments "$DEPLOYMENTS_FILE" \
+  --prover-url "$PROVER_URL"
+
+echo "[e2e] WS6 PR2.A acceptance: GREEN"
