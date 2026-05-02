@@ -82,6 +82,32 @@ class LocalGoldskyStub:
         self._vaults = strategy_vaults
         self._from_block = from_block
 
+    def _last_rotation_epoch(self, vault_address: str) -> int:
+        """Return the unix-second timestamp of the most recent
+        `StrategyRegistry.ParamsRotated` event for `vault_address`,
+        or 0 if no rotation has been completed.
+
+        WS7.A: the engine consumes this to reset AgeScore +
+        PerformanceScore windows post-rotation; risk + proof
+        components keep their full-window history.
+        """
+        logs = list(
+            self._registry.events.ParamsRotated.get_logs(
+                from_block=self._from_block, to_block="latest"
+            )
+        )
+        target = vault_address.lower()
+        latest_block = 0
+        for ev in logs:
+            if str(ev["args"]["strategyId"]).lower() != target:
+                continue
+            if ev["blockNumber"] > latest_block:
+                latest_block = ev["blockNumber"]
+        if latest_block == 0:
+            return 0
+        block = self._w3.eth.get_block(latest_block)
+        return int(block["timestamp"])
+
     async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]:
         states: list[StrategyState] = []
         for vault in self._vaults:
@@ -160,6 +186,7 @@ class LocalGoldskyStub:
                     capital_deployed_e18=capital,
                     trades_90d=sorted(trade_events, key=lambda e: e.timestamp),
                     nav_snapshots_90d=sorted(nav_events, key=lambda e: e.timestamp),
+                    last_rotation_epoch=self._last_rotation_epoch(vault.address),
                 )
             )
         return states

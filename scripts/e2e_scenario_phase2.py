@@ -802,6 +802,146 @@ def step_drive_reputation(ctx: Ctx, start_block: int) -> dict[str, EngineUpdate]
     return by_id
 
 
+# ── PR3.5 — WS7.A params rotation in scenario ─────────────
+
+
+def step_rotate_params_for_strategy(
+    ctx: Ctx, vault_role: str = "strategyVaultMomentum"
+) -> bytes:
+    """WS7.A: drive `initiateParamsRotation` → fast-forward past
+    `stakeCooldown` (7 days per `DeployPhase1.STAKE_COOLDOWN`) →
+    `completeParamsRotation`. Operator-only; uses the deployer key
+    which doubles as the strategy operator in Phase 1/2 scaffolding.
+
+    The rotation is on `vault_role` only — the other 5 vaults keep
+    their pre-rotation track record so PR3.B's cohort assertions
+    still pass alongside PR3.5's reset assertion.
+    """
+    print(f"\n[11] WS7.A: rotateParams for {vault_role}")
+    vault_addr = ctx.addrs[vault_role]
+    new_params = keccak(b"helios.ws7a.e2e.rotated-params")
+
+    print(f"  initiateParamsRotation({vault_addr[:10]}…, new_hash={new_params.hex()[:10]}…)")
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        ctx.strategy_registry.functions.initiateParamsRotation(
+            Web3.to_checksum_address(vault_addr), new_params
+        ),
+    )
+
+    # Fast-forward past `stakeCooldown` via anvil's evm_increaseTime +
+    # evm_mine (the Foundry-flavored namespace works on anvil too).
+    # Cooldown is hardcoded to 7 days per `DeployPhase1.STAKE_COOLDOWN`;
+    # the StrategyRegistry interface ABI doesn't expose the immutable
+    # getter, so we don't read it back from chain.
+    # `last_rotation_epoch` will land in the FUTURE relative to wall-clock
+    # `synthetic_now_sec` — that's exactly what we want, because then ALL
+    # pre-rotation NAVs/trades fall behind the new epoch and the engine
+    # filters them out, collapsing the rotated vault to the cold-start
+    # path (W_STAKE × stake floor per `compute_score`'s WS7.B branch).
+    cooldown_sec = 7 * 24 * 60 * 60
+    print(f"  evm_increaseTime({cooldown_sec + 60}) + evm_mine")
+    ctx.w3.provider.make_request("evm_increaseTime", [cooldown_sec + 60])  # type: ignore[union-attr]
+    ctx.w3.provider.make_request("evm_mine", [])  # type: ignore[union-attr]
+
+    print("  completeParamsRotation → expect ParamsRotated event")
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        ctx.strategy_registry.functions.completeParamsRotation(
+            Web3.to_checksum_address(vault_addr)
+        ),
+    )
+    return new_params
+
+
+def assert_pr3_5_rotation_reset(
+    ctx: Ctx,
+    pre_updates: dict[str, EngineUpdate],
+    post_updates: dict[str, EngineUpdate],
+    rotated_role: str = "strategyVaultMomentum",
+) -> None:
+    """Verify the rotation re-tick produces the expected reset:
+
+      1. The rotated vault's `last_rotation_epoch` is now > 0 (fetched
+         by LocalGoldskyStub from the on-chain ParamsRotated event).
+      2. Its post-rotation `trades_attested` (the engine input) drops
+         to 0 — every pre-rotation trade timestamp is < rotation epoch.
+      3. Its post-rotation score collapses to the WS7.B cold-start
+         floor: `W_STAKE × stake_normalized` ≈ 1000 (e4) since stake
+         is at the cohort cap.
+      4. Risk + drawdown components are PRESERVED across the rotation —
+         the rotated vault's `max_drawdown_bps_90d` does not change
+         (rotation cannot mask prior drawdown history).
+      5. The 5 non-rotated vaults' scores are UNCHANGED across the
+         re-tick (their `last_rotation_epoch` is still 0).
+    """
+    print("\n=== PR3.5 WS7.A rotation-reset assertions ===")
+
+    rotated_lower = ctx.addrs[rotated_role].lower()
+    pre = pre_updates[rotated_lower]
+    post = post_updates[rotated_lower]
+
+    # 1 & 2. Rotation epoch + post-rotation trades_attested = 0.
+    assert post.state.last_rotation_epoch > 0, (
+        f"{rotated_role}: post-tick state should carry a non-zero "
+        f"last_rotation_epoch from ParamsRotated; got "
+        f"{post.state.last_rotation_epoch}"
+    )
+    assert post.inputs.trades_attested == 0, (
+        f"{rotated_role}: post-rotation trades_attested should be 0; "
+        f"got {post.inputs.trades_attested}"
+    )
+    print(
+        f"  ✓ {rotated_role}: rotation_epoch={post.state.last_rotation_epoch} "
+        f"(pre-rotation trades filtered out)"
+    )
+
+    # 3. Score collapses to cold-start floor (W_STAKE × stake).
+    # With stake at cohort max, stake_norm = 1.0 → floor = 0.10 → e4 = 1000.
+    expected_floor_e4 = round(0.10 * post.outputs.components.stake * 10_000)
+    assert abs(post.outputs.score_e4 - expected_floor_e4) <= 1, (
+        f"{rotated_role}: post-rotation score {post.outputs.score_e4} "
+        f"should land at cold-start floor ≈ {expected_floor_e4} "
+        f"(W_STAKE × stake_norm={post.outputs.components.stake})"
+    )
+    assert post.outputs.score_e4 < pre.outputs.score_e4, (
+        f"{rotated_role}: rotation must depress score; "
+        f"pre={pre.outputs.score_e4} post={post.outputs.score_e4}"
+    )
+    print(
+        f"  ✓ {rotated_role}: score collapsed pre={pre.outputs.score_e4} → "
+        f"post={post.outputs.score_e4} (cold-start floor)"
+    )
+
+    # 4. Drawdown preserved — rotation cannot wipe risk history.
+    assert post.inputs.max_drawdown_bps_90d == pre.inputs.max_drawdown_bps_90d, (
+        f"{rotated_role}: rotation must NOT reset max_drawdown_bps_90d; "
+        f"pre={pre.inputs.max_drawdown_bps_90d} post={post.inputs.max_drawdown_bps_90d}"
+    )
+    print(
+        f"  ✓ {rotated_role}: max_drawdown_bps_90d preserved "
+        f"({post.inputs.max_drawdown_bps_90d} bps)"
+    )
+
+    # 5. Non-rotated vaults: scores unchanged across the re-tick.
+    for (key, _cls) in _STRATEGY_VAULT_KEYS:
+        if key == rotated_role:
+            continue
+        sid = ctx.addrs[key].lower()
+        assert pre_updates[sid].outputs.score_e4 == post_updates[sid].outputs.score_e4, (
+            f"{key}: non-rotated vault's score changed across re-tick "
+            f"({pre_updates[sid].outputs.score_e4} → "
+            f"{post_updates[sid].outputs.score_e4}); only rotated vault should reset"
+        )
+    print("  ✓ 5 non-rotated vaults: scores unchanged across re-tick")
+    print("\nPR3.5: WS7.A params-rotation reset GREEN")
+
+
+# ── PR3.B — drive reputation engine + §8.2 assertions ─────
+
+
 def assert_pr3b_reputation_822(
     ctx: Ctx,
     updates_by_id: dict[str, EngineUpdate],
@@ -1001,15 +1141,18 @@ def main() -> int:
     step_emit_yield_rotation_trades(ctx)
     step_drive_oracle_anchors(ctx)
     step_drive_nav_trajectories(ctx)
-    rep_updates = step_drive_reputation(ctx, start_block)
+    pre_rotation_updates = step_drive_reputation(ctx, start_block)
+    step_rotate_params_for_strategy(ctx)
+    post_rotation_updates = step_drive_reputation(ctx, start_block)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
     assert_pr2b_mean_reversion_trades(ctx, start_block)
     assert_pr2c_yield_rotation_trades(ctx, start_block)
     assert_pr3a_oracle_and_nav(ctx, start_block)
-    assert_pr3b_reputation_822(ctx, rep_updates)
-    print("\nWS6 PR3.B e2e: GREEN")
+    assert_pr3b_reputation_822(ctx, pre_rotation_updates)
+    assert_pr3_5_rotation_reset(ctx, pre_rotation_updates, post_rotation_updates)
+    print("\nWS6 PR3.5 e2e: GREEN")
     return 0
 
 
