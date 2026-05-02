@@ -29,6 +29,7 @@ patches the existing `kite-testnet.json` deployment file in place.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -72,6 +73,12 @@ from _phase2_oracle_nav import (  # noqa: E402
     NavTrajectoryDriver,
     OracleAnchorDriver,
 )
+from _phase2_reputation_local import LocalGoldskyStub  # noqa: E402
+
+# Reputation engine (workspace package). Imported here only — the engine
+# is async-driven from `step_drive_reputation` via `asyncio.run`.
+from reputation.engine import EngineUpdate, ReputationEngine  # noqa: E402
+from reputation.signer import ActorType, ReputationSigner  # noqa: E402
 
 # Reuse the helios-cli encoder for proof bytes — single source of truth
 # for the snarkjs Fp2 imag/real swap. Available via uv workspace.
@@ -750,6 +757,155 @@ def assert_pr2c_yield_rotation_trades(ctx: Ctx, start_block: int) -> None:
     print("\nPR2.C: real-proof yield-rotation flow GREEN")
 
 
+# ── PR3.B — drive reputation engine + §8.2 assertions ─────
+
+
+def step_drive_reputation(ctx: Ctx, start_block: int) -> dict[str, EngineUpdate]:
+    """Run `ReputationEngine.tick_once()` against the local on-chain stub.
+
+    Pins `now_unix` to `synthetic_now_sec` so the 90d slice covers the
+    NAV trajectories planted by `step_drive_nav_trajectories`. Returns
+    `{strategy_id_lower: EngineUpdate}` for downstream assertions.
+    """
+    print("\n[10] reputation.engine.tick_once (90d slice → §8.2 score)")
+
+    stub = LocalGoldskyStub(
+        w3=ctx.w3,
+        registry=ctx.strategy_registry,
+        allocator_vault=ctx.allocator_vault,
+        strategy_vaults=ctx.strategy_vaults,
+        from_block=start_block,
+    )
+    # Signer is only used to wrap the score in a SignedUpdate envelope —
+    # the e2e doesn't post on-chain, so the signer pk and anchor address
+    # exist only to satisfy the signer constructor. Use the deployer key
+    # and the deployed ReputationAnchorV2 address so the typehash
+    # produces a v1-shaped signature consistent with the shadow-mode
+    # default (`REPUTATION_TYPEHASH_VERSION=1`).
+    signer = ReputationSigner(
+        _OPERATOR_PK,
+        chain_id=ctx.chain_id,
+        anchor_address=Web3.to_checksum_address(ctx.addrs["reputationAnchorV2"]),
+    )
+    engine = ReputationEngine(stub, signer, poll_interval_sec=60)  # type: ignore[arg-type]
+    updates = asyncio.run(engine.tick_once(now_unix=ctx.synthetic_now_sec))
+    by_id = {u.state.strategy_id.lower(): u for u in updates}
+    print(f"  ✓ engine.tick_once produced {len(updates)} updates")
+    for (key, _cls), vault in zip(_STRATEGY_VAULT_KEYS, ctx.strategy_vaults, strict=True):
+        u = by_id[vault.address.lower()]
+        c = u.outputs.components
+        print(
+            f"    {key}: score={u.outputs.score_e4:>+6} "
+            f"perf={c.performance:+.3f} risk={c.risk:.3f} "
+            f"proof={c.proof:.3f} stake={c.stake:.3f} age={c.age:.3f}"
+        )
+    return by_id
+
+
+def assert_pr3b_reputation_822(
+    ctx: Ctx,
+    updates_by_id: dict[str, EngineUpdate],
+) -> None:
+    """Full §8.2 assertions on the engine output:
+
+      1. All 6 strategies received a score and a signed update envelope.
+      2. ScoreComponents has all 5 sub-components populated with the
+         expected sign / range (perf ∈ [-1,1], others ∈ [0,1]).
+      3. Cohort stats are reported per class for each window — even when
+         in the documented `is_fallback=True` mode (cohort_size=2 <
+         MIN_COHORT_SIZE=3 per WS7.B).
+      4. Within-class divergence: the primary strategy of each class
+         must score strictly higher than its variant2 sibling.
+      5. Drawdown ranking: momentum_v1 variant2 (heavy 28% drawdown)
+         must have a strictly LOWER `risk` component than its primary
+         (no drawdown).
+      6. componentsHash is a 32-byte non-empty value (typehash v2 input).
+    """
+    print("\n=== PR3.B reputation §8.2 assertions ===")
+
+    # 1. Update completeness.
+    expected_ids = {ctx.addrs[k].lower() for (k, _cls) in _STRATEGY_VAULT_KEYS}
+    seen_ids = set(updates_by_id.keys())
+    assert seen_ids == expected_ids, (
+        f"engine update set mismatch:\n  expected={expected_ids}\n  got={seen_ids}"
+    )
+    print(f"  ✓ engine produced 1 update per vault ({len(seen_ids)} total)")
+
+    # 2. Component shape + range checks per update.
+    for sid, u in updates_by_id.items():
+        c = u.outputs.components
+        assert -1.0 <= c.performance <= 1.0, f"{sid}: perf out of range: {c.performance}"
+        assert 0.0 <= c.risk <= 1.0, f"{sid}: risk out of range: {c.risk}"
+        assert 0.0 <= c.proof <= 1.0, f"{sid}: proof out of range: {c.proof}"
+        assert 0.0 <= c.stake <= 1.0, f"{sid}: stake out of range: {c.stake}"
+        assert 0.0 <= c.age <= 1.0, f"{sid}: age out of range: {c.age}"
+        assert u.outputs.components_hash and len(u.outputs.components_hash) == 32, (
+            f"{sid}: componentsHash missing or wrong length"
+        )
+        assert u.signed.update.actor_type == ActorType.STRATEGY
+    print("  ✓ all 5 §8.2 components populated within range; componentsHash present")
+
+    # 3. Cohort stats per class per window.
+    classes_seen: set[str] = set()
+    for u in updates_by_id.values():
+        cls = u.state.declared_class
+        classes_seen.add(cls)
+        for window_name, stats in (
+            ("7d", u.cohort.win_7d),
+            ("30d", u.cohort.win_30d),
+            ("90d", u.cohort.win_90d),
+        ):
+            assert stats.size == 2, (
+                f"{cls}/{window_name}: expected cohort_size=2 (we registered 2 "
+                f"strategies per class), got {stats.size}"
+            )
+            # WS7.B documents the n=2 cohort as fallback (median=0, iqr=1).
+            assert stats.is_fallback is True, (
+                f"{cls}/{window_name}: cohort with n=2 should be is_fallback=True per WS7.B"
+            )
+    assert len(classes_seen) == 3, (
+        f"expected 3 distinct declared_classes (mom/mr/yr), got {len(classes_seen)}"
+    )
+    print("  ✓ cohort stats reported per class per window (n=2 → fallback per WS7.B)")
+
+    # 4. Within-class divergence: primary > variant2.
+    pairs = (
+        ("strategyVaultMomentum",     "strategyVaultMomentumVariant2",     "momentum"),
+        ("strategyVaultMeanReversion", "strategyVaultMeanReversionVariant2", "mean-rev"),
+        ("strategyVaultYieldRotation", "strategyVaultYieldRotationVariant2", "yield-rot"),
+    )
+    for primary_key, variant2_key, label in pairs:
+        primary = updates_by_id[ctx.addrs[primary_key].lower()]
+        variant2 = updates_by_id[ctx.addrs[variant2_key].lower()]
+        assert primary.outputs.score_e4 > variant2.outputs.score_e4, (
+            f"{label}: primary must outscore variant2 — "
+            f"primary={primary.outputs.score_e4} variant2={variant2.outputs.score_e4}"
+        )
+    print("  ✓ within-class divergence: primary > variant2 for all 3 classes")
+
+    # 5. Drawdown ranking — momentum variant2 has the heaviest drawdown
+    # in the entire scenario (~28% peak-to-trough), so its risk
+    # component MUST be lower than primary momentum (no drawdown).
+    mom_primary = updates_by_id[ctx.addrs["strategyVaultMomentum"].lower()]
+    mom_variant2 = updates_by_id[ctx.addrs["strategyVaultMomentumVariant2"].lower()]
+    assert mom_primary.outputs.components.risk > mom_variant2.outputs.components.risk, (
+        f"drawdown ranking violated: mom_primary.risk={mom_primary.outputs.components.risk:.3f}"
+        f" must exceed mom_variant2.risk={mom_variant2.outputs.components.risk:.3f}"
+    )
+    # Cross-check: variant2 actually has a meaningful drawdown recorded.
+    assert mom_variant2.inputs.max_drawdown_bps_90d > 1000, (
+        f"mom_variant2 max_drawdown_bps_90d={mom_variant2.inputs.max_drawdown_bps_90d}"
+        " — pump-dump trajectory should produce >10% drawdown"
+    )
+    print(
+        f"  ✓ drawdown ranking: mom_primary.risk={mom_primary.outputs.components.risk:.3f}"
+        f" > mom_variant2.risk={mom_variant2.outputs.components.risk:.3f}"
+        f" (variant2 dd={mom_variant2.inputs.max_drawdown_bps_90d}bps)"
+    )
+
+    print("\nPR3.B: reputation §8.2 GREEN")
+
+
 def assert_pr3a_oracle_and_nav(ctx: Ctx, start_block: int) -> None:
     """Verify the cadence drivers landed:
 
@@ -845,13 +1001,15 @@ def main() -> int:
     step_emit_yield_rotation_trades(ctx)
     step_drive_oracle_anchors(ctx)
     step_drive_nav_trajectories(ctx)
+    rep_updates = step_drive_reputation(ctx, start_block)
 
     assert_pr1_skeleton(ctx, start_block)
     assert_pr2a_momentum_trades(ctx, start_block)
     assert_pr2b_mean_reversion_trades(ctx, start_block)
     assert_pr2c_yield_rotation_trades(ctx, start_block)
     assert_pr3a_oracle_and_nav(ctx, start_block)
-    print("\nWS6 PR3.A e2e: GREEN")
+    assert_pr3b_reputation_822(ctx, rep_updates)
+    print("\nWS6 PR3.B e2e: GREEN")
     return 0
 
 
