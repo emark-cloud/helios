@@ -11,7 +11,7 @@ interface IStrategyVault {
     }
 
     struct StrategyManifest {
-        bytes32 declaredClass; // keccak256("momentum_v1") etc.
+        bytes32 declaredClass; // ClassIds.MOMENTUM_V1 etc. (Poseidon-derived; BN254-fit)
         address[] assetUniverse;
         uint256 maxCapacity;
         uint16 feeRateBps;

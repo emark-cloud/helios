@@ -30,11 +30,16 @@ def test_public_signals_to_uints() -> None:
     assert public_signals_to_uints(["1", "2", "999"]) == [1, 2, 999]
 
 
-def test_class_to_bytes32_string() -> None:
+def test_class_to_bytes32_known_slug() -> None:
+    # Mirrors contracts/src/ClassIds.sol — Poseidon-derived, BN254-fit.
     out = class_to_bytes32("momentum_v1")
     assert len(out) == 32
-    assert out.startswith(b"momentum_v1")
-    assert out.rstrip(b"\x00") == b"momentum_v1"
+    assert out.hex() == "2a9aa442064b635baec37a7a259282faa5563a653a8325378d5676c6f04bc9dd"
+
+
+def test_class_to_bytes32_unknown_slug_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown class slug"):
+        class_to_bytes32("non_existent_class")
 
 
 def test_class_to_bytes32_hex() -> None:
@@ -45,4 +50,4 @@ def test_class_to_bytes32_hex() -> None:
 
 def test_class_to_bytes32_too_long() -> None:
     with pytest.raises(ValueError):
-        class_to_bytes32("x" * 33)
+        class_to_bytes32("0x" + "ff" * 33)

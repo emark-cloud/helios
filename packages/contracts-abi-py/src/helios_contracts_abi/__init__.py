@@ -5,5 +5,25 @@ Services, workers, and SDK code should import from here rather than re-declaring
 """
 
 from helios_contracts_abi.addresses import ADDRESSES, CHAIN_IDS, ChainName
+from helios_contracts_abi.class_ids import (
+    BYTES32_TO_SLUG,
+    MEAN_REVERSION_V1,
+    MOMENTUM_V1,
+    SLUG_TO_BYTES32,
+    YIELD_ROTATION_V1,
+    class_id_as_field,
+    class_id_for_slug,
+)
 
-__all__ = ["ADDRESSES", "CHAIN_IDS", "ChainName"]
+__all__ = [
+    "ADDRESSES",
+    "CHAIN_IDS",
+    "BYTES32_TO_SLUG",
+    "ChainName",
+    "MEAN_REVERSION_V1",
+    "MOMENTUM_V1",
+    "SLUG_TO_BYTES32",
+    "YIELD_ROTATION_V1",
+    "class_id_as_field",
+    "class_id_for_slug",
+]

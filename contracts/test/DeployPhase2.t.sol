@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 
 import { DeployPhase2 } from "../script/DeployPhase2.s.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
@@ -23,9 +24,9 @@ import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 ///         tests don't depend on `vm.envOr`, which Foundry's parallel
 ///         test runner cannot serialize between worker threads.
 contract DeployPhase2Test is Test {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     bytes32 internal constant YR_ROOT = bytes32(uint256(0xA11CE));
 

@@ -40,6 +40,11 @@ from typing import Any
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_utils.crypto import keccak
+from helios_contracts_abi import (
+    MEAN_REVERSION_V1 as CLASS_MR_BYTES32,
+    MOMENTUM_V1 as CLASS_MOM_BYTES32,
+    YIELD_ROTATION_V1 as CLASS_YR_BYTES32,
+)
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
     IStrategyVault_ABI,
@@ -216,12 +221,9 @@ def step_set_meta(ctx: Ctx) -> bytes:
     signature — UserVault.setMetaStrategy doesn't verify in Phase 1/2.
     """
     print("[2] user setMetaStrategy (3 classes, maxStrategiesCount=6)")
-    momentum_class = keccak(b"momentum_v1")
-    meanrev_class = keccak(b"mean_reversion_v1")
-    yieldrot_class = keccak(b"yield_rotation_v1")
     meta_struct = (
         keccak(b"phase2-demo-meta"),  # metaStrategyHash
-        [momentum_class, meanrev_class, yieldrot_class],  # allowedStrategyClasses
+        [CLASS_MOM_BYTES32, CLASS_MR_BYTES32, CLASS_YR_BYTES32],  # allowedStrategyClasses
         [Web3.to_checksum_address(ctx.addrs["usdc"])],  # allowedAssets
         [ctx.chain_id],  # allowedChains
         _DEPOSIT_USDC * 10**6,  # maxCapital

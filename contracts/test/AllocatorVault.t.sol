@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { AllocatorVault } from "../src/AllocatorVault.sol";
 import { IAllocatorVault } from "../src/interfaces/IAllocatorVault.sol";
 import { StrategyVault } from "../src/StrategyVault.sol";
@@ -34,8 +35,8 @@ contract AllocatorVaultTest is Test {
     address internal user = makeAddr("user");
     address internal randomCaller = makeAddr("rando");
 
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
     uint16 internal constant ALLOCATOR_FEE_BPS = 500; // 5%
     uint16 internal constant STRAT_FEE_BPS = 1000; // 10%
     uint16 internal constant DD_THRESHOLD_BPS = 1500; // 15%
@@ -261,7 +262,7 @@ contract AllocatorVaultTest is Test {
     function test_AllocateToStrategy_RevertsOnDisallowedClass() public {
         // Wipe meta classes.
         bytes32[] memory none = new bytes32[](1);
-        none[0] = keccak256("yield_rotation_v1");
+        none[0] = ClassIds.YIELD_ROTATION_V1;
         userVault.setMeta(
             user,
             MetaStrategyLib.MetaStrategy({

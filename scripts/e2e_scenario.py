@@ -45,6 +45,10 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_keys.datatypes import PrivateKey
 from eth_utils.crypto import keccak
+from helios_contracts_abi import (
+    MEAN_REVERSION_V1 as CLASS_MR_BYTES32,
+    MOMENTUM_V1 as CLASS_MOM_BYTES32,
+)
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
     IReputationAnchor_ABI,
@@ -214,11 +218,9 @@ def step_set_meta(ctx: Ctx) -> bytes:
     the caller. We build a structurally-valid EIP-712 sig anyway so the
     audit trail looks right when Passport swaps in."""
     print("[2] user setMetaStrategy")
-    momentum_class = keccak(b"momentum_v1")
-    meanrev_class = keccak(b"mean_reversion_v1")
     meta_struct = (
         keccak(b"phase1-demo-meta"),  # metaStrategyHash (Poseidon in real Passport)
-        [momentum_class, meanrev_class],  # allowedStrategyClasses
+        [CLASS_MOM_BYTES32, CLASS_MR_BYTES32],  # allowedStrategyClasses
         [Web3.to_checksum_address(ctx.addrs["usdc"])],  # allowedAssets
         [ctx.chain_id],  # allowedChains
         100_000 * 10**6,  # maxCapital (100k USDC)

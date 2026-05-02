@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { ITradeAttestationVerifier } from "../src/interfaces/ITradeAttestationVerifier.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
@@ -15,8 +16,8 @@ contract TradeAttestationVerifierTest is Test {
     address internal owner = makeAddr("owner");
     address internal randomCaller = makeAddr("rando");
 
-    bytes32 internal constant CLASS_MOMENTUM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MEAN_REV = keccak256("mean_reversion_v1");
+    bytes32 internal constant CLASS_MOMENTUM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MEAN_REV = ClassIds.MEAN_REVERSION_V1;
 
     function setUp() public {
         v = new TradeAttestationVerifier(owner);

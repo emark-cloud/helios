@@ -230,7 +230,12 @@ def test_test_proof_round_trip(
     assert posted["body"]["strategyClass"] == "momentum_v1"
     assert captured["proof_len"] == 256
     assert captured["public_inputs"] == [10, 20]
-    assert captured["declared_class"].rstrip(b"\x00") == b"momentum_v1"
+    # Pinned to ClassIds.MOMENTUM_V1 in contracts/src/ClassIds.sol
+    # (Poseidon-derived bytes32, BN254-fit).
+    assert (
+        captured["declared_class"].hex()
+        == "2a9aa442064b635baec37a7a259282faa5563a653a8325378d5676c6f04bc9dd"
+    )
 
 
 def test_test_proof_skip_onchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

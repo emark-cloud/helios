@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { IStrategyRegistry } from "../src/interfaces/IStrategyRegistry.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
@@ -17,7 +18,7 @@ contract StrategyRegistryTest is Test {
     address internal vault = makeAddr("vault");
     address internal randomCaller = makeAddr("random");
 
-    bytes32 internal constant CLASS_MOMENTUM = keccak256("momentum_v1");
+    bytes32 internal constant CLASS_MOMENTUM = ClassIds.MOMENTUM_V1;
     uint256 internal constant COOLDOWN = 7 days;
     uint256 internal constant STAKE = 10_000e18;
 
@@ -300,12 +301,12 @@ contract StrategyRegistryTest is Test {
         bytes32 r1 = keccak256("a");
         bytes32 r2 = keccak256("b");
         vm.prank(owner);
-        registry.setMarketAllowlistRoot(keccak256("yield_rotation_v1"), r1);
+        registry.setMarketAllowlistRoot(ClassIds.YIELD_ROTATION_V1, r1);
         vm.prank(owner);
-        registry.setMarketAllowlistRoot(keccak256("mean_reversion_v1"), r2);
+        registry.setMarketAllowlistRoot(ClassIds.MEAN_REVERSION_V1, r2);
 
-        assertEq(registry.marketAllowlistRoot(keccak256("yield_rotation_v1")), r1);
-        assertEq(registry.marketAllowlistRoot(keccak256("mean_reversion_v1")), r2);
+        assertEq(registry.marketAllowlistRoot(ClassIds.YIELD_ROTATION_V1), r1);
+        assertEq(registry.marketAllowlistRoot(ClassIds.MEAN_REVERSION_V1), r2);
         assertEq(registry.marketAllowlistRoot(CLASS_MOMENTUM), bytes32(0));
     }
 

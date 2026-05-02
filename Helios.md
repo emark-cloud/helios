@@ -440,7 +440,7 @@ The per-strategy capital home. Trades flow through here. ZK-gated execution.
 
 ```solidity
 struct StrategyManifest {
-    bytes32 declaredClass;          // e.g., keccak256("momentum_v1")
+    bytes32 declaredClass;          // ClassIds.MOMENTUM_V1 etc. — Poseidon-derived; BN254-fit
     address[] assetUniverse;
     uint256 maxCapacity;
     uint16  feeRateBps;
@@ -1036,7 +1036,10 @@ The circuit proves the following invariants for a single trade:
 
 ```
 1.  trade_hash             // Poseidon over trade calldata + parameter slots
-2.  declared_class         // keccak256("momentum_v1")
+2.  declared_class         // Poseidon([int.from_bytes("momentum_v1","big")])
+                           //   — pinned in contracts/src/ClassIds.sol.
+                           //   keccak256 lands above the BN254 field
+                           //   and would fail the verifier's checkField.
 3.  strategy_vault         // address as uint160 — binds proof to a specific vault
 4.  params_hash            // Poseidon(signal_threshold, max_position_size,
                            //   max_slippage_bps, stop_loss_price) — committed

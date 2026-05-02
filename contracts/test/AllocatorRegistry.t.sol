@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { AllocatorRegistry } from "../src/AllocatorRegistry.sol";
 import { IAllocatorRegistry } from "../src/interfaces/IAllocatorRegistry.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
@@ -17,7 +18,7 @@ contract AllocatorRegistryTest is Test {
     address internal vault = makeAddr("operatorVault");
     address internal randomCaller = makeAddr("random");
 
-    bytes32 internal constant CLASS_MOMENTUM = keccak256("momentum_v1");
+    bytes32 internal constant CLASS_MOMENTUM = ClassIds.MOMENTUM_V1;
     uint256 internal constant COOLDOWN = 7 days;
     uint256 internal constant STAKE = 25_000e18;
     uint16 internal constant FEE_BPS = 400;

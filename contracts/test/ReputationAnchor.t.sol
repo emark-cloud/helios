@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { ReputationAnchor } from "../src/ReputationAnchor.sol";
 import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { AllocatorRegistry } from "../src/AllocatorRegistry.sol";
@@ -28,7 +29,7 @@ contract ReputationAnchorTest is Test {
     address internal stratOperator = makeAddr("stratOperator");
     address internal allocOperator = makeAddr("allocOperator");
 
-    bytes32 internal constant CLASS_MOMENTUM = keccak256("momentum_v1");
+    bytes32 internal constant CLASS_MOMENTUM = ClassIds.MOMENTUM_V1;
     uint256 internal constant COOLDOWN = 7 days;
     uint256 internal constant STAKE = 10_000e18;
 

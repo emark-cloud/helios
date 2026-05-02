@@ -8,6 +8,7 @@ import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { MockERC20 } from "../test/mocks/MockERC20.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 
 /// @notice WS2.B — register a SECOND strategy vault per declared class so
 ///         the §8.2 reputation engine can compute cohort-relative scores
@@ -41,9 +42,9 @@ import { MockERC20 } from "../test/mocks/MockERC20.sol";
 ///         that need to bypass `vm.envAddress` (parallel workers cannot
 ///         serialize the env map between threads).
 contract RegisterPhase2Strategies is Script {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     uint16 internal constant STRATEGY_FEE_BPS = 1500; // 15% — tighter than primary's 10%
     uint256 internal constant STRATEGY_STAKE_2 = 5000e6; // 5k USDC
