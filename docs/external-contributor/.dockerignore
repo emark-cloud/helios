@@ -1,0 +1,25 @@
+# Build context is the repo root; this dockerignore trims the noise so
+# the smoke image build doesn't ship tens of MB of artifacts that the
+# external-contributor flow doesn't need.
+
+**
+!packages/contracts-abi-py/**
+!packages/strategy-sdk/**
+!packages/allocator-sdk/**
+!packages/helios-cli/**
+!docs/external-contributor/**
+
+# Re-exclude byte-code + virtualenvs that may live inside the
+# packages/ tree from local development.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.pyright
+**/.venv
+**/.venv*
+**/dist
+**/dist-py
+**/*.egg-info
+**/node_modules
