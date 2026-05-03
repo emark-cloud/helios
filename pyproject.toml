@@ -42,7 +42,7 @@ members = [
 [tool.uv.sources]
 helios-strategy-sdk = { workspace = true }
 helios-allocator-sdk = { workspace = true }
-helios-cli = { workspace = true }
+helios-trader-cli = { workspace = true }
 helios-contracts-abi = { workspace = true }
 helios-service-template = { workspace = true }
 helios-sentinel = { workspace = true }

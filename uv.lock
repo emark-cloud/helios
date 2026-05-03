@@ -14,7 +14,6 @@ resolution-markers = [
 members = [
     "helios-allocator-sdk",
     "helios-bot",
-    "helios-cli",
     "helios-contracts-abi",
     "helios-helix",
     "helios-oracle",
@@ -25,6 +24,7 @@ members = [
     "helios-sentinel",
     "helios-service-template",
     "helios-strategy-sdk",
+    "helios-trader-cli",
     "helios-workspace",
 ]
 
@@ -999,44 +999,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "helios-cli"
-version = "0.1.0"
-source = { editable = "packages/helios-cli" }
-dependencies = [
-    { name = "eth-account" },
-    { name = "helios-allocator-sdk" },
-    { name = "helios-contracts-abi" },
-    { name = "helios-strategy-sdk" },
-    { name = "httpx" },
-    { name = "rich" },
-    { name = "typer" },
-    { name = "web3" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "eth-account", specifier = ">=0.13" },
-    { name = "helios-allocator-sdk", editable = "packages/allocator-sdk" },
-    { name = "helios-contracts-abi", editable = "packages/contracts-abi-py" },
-    { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
-    { name = "rich", specifier = ">=13.9" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
-    { name = "typer", specifier = ">=0.13" },
-    { name = "web3", specifier = ">=7.4" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "helios-contracts-abi"
 version = "0.1.0"
 source = { editable = "packages/contracts-abi-py" }
@@ -1379,6 +1341,44 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "structlog", specifier = ">=24.4" },
+    { name = "web3", specifier = ">=7.4" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "helios-trader-cli"
+version = "0.1.0"
+source = { editable = "packages/helios-cli" }
+dependencies = [
+    { name = "eth-account" },
+    { name = "helios-allocator-sdk" },
+    { name = "helios-contracts-abi" },
+    { name = "helios-strategy-sdk" },
+    { name = "httpx" },
+    { name = "rich" },
+    { name = "typer" },
+    { name = "web3" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "eth-account", specifier = ">=0.13" },
+    { name = "helios-allocator-sdk", editable = "packages/allocator-sdk" },
+    { name = "helios-contracts-abi", editable = "packages/contracts-abi-py" },
+    { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
+    { name = "rich", specifier = ">=13.9" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "typer", specifier = ">=0.13" },
     { name = "web3", specifier = ">=7.4" },
 ]
 provides-extras = ["dev"]

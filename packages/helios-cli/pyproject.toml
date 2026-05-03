@@ -1,5 +1,8 @@
 [project]
-name = "helios-cli"
+# PyPI dist name. The bare `helios-cli` name is squatted on real PyPI by an
+# unrelated project (see commit log + docs/external-contributor/README.md);
+# the binary on disk stays `helios` and the import path stays `helios_cli`.
+name = "helios-trader-cli"
 version = "0.1.0"
 description = "Helios CLI — backtest, deploy, simulate, manage stake. Wraps both the strategy and allocator SDKs."
 requires-python = ">=3.11"
