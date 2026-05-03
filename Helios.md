@@ -1043,7 +1043,11 @@ The circuit proves the following invariants for a single trade:
 3.  strategy_vault         // address as uint160 — binds proof to a specific vault
 4.  params_hash            // Poseidon(signal_threshold, max_position_size,
                            //   max_slippage_bps, stop_loss_price) — committed
-                           //   in the StrategyManifest at registration
+                           //   in the StrategyManifest at registration; once
+                           //   the operator calls StrategyRegistry.commitInitialParamsHash,
+                           //   the registry's paramsHashOf(strategyVault) becomes
+                           //   the canonical value and the manifest hash is
+                           //   only used as a Phase-1 fallback (§6.5).
 5.  allocator              // uint160
 6.  asset_in_idx           // index into manifest.assetUniverse
 7.  asset_out_idx          // index into manifest.assetUniverse
@@ -1056,7 +1060,9 @@ The circuit proves the following invariants for a single trade:
 14. oracle_root            // Poseidon root of the price-snapshot chain
 ```
 
-`StrategyVault.executeWithProof` rejects any proof whose `params_hash` does not match `manifest.paramsHash`, whose `oracle_root` is not the most-recent root anchored by `OraclePriceAnchor` within an acceptable freshness window, and whose `strategy_vault` is not the calling vault address. The verifier itself is also class-checked against `declared_class`.
+`StrategyVault.executeWithProof` rejects any proof whose `params_hash` does not match `_activeParamsHash()` — the registry-committed value (`StrategyRegistry.paramsHashOf(strategyVault)`) when present, falling back to `manifest.paramsHash` only for vaults that haven't yet committed (Phase-1 deployment path). It also rejects proofs whose `oracle_root` is not the most-recent root anchored by `OraclePriceAnchor` within an acceptable freshness window, and whose `strategy_vault` is not the calling vault address. The verifier itself is also class-checked against `declared_class`.
+
+The two-phase rotation API (`initiateParamsRotation` → cooldown → `completeParamsRotation`, emitting `ParamsRotated`) is the *only* path that mutates the canonical `params_hash`. There is no path on the vault, the registry, or the manifest that lets the operator silently change the committed parameters between trades — see §6.5 for the cooldown semantics and §8.7 for how the reputation engine resets `AgeScore` and `PerformanceScore` when a rotation lands.
 
 **Witness (private to the prover):**
 
@@ -1095,9 +1101,9 @@ The circuit does **not** reveal the operator's specific `signal_threshold` value
 
 Each class has its own circuit. The MVP ships:
 
-- **`momentum_v1`** — as specified above. Directional spot circuit. ~15k constraints.
-- **`mean_reversion_v1`** — proves trade direction matches a deviation-from-mean signal. Structurally similar to momentum but with inverted signal logic. ~17k constraints.
-- **`yield_rotation_v1`** — *structurally distinct* from the directional classes. Proves: the trade is moving capital from market `M_from` to market `M_to`, both `M_from` and `M_to` are in the manifest's allowlisted yield markets, and `APY(M_to) - APY(M_from) > threshold` based on a committed yield-oracle root. Both APYs come from a Poseidon-committed snapshot signed by the yield oracle. ~12k constraints.
+- **`momentum_v1`** — as specified above. Directional spot circuit. **14 public inputs**, ~5.4k constraints (28% of the 20k circuit budget).
+- **`mean_reversion_v1`** — proves trade direction matches an N-sigma deviation-from-mean signal computed in-circuit (`Σ(16·p_i − Σp)²`). **Same 14-PI layout as `momentum_v1`** so `StrategyVault.PI_*` indices and the verifier adapter's `_PUBLIC_INPUT_COUNT = 14` are reused unchanged. The witness adds `n_sigma_x100`, `is_signal_flip`, and `is_stop_loss` (the circuit asserts `is_signal_flip + is_stop_loss = is_exit` to bind the exit reason). ~5.7k constraints (29% of the 20k budget).
+- **`yield_rotation_v1`** — *structurally distinct* from the directional classes. **9 public inputs** (`trade_hash, declared_class, M_from, M_to, amount_rotating, yield_oracle_root, allocator, nonce, block_window_end`). Proves: the trade rotates capital from `M_from` to `M_to`; both `(M_from, apy_from)` and `(M_to, apy_to)` are Poseidon-Merkle members of `yield_oracle_root` (depth 6 = 64 markets); both `M_from` and `M_to` are members of a private `markets_allowlist_root` (depth 4 = 16 markets) bound through `trade_hash` so the on-chain side rejects any trade whose hash doesn't match `Poseidon(StrategyRegistry.marketAllowlistRoot(class), …public fields…)`; `apy_to − apy_from ≥ signal_threshold + bridging_cost` (all in bps); `M_from ≠ M_to`; `amount_rotating > 0`. There is no `params_hash` PI slot — `signal_threshold` and `bridging_cost` bind through `trade_hash` checked against the manifest's stored hash on-chain. ~6.6k constraints (44% of the 15k budget).
 
 Each class circuit is open-source. New classes can be added permissionlessly post-hackathon by anyone who writes a Circom circuit and submits it to a class registry (out of scope for v1).
 

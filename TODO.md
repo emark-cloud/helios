@@ -296,11 +296,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `docs/reputation-math.md` mirrors the framing once the doc is written in Phase 6 (note in this checklist, not separately tracked)
 
 ### Acceptance for Phase 2
-- [ ] Multiple strategies of each class registered with non-zero capital
-- [ ] Reputation scores visibly diverge based on realized performance + drawdown
-- [ ] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md`
-- [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs
-- [ ] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch
+- [x] Multiple strategies of each class registered with non-zero capital — WS6 PR1 + `RegisterPhase2Strategies.s.sol` + PR3.5.C register 7 vaults across 3 classes (2 per class + 1 cold-start fresh momentum); 5 Foundry tests assert `strategiesByClass(C).length ≥ 2` and stake pulled from operator
+- [x] Reputation scores visibly diverge based on realized performance + drawdown — WS6 PR3.B drives the §8.2 engine over 90d compressed time; `scripts/e2e_scenario_phase2.py:1198` asserts `primary.outputs.score_e4 > variant2.outputs.score_e4` for every class
+- [x] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md` — `36fa0cf` (5 seeds per class; YR uses a stand-alone `on_yield_tick` harness pending Phase 3 SDK support)
+- [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs — PR5.A landed (`d0058af`) — Dockerfile + smoke + fixtures green against the local workspace; PR5.B (test-PyPI publish + CI integration) still gated on the OIDC trusted-publisher registration for `helios-cli` / `helios-allocator-sdk` / `helios-contracts-abi`
+- [x] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch — WS6 PR3.5.A + PR3.5.B; `scripts/e2e_scenario_phase2.py:813-1117` runs `initiateParamsRotation` → `evm_increaseTime(7d)` → `completeParamsRotation` → re-tick the engine and asserts the reset
 - [x] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel (`services/sentinel/tests/test_loop.py::test_cold_start_strategy_receives_bootstrap_allocation`)
 - [x] WS7.C: meta-strategy schema carries the three defund fields; UserVault tests assert round-trip + default-on-zero; AllocatorVault test fixtures construct the new fields even though enforcement is deferred to Phase 4
 
