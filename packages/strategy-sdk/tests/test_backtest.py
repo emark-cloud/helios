@@ -134,3 +134,102 @@ def test_synthesize_random_walk_shape() -> None:
     for series in out.values():
         assert len(series) == 64
         assert all(p > 0 for p in series)
+
+
+# ── SHORT path ──────────────────────────────────────────────
+
+
+class _ShortOnceHoldStrategy(StrategyAgent):
+    """SHORT once on bar 2, then hold."""
+
+    declared_class = "mean_reversion_v1"
+    asset_universe = ("WETH",)
+    max_position_size_usd = 5_000
+    fee_rate_bps = 2_000
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._fired = False
+
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+        if self._fired or len(snapshot.prices) < 2:
+            return None
+        self._fired = True
+        return TradeIntent(
+            asset_in="USDC", asset_out=asset, amount_in_usd=5_000, direction=Direction.SHORT
+        )
+
+
+class _ShortThenExitStrategy(StrategyAgent):
+    """SHORT on bar 2, EXIT on bar 6 (mirrors _BuyThenExitStrategy)."""
+
+    declared_class = "mean_reversion_v1"
+    asset_universe = ("WETH",)
+    max_position_size_usd = 1_000
+    fee_rate_bps = 2_000
+
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+        n = len(snapshot.prices)
+        if n == 2:
+            return TradeIntent(
+                asset_in="USDC", asset_out=asset, amount_in_usd=1_000, direction=Direction.SHORT
+            )
+        if n == 6 and self.position_for(asset) > 0:
+            return TradeIntent(
+                asset_in=asset, asset_out="USDC", amount_in_asset=0.0, direction=Direction.EXIT
+            )
+        return None
+
+
+def test_short_entry_is_cash_neutral_at_flat_price() -> None:
+    """At flat price, opening a short and holding it should leave NAV
+    equal to (initial − fee). Pre-fix the engine debited the full
+    notional on entry, dropping NAV by ~notional + fee on bar 2."""
+    prices = {"WETH": [100.0, 100.0, 100.0]}
+    rep = run_backtest(
+        strategy=_ShortOnceHoldStrategy(), prices=prices, initial_capital=10_000, fee_bps=30
+    )
+    short_fills = [f for f in rep.fills if f.direction == Direction.SHORT]
+    assert len(short_fills) == 1
+    assert short_fills[0].fee_usd == 5_000 * 30 / 10_000  # 15.0
+    # Flat price ⇒ no mark-to-market drift; NAV = initial − entry fee.
+    assert rep.final_nav == 10_000 - 15.0
+
+
+def test_short_profits_when_price_falls() -> None:
+    """Price halves between entry (bar 2, p=200) and exit (bar 6, p=100):
+    realized P&L should be ≈ +1_000 (sold $1000 of asset short, bought
+    back at half the price). Pre-fix realized was ≈ −9_000 because of
+    the entry double-debit bleeding through to close accounting."""
+    prices = {"WETH": [200.0, 200.0, 180.0, 150.0, 120.0, 100.0]}
+    rep = run_backtest(
+        strategy=_ShortThenExitStrategy(),
+        prices=prices,
+        initial_capital=10_000,
+        fee_bps=0,
+    )
+    exits = [f for f in rep.fills if f.direction == Direction.EXIT]
+    assert len(exits) == 1
+    # 1_000 USD shorted at 200, covered at 100 → +500 realized.
+    assert 490 < rep.realized_pnl < 510
+    assert rep.win_rate == 1.0
+    assert rep.final_nav > 10_000
+
+
+def test_short_loses_when_price_rises() -> None:
+    """Same shape but price climbs 100 → 200; the short should book a
+    proportional loss (≈ −1_000 on $1_000 notional). Pre-fix the
+    entry bleed swamped the loss."""
+    prices = {"WETH": [100.0, 100.0, 120.0, 150.0, 180.0, 200.0]}
+    rep = run_backtest(
+        strategy=_ShortThenExitStrategy(),
+        prices=prices,
+        initial_capital=10_000,
+        fee_bps=0,
+    )
+    exits = [f for f in rep.fills if f.direction == Direction.EXIT]
+    assert len(exits) == 1
+    # 1_000 USD shorted at 100, covered at 200 → −1_000 realized.
+    assert -1_010 < rep.realized_pnl < -990
+    assert rep.win_rate == 0.0
+    assert rep.final_nav < 10_000

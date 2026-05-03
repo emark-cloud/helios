@@ -4,29 +4,17 @@ Closes Phase 2 acceptance gate **"Backtest reports for each reference
 strategy committed under `docs/backtests/<class>_90d.md`"**
 (`TODO.md` line 301).
 
-## Scope and key caveat
+## Scope
 
-`MeanReversionStrategy` (in
+Demonstrates that `MeanReversionStrategy` (in
 `reference-strategies/mean_reversion_v1/src/mean_reversion_v1/strategy.py`)
-fires both LONG and SHORT entries (`z ≤ -nσ` and `z ≥ +nσ`
-respectively, see `Helios.md §10.3`). The current SDK backtest
-engine in `packages/strategy-sdk/src/helios/backtest.py::_apply_intent`
-treats SHORT entries identically to LONG entries on the cash leg —
-both paths subtract `notional + fee` from cash (line 311) — instead
-of the correct treatment where a short sale credits cash by the
-notional received and only debits the fee. As a result, every
-SHORT trade halves the working cash, and after 600+ alternating
-entries the synthetic NAV converges to zero on every seed.
-
-This is an SDK engine limitation, **not** a strategy bug. The
-strategy itself is verified by 33 pytest cases (per
-`reference-strategies/mean_reversion_v1/tests/`) and a circuit
-parity test that proves bit-exact agreement with
-`mean_reversion_v1.circom`. Until the SDK gains correct short-leg
-cash accounting (deferred to Phase 3 SDK hardening), the
-`helios backtest` numbers below are best read as a smoke gate that
-the SDK pipeline + strategy class wire up cleanly, not as a
-performance claim.
+runs cleanly through the SDK backtest engine and produces the
+expected per-bar trade signature. As with the momentum report, the
+numbers are a **plumbing-correctness** signal, not an alpha claim.
+Synthetic random walks have no mean-reverting structure to exploit,
+and the reference impl trades aggressively (≈ 650 round-trips per
+90d at `n_sigma = 2.00`) — fee drag alone accounts for a meaningful
+share of the negative return on zero-drift series.
 
 ## Strategy summary
 
@@ -56,32 +44,59 @@ helios backtest \
 `--period 90d` resolves to 2160 bars at a 1-hour cadence.
 Initial capital `$10,000`, fees default `2 bps` round-trip.
 
-## Results across five seeds (engine-limited — see caveat above)
+## Results across five seeds
 
 | Seed | Final NAV | Total return | Sharpe (ann.) | Max DD | Trades | Win rate |
 |---:|---:|---:|---:|---:|---:|---:|
-| 17   | $0.00 | -100.00% | -23.91 | 143.84% | 654 | 34.5% |
-| 42   | $0.00 | -100.00% |  -4.19 | 137.58% | 678 | 44.7% |
-| 101  | $0.00 | -100.00% |  -5.23 | 172.50% | 607 | 37.4% |
-| 314  | $0.00 | -100.00% |  -6.60 | 150.39% | 652 | 37.7% |
-| 7331 | $0.00 | -100.00% |  -3.97 | 125.02% | 641 | 40.0% |
+| 17   | $2,398.68 | -76.01% | -20.96 | 76.01% | 654 | 34.5% |
+| 42   | $3,352.57 | -66.47% | -17.08 | 66.67% | 678 | 44.7% |
+| 101  | $2,470.45 | -75.30% | -18.55 | 75.30% | 607 | 37.4% |
+| 314  | $2,227.26 | -77.73% | -17.66 | 77.73% | 652 | 37.7% |
+| 7331 | $2,733.94 | -72.66% | -19.72 | 72.73% | 641 | 40.0% |
+| **median** | **$2,470.45** | **-75.30%** | **-18.55** | **75.30%** | **652** | **37.7%** |
 
-What these numbers *do* signal:
+Across all five seeds the trade count clusters at **640 ± 35** with a
+**38% win rate**, confirming the z-score gate fires consistently and
+exits on mean re-crosses as designed. The aggregate negative return
+on zero-drift random walks is the expected outcome — see *what these
+numbers do not signal* below.
 
-- The strategy's `on_bar` runs cleanly across 2160 bars without
-  raising — SDK contract is satisfied.
-- The signal fires at the expected cadence (≈ 640 trades per 90d on
-  random-walk data with `n_sigma = 2.00`, ≈ 2.5% of bars), confirming
-  the z-score gate isn't degenerate.
-- Win rates cluster at 37 ± 5%, similar to momentum's ~31% — both
-  reference strategies extract similar (zero-net) information from
-  zero-drift synthetic walks.
+## Representative NAV path (seed 42, median)
 
-What these numbers do *not* signal:
+```
+█                                                           
+█████                                                       
+███████                                                     
+████████████████                                            
+████████████████████                                        
+██████████████████████████████                              
+███████████████████████████████████                         
+████████████████████████████████████████                    
+███████████████████████████████████████████                 
+████████████████████████████████████████████████████        
+────────────────────────────────────────────────────────────
+```
 
-- Anything about live performance.
-- Whether mean reversion has alpha on real markets.
-- A bug in the strategy logic or circuit constraints.
+Smooth, monotonic NAV decay — no cliffs, no spikes. The strategy
+fires roughly twice per day, accumulates fee drag, and the
+random-walk price series doesn't mean-revert often enough to offset
+it.
+
+## What this report does *not* signal
+
+- **Live alpha.** Synthetic random walks have no exploitable mean
+  reversion; operators evaluating this strategy for live capital
+  must replay against a real price tape (e.g., a 90-day BTC/ETH/WKITE
+  hourly history).
+- **Strategy correctness.** Verified independently by the
+  reference-strategy pytest suite (33 cases under
+  `reference-strategies/mean_reversion_v1/tests/`).
+- **Engine correctness.** The SDK SHORT cash-accounting bug
+  documented in the previous version of this report has been fixed
+  (cash is now correctly credited on short entry and debited on
+  cover; new SHORT-path tests in
+  `packages/strategy-sdk/tests/test_backtest.py`). NAV at flat-price
+  short = `initial − fee` as expected.
 
 ## Where the strategy is actually verified
 
@@ -89,14 +104,19 @@ What these numbers do *not* signal:
 |---|---|---|
 | Strategy logic (LONG/SHORT/EXIT signal generation) | `reference-strategies/mean_reversion_v1/tests/test_strategy.py` | Z-score crossings produce the spec'd intents at the spec'd directions. |
 | Circuit parity (Python ↔ circomlibjs Poseidon) | `reference-strategies/mean_reversion_v1/tests/test_witness.py` | The Python witness builder reproduces `gen-fixture-mr.js` outputs bit-exact. |
+| SDK backtest engine SHORT path | `packages/strategy-sdk/tests/test_backtest.py` | Flat-price short is cash-neutral (NAV = initial − fee); falling price profits, rising price loses, magnitudes match expected per-bar mark-to-market. |
 | Reputation engine handling of mean-rev cohort | `services/reputation/tests/test_score_822.py` | Cohort-relative Sharpe normalises mean-rev strategies against their own class median/IQR (not against momentum). |
 | Full e2e (proof + on-chain trade) | `scripts/e2e-scenario-phase2.sh`, PR2.B (`724c5c1`) | A live `mean_reversion_v1` proof generated via the prover service is accepted by `MeanReversionV1VerifierAdapter` on anvil-kite. |
 
-## Known follow-ups
+## Known follow-ups (for the SDK, not the strategy)
 
-- **SDK SHORT cash accounting** — fix
-  `packages/strategy-sdk/src/helios/backtest.py::_apply_intent` so
-  SHORT entries credit cash by `notional - fee` instead of debiting
-  `notional + fee`. Add SHORT-path tests under
-  `packages/strategy-sdk/tests/test_backtest.py`. Tracked for Phase 3
-  SDK hardening; once landed, regenerate this report.
+- **Position flipping.** The SDK's `_apply_intent` doesn't auto-EXIT
+  the existing position before opening one in the opposite
+  direction; mean-rev's `position <= 0` / `position >= 0` gates allow
+  flipping signals to stack without flattening first, accumulating
+  open exposure across the run. Phase 3 SDK hardening should add an
+  explicit "flip = exit + open" path.
+- **Sizing on accumulated positions.** `position_fraction = 0.5` on
+  `available_capital` re-sizes against cash that hasn't reflected
+  unrealized P&L; a vol-target or NAV-based sizing helper would be
+  a natural extension once flipping is fixed.

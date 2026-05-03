@@ -329,6 +329,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `postReputationUpdate` with `actor_type = ALLOCATOR`
 - [ ] Allocator leaderboards queryable via subgraph
 
+### SX — Strategy SDK hardening (carried over from Phase 2 backtest writeups)
+- [ ] **YR-aware backtest engine.** `helios.backtest.run_backtest` only drives `on_bar` today, so `helios backtest` emits zero trades against `YieldRotationStrategy` (which overrides `on_bar` to a no-op and listens on `on_yield_tick`). Add an `on_yield_tick` driver path so YR strategies surface in `helios backtest` like the directional classes; remove the stand-alone harness in `docs/backtests/_yield_rotation_v1_harness.py` once the CLI can produce equivalent output.
+- [ ] **Position flipping in `_apply_intent`.** Mean-rev signal flips currently stack onto open positions instead of auto-EXITing first; spec'd as a known follow-up in `docs/backtests/mean_reversion_v1_90d.md`. Add a "flip = exit + open" path with explicit tests for LONG→SHORT and SHORT→LONG transitions.
+- [ ] **NAV-based / vol-target sizing helper.** Once flipping is fixed, ship a sizing helper that re-sizes against current NAV (not stale cash) so reference strategies stop over-leveraging across long runs.
+
 ### FE — Allocator surface
 - [ ] `/allocators` directory: Sentinel first with "Official Reference" badge, Helix second (same badge), space for third parties below
 - [ ] Each card: name, fee rate, supported classes, ranking function one-sentence + "view code" link, current users, total capital managed, reputation, stake
