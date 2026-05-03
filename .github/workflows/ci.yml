@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -31,6 +32,11 @@ jobs:
               - 'subgraph/**'
               - 'pyproject.toml'
               - 'uv.lock'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/**'
+            frontend:
+              - 'frontend/**'
+              - 'packages/contracts-abi/**'
               - 'pnpm-lock.yaml'
               - '.github/workflows/**'
 
@@ -191,4 +197,58 @@ jobs:
           path: |
             /tmp/helios-e2e-anvil.log
             /tmp/helios-e2e-deploy.log
+          if-no-files-found: ignore
+
+  frontend-e2e:
+    name: frontend e2e (playwright /audit snapshots)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Foundry (for ABI artifacts)
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: pnpm/action-setup@v4
+      - name: Install pnpm deps
+        run: pnpm install --frozen-lockfile
+      - name: Build contracts
+        run: forge build
+        working-directory: contracts
+      - name: Generate ABI bindings
+        run: pnpm --filter @helios/contracts-abi build
+      - name: Resolve Playwright version
+        id: pw
+        run: |
+          VERSION=$(node -p "require('./frontend/node_modules/@playwright/test/package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Playwright browsers
+        run: pnpm --filter @helios/frontend exec playwright install --with-deps chromium
+      - name: Run frontend e2e
+        run: pnpm --filter @helios/frontend test:e2e
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           if-no-files-found: ignore

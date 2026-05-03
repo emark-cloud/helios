@@ -62,6 +62,11 @@ circuits/ptau/*.ptau
 subgraph/generated/
 subgraph/build/
 
+# ── Playwright ──────────────────────────────────────────────
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/
+
 # ── Docker / runtime ────────────────────────────────────────
 docker-compose.override.yml
 .data/
