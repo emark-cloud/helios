@@ -72,9 +72,7 @@ class YieldOracleClient:
             )
         return out
 
-    async def fetch_latest_tick(
-        self, market_id: str, registry_id: int
-    ) -> YieldTick | None:
+    async def fetch_latest_tick(self, market_id: str, registry_id: int) -> YieldTick | None:
         """Convenience: pull the freshest signed snapshot and lift it
         into the strategy-facing `YieldTick` shape (registry id, apy,
         timestamp). Returns `None` when no snapshot has landed yet."""

@@ -88,11 +88,13 @@ def _commits_for_anchor(
     for i in range(ANCHOR_COMMITS_PER_ANCHOR):
         ws = base_ts_ms + i * ANCHOR_BARS_PER_COMMIT * bar_window_ms
         we = ws + ANCHOR_BARS_PER_COMMIT * bar_window_ms
-        out.append(_OracleCommit(
-            root=_synthetic_root(seed, i),
-            window_start=ws,
-            window_end=we,
-        ))
+        out.append(
+            _OracleCommit(
+                root=_synthetic_root(seed, i),
+                window_start=ws,
+                window_end=we,
+            )
+        )
     return out
 
 
@@ -188,9 +190,7 @@ class OracleAnchorDriver:
             r = send(
                 self.w3,
                 deployer,
-                self.price_anchor.functions.commit(
-                    c.root, c.window_start, c.window_end, sig
-                ),
+                self.price_anchor.functions.commit(c.root, c.window_start, c.window_end, sig),
             )
             price_receipts.append(r)
         for i, c in enumerate(yield_commits):
@@ -207,9 +207,7 @@ class OracleAnchorDriver:
             r = send(
                 self.w3,
                 deployer,
-                self.yield_anchor.functions.commit(
-                    c.root, c.window_start, c.window_end, sig
-                ),
+                self.yield_anchor.functions.commit(c.root, c.window_start, c.window_end, sig),
             )
             yield_receipts.append(r)
         return price_receipts, yield_receipts
@@ -239,12 +237,12 @@ def _det_noise(d: int) -> int:
 
 
 def _nav_curve_smooth_up(start_e6: int, drift_per_day: float, days: int) -> list[int]:
-    return [
-        int(start_e6 * (1.0 + drift_per_day) ** d) + _det_noise(d) for d in range(days)
-    ]
+    return [int(start_e6 * (1.0 + drift_per_day) ** d) + _det_noise(d) for d in range(days)]
 
 
-def _nav_curve_pump_dump(start_e6: int, peak_factor: float, trough_factor: float, days: int) -> list[int]:
+def _nav_curve_pump_dump(
+    start_e6: int, peak_factor: float, trough_factor: float, days: int
+) -> list[int]:
     half = days // 2
     out: list[int] = []
     for d in range(days):
@@ -274,17 +272,17 @@ def _nav_curve_flat(start_e6: int, jitter_e6: int, days: int) -> list[int]:
 def trajectory_for(vault_role: str, days: int = NAV_SAMPLES_PER_VAULT) -> list[int]:
     start = 5_000 * 10**6  # 5k USDC
     if vault_role == "strategyVaultMomentum":
-        return _nav_curve_smooth_up(start, 0.0089, days)            # +30% over 30d
+        return _nav_curve_smooth_up(start, 0.0089, days)  # +30% over 30d
     if vault_role == "strategyVaultMomentumVariant2":
-        return _nav_curve_pump_dump(start, 1.16, 0.84, days)         # +16% then -28%
+        return _nav_curve_pump_dump(start, 1.16, 0.84, days)  # +16% then -28%
     if vault_role == "strategyVaultMeanReversion":
-        return _nav_curve_choppy(start, 0.0030, 50_000, days)        # +9% with chop
+        return _nav_curve_choppy(start, 0.0030, 50_000, days)  # +9% with chop
     if vault_role == "strategyVaultMeanReversionVariant2":
-        return _nav_curve_flat(start, 30_000, days)                  # flat ± $30
+        return _nav_curve_flat(start, 30_000, days)  # flat ± $30
     if vault_role == "strategyVaultYieldRotation":
-        return _nav_curve_smooth_up(start, 0.0026, days)             # +8% over 30d
+        return _nav_curve_smooth_up(start, 0.0026, days)  # +8% over 30d
     if vault_role == "strategyVaultYieldRotationVariant2":
-        return _nav_curve_smooth_up(start, -0.0020, days)            # -6% over 30d
+        return _nav_curve_smooth_up(start, -0.0020, days)  # -6% over 30d
     raise ValueError(f"unknown vault role: {vault_role!r}")
 
 

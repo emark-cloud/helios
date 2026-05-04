@@ -131,9 +131,7 @@ def test_bootstrap_pool_funds_cold_start_strategy_excluded_by_main_filter() -> N
     a = SentinelAllocator()
     user = _meta(max_per_strategy_bps=10_000, max_strategies_count=2)
     warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=200)
-    cold = _candidate(
-        "0x" + "22" * 20, rep=0.0, trades_attested=0, stake=10_000
-    )
+    cold = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0, stake=10_000)
     targets = {t.strategy_id: t for t in a.allocate(user, [warm, cold], capital=10_000)}
     assert cold.strategy_id in targets
     # 10% bootstrap of 10_000 = 1_000, fully claimed by the only cold candidate.

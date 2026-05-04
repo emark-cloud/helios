@@ -116,12 +116,17 @@ class AnchorPoster:
         assert self._contract is not None
 
         u = signed.update
-        # ReputationData struct: (currentScore, lastUpdateBlock,
-        # totalAttestedTrades, totalRealizedPnL, maxDrawdownBps,
-        # proofValidityRateBps, actorType). web3 takes a tuple in field
-        # order — actorType is *also* a top-level arg per the function
-        # signature; the duplicated field in the struct is what gets
-        # signed in the EIP-712 typed payload.
+        # ReputationData struct (V2 schema, post-WS3.A — adds componentsHash):
+        #   (currentScore, lastUpdateBlock, totalAttestedTrades,
+        #    totalRealizedPnL, maxDrawdownBps, proofValidityRateBps,
+        #    actorType, componentsHash). web3 takes a tuple in field order;
+        # actorType is *also* a top-level arg per the function signature
+        # (the duplicated field in the struct is what gets signed in the
+        # EIP-712 typed payload). componentsHash is right-padded to bytes32.
+        components_hash = u.components_hash if u.components_hash else b""
+        if len(components_hash) > 32:
+            raise ValueError("components_hash exceeds 32 bytes")
+        components_hash_b32 = components_hash.rjust(32, b"\x00")
         data_tuple = (
             int(u.current_score),
             int(u.last_update_block),
@@ -130,6 +135,7 @@ class AnchorPoster:
             int(u.max_drawdown_bps),
             int(u.proof_validity_rate_bps),
             int(u.actor_type),
+            components_hash_b32,
         )
         fn = self._contract.functions.postReputationUpdate(
             Web3.to_checksum_address(u.actor),

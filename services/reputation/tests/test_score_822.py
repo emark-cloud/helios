@@ -175,16 +175,14 @@ def test_annualized_sharpe_handles_short_series() -> None:
 def test_annualized_sharpe_positive_with_realistic_noise() -> None:
     # Trending NAV with day-to-day noise → positive but finite Sharpe.
     series = [
-        (86_400 * d, int(10**18 * (1.001**d) * (1 + 0.0005 * ((d % 3) - 1))))
-        for d in range(20)
+        (86_400 * d, int(10**18 * (1.001**d) * (1 + 0.0005 * ((d % 3) - 1)))) for d in range(20)
     ]
     assert annualized_sharpe_from_nav(series) > 0.0
 
 
 def test_annualized_sharpe_negative_with_declining_nav() -> None:
     series = [
-        (86_400 * d, int(10**18 * (0.999**d) * (1 + 0.0005 * ((d % 3) - 1))))
-        for d in range(20)
+        (86_400 * d, int(10**18 * (0.999**d) * (1 + 0.0005 * ((d % 3) - 1)))) for d in range(20)
     ]
     assert annualized_sharpe_from_nav(series) < 0.0
 
@@ -218,9 +216,7 @@ def test_zero_trades_returns_stake_only_floor() -> None:
 
 
 def test_zero_trades_zero_stake_floors_to_zero() -> None:
-    out = compute_score(
-        _cold_start_inputs(trades=0, stake_e18=0), _example_cohort()
-    )
+    out = compute_score(_cold_start_inputs(trades=0, stake_e18=0), _example_cohort())
     assert out.components.stake == 0.0
     assert out.score_e4 == 0
 

@@ -35,23 +35,15 @@ from yield_rotation_v1.strategy import YieldRotationStrategy
 
 
 class Settings(BaseServiceSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="YIELD_ROT_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="YIELD_ROT_", env_file=".env", extra="ignore")
 
     oracle_endpoint: str = Field(default="", validation_alias="ORACLE_ENDPOINT")
     prover_endpoint: str = Field(default="", validation_alias="PROVER_ENDPOINT")
-    strategy_vault_address: str = Field(
-        default="", validation_alias="STRATEGY_VAULT_ADDRESS"
-    )
+    strategy_vault_address: str = Field(default="", validation_alias="STRATEGY_VAULT_ADDRESS")
     operator_pk: str = Field(default="", validation_alias="YIELD_ROT_OPERATOR_PK")
     nav_oracle_pk: str = Field(default="", validation_alias="NAV_ORACLE_PK")
-    allocator_address: str = Field(
-        default="0x" + "0" * 40, validation_alias="ALLOCATOR_ADDRESS"
-    )
-    declared_class_field: int = Field(
-        default=0, validation_alias="YIELD_ROT_DECLARED_CLASS_FIELD"
-    )
+    allocator_address: str = Field(default="0x" + "0" * 40, validation_alias="ALLOCATOR_ADDRESS")
+    declared_class_field: int = Field(default=0, validation_alias="YIELD_ROT_DECLARED_CLASS_FIELD")
     market_ids: str = Field(default="", validation_alias="YIELD_ROT_MARKET_IDS")
     registry_ids: str = Field(default="", validation_alias="YIELD_ROT_REGISTRY_IDS")
     signal_threshold_bps: int = 80
@@ -68,15 +60,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         timeout=35.0, headers={"User-Agent": "helios-yield-rotation/0.1"}
     )
     oracle = (
-        YieldOracleClient(cfg.oracle_endpoint, client=http_client)
-        if cfg.oracle_endpoint
-        else None
+        YieldOracleClient(cfg.oracle_endpoint, client=http_client) if cfg.oracle_endpoint else None
     )
-    prover = (
-        ProverClient(cfg.prover_endpoint, client=http_client)
-        if cfg.prover_endpoint
-        else None
-    )
+    prover = ProverClient(cfg.prover_endpoint, client=http_client) if cfg.prover_endpoint else None
     executor = TradeExecutor(
         rpc_url=cfg.kite_rpc_url,
         operator_pk=cfg.operator_pk,
@@ -130,9 +116,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "service": "yield_rotation_v1",
             "declared_class": strategy.declared_class,
             "allowlisted_markets": list(strategy.allowlisted_markets),
-            "subscriptions": [
-                {"market_id": m, "registry_id": r} for m, r in subs
-            ],
+            "subscriptions": [{"market_id": m, "registry_id": r} for m, r in subs],
             "live_chain_io": executor.live,
             "oracle_endpoint": cfg.oracle_endpoint,
             "prover_endpoint": cfg.prover_endpoint,
@@ -157,26 +141,20 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         }
 
     app = create_app(name="yield_rotation_v1", settings=cfg, routers=[router])
-    app.router.lifespan_context = _compose_lifespans(
-        app.router.lifespan_context, lifespan
-    )
+    app.router.lifespan_context = _compose_lifespans(app.router.lifespan_context, lifespan)
     app.state.strategy = strategy  # type: ignore[attr-defined]
     app.state.executor = executor  # type: ignore[attr-defined]
     app.state.runtime = runtime  # type: ignore[attr-defined]
     return app
 
 
-def _parse_subscriptions(
-    market_ids_csv: str, registry_ids_csv: str
-) -> list[tuple[str, int]]:
+def _parse_subscriptions(market_ids_csv: str, registry_ids_csv: str) -> list[tuple[str, int]]:
     if not market_ids_csv or not registry_ids_csv:
         return []
     markets = [s.strip() for s in market_ids_csv.split(",") if s.strip()]
     regs_raw = [s.strip() for s in registry_ids_csv.split(",") if s.strip()]
     if len(markets) != len(regs_raw):
-        raise ValueError(
-            "YIELD_ROT_MARKET_IDS and YIELD_ROT_REGISTRY_IDS must be the same length"
-        )
+        raise ValueError("YIELD_ROT_MARKET_IDS and YIELD_ROT_REGISTRY_IDS must be the same length")
     return [(m, int(r)) for m, r in zip(markets, regs_raw, strict=True)]
 
 

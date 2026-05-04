@@ -159,9 +159,7 @@ class ReputationEngine:
         valid_proofs = sum(1 for t in windowed_trades.last_30d if t.proof_valid)
         attempts = len(windowed_trades.last_30d)
         max_dd_bps_90d = _max_drawdown_bps(state.nav_snapshots_90d)
-        realized_pnl_30d_e18 = _nav_delta(
-            slice_windows(state.nav_snapshots_90d, now_unix).last_30d
-        )
+        realized_pnl_30d_e18 = _nav_delta(slice_windows(state.nav_snapshots_90d, now_unix).last_30d)
 
         # WS7.A: post-rotation track record. When last_rotation_epoch > 0,
         # AgeScore counts only post-rotation attestations and PerformanceScore
@@ -230,9 +228,7 @@ def _windowed_sharpes(state: StrategyState, now_unix: int) -> WindowSharpe:
     return _windowed_sharpes_from_navs(state.nav_snapshots_90d, now_unix)
 
 
-def _windowed_sharpes_from_navs(
-    navs: list[NavEvent], now_unix: int
-) -> WindowSharpe:
+def _windowed_sharpes_from_navs(navs: list[NavEvent], now_unix: int) -> WindowSharpe:
     w = slice_windows(navs, now_unix)
     return WindowSharpe(
         sharpe_7d=annualized_sharpe_from_nav(_to_pairs(w.last_7d)),

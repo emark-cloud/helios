@@ -58,8 +58,7 @@ def class_to_bytes32(declared_class: str) -> bytes:
     if declared_class in SLUG_TO_BYTES32:
         return SLUG_TO_BYTES32[declared_class]
     raise ValueError(
-        f"unknown class slug {declared_class!r}; "
-        "pass a known slug or a 0x-prefixed bytes32"
+        f"unknown class slug {declared_class!r}; pass a known slug or a 0x-prefixed bytes32"
     )
 
 

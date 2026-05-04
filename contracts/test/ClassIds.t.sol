@@ -37,7 +37,9 @@ contract ClassIdsTest is Test {
             "cd ../services/oracle && uv run --quiet python3 -c \"",
             "import sys; sys.path.insert(0, 'src');",
             "from oracle.poseidon import poseidon_hash;",
-            "n = int.from_bytes(b'", name, "', 'big');",
+            "n = int.from_bytes(b'",
+            name,
+            "', 'big');",
             "print(f'0x{poseidon_hash([n]):064x}')\""
         );
         bytes memory out = vm.ffi(cmd);

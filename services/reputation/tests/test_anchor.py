@@ -53,6 +53,7 @@ def test_live_encoding_uses_postReputationUpdate_selector() -> None:
 
     signed = _signed_update()
     u = signed.update  # type: ignore[attr-defined]
+    components_hash = (u.components_hash or b"").rjust(32, b"\x00")
     fn = poster._contract.functions.postReputationUpdate(
         u.actor,
         int(u.actor_type),
@@ -64,6 +65,7 @@ def test_live_encoding_uses_postReputationUpdate_selector() -> None:
             int(u.max_drawdown_bps),
             int(u.proof_validity_rate_bps),
             int(u.actor_type),
+            components_hash,
         ),
         signed.signature,  # type: ignore[attr-defined]
     )
@@ -73,9 +75,10 @@ def test_live_encoding_uses_postReputationUpdate_selector() -> None:
 
 
 def _expected_selector() -> str:
+    # V2 ReputationData layout (post-WS3.A — adds componentsHash bytes32).
     sig = (
         "postReputationUpdate(address,uint8,"
-        "(int256,uint256,uint256,uint256,uint256,uint256,uint8),bytes)"
+        "(int256,uint256,uint256,uint256,uint256,uint256,uint8,bytes32),bytes)"
     )
     return "0x" + keccak(sig.encode())[:4].hex()
 

@@ -211,9 +211,7 @@ class YieldPoller:
                 try:
                     self._on_snapshot(market_id)
                 except Exception as exc:
-                    _log.warning(
-                        "oracle.yield.hook_failed", market=market_id, err=str(exc)
-                    )
+                    _log.warning("oracle.yield.hook_failed", market=market_id, err=str(exc))
             return
         _log.error(
             "oracle.yield.no_source",

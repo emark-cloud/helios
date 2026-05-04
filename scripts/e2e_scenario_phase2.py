@@ -44,7 +44,11 @@ from eth_account.messages import encode_typed_data
 from eth_utils.crypto import keccak
 from helios_contracts_abi import (
     MEAN_REVERSION_V1 as CLASS_MR_BYTES32,
+)
+from helios_contracts_abi import (
     MOMENTUM_V1 as CLASS_MOM_BYTES32,
+)
+from helios_contracts_abi import (
     YIELD_ROTATION_V1 as CLASS_YR_BYTES32,
 )
 from helios_contracts_abi.abis import (
@@ -61,31 +65,31 @@ from web3.contract.contract import Contract
 # lives next to this file; ensure the dir is on the path so imports
 # resolve when we're invoked from anywhere.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _phase2_witness import (  # noqa: E402
-    build_mean_reversion_witness,
-    build_momentum_witness,
-    build_yield_rotation_witness,
-)
-from _phase2_oracle_nav import (  # noqa: E402
+from _phase2_oracle_nav import (
     ANCHOR_COMMITS_PER_ANCHOR,
     DAY_SEC,
     NAV_SAMPLES_PER_VAULT,
     NavTrajectoryDriver,
     OracleAnchorDriver,
 )
-from _phase2_reputation_local import LocalGoldskyStub  # noqa: E402
-
-# Reputation engine (workspace package). Imported here only — the engine
-# is async-driven from `step_drive_reputation` via `asyncio.run`.
-from reputation.engine import EngineUpdate, ReputationEngine  # noqa: E402
-from reputation.signer import ActorType, ReputationSigner  # noqa: E402
+from _phase2_reputation_local import LocalGoldskyStub
+from _phase2_witness import (
+    build_mean_reversion_witness,
+    build_momentum_witness,
+    build_yield_rotation_witness,
+)
 
 # Reuse the helios-cli encoder for proof bytes — single source of truth
 # for the snarkjs Fp2 imag/real swap. Available via uv workspace.
-from helios_cli._proof import (  # noqa: E402
+from helios_cli._proof import (
     proof_to_bytes,
     public_signals_to_uints,
 )
+
+# Reputation engine (workspace package). Imported here only — the engine
+# is async-driven from `step_drive_reputation` via `asyncio.run`.
+from reputation.engine import EngineUpdate, ReputationEngine
+from reputation.signer import ActorType, ReputationSigner
 
 # ── Anvil default keys (deterministic mnemonic).
 # Operator = anvil[0] = deployer per DeployPhase1.s.sol.
@@ -249,9 +253,7 @@ def _setup(rpc_url: str, deployments: Path, prover_url: str) -> Ctx:
     # deployments file produces a clear error if PR3 ever runs against it.
     for k in ("oraclePriceAnchor", "oracleYieldAnchor"):
         if k not in addrs:
-            raise RuntimeError(
-                f"deployments file missing {k!r}; did DeployPhase2.s.sol run?"
-            )
+            raise RuntimeError(f"deployments file missing {k!r}; did DeployPhase2.s.sol run?")
     oracle_price_anchor = w3.eth.contract(
         address=Web3.to_checksum_address(addrs["oraclePriceAnchor"]),
         abi=IOracleAnchor_ABI,
@@ -287,9 +289,7 @@ def _setup(rpc_url: str, deployments: Path, prover_url: str) -> Ctx:
 
 def step_fund(ctx: Ctx) -> None:
     print(f"[1] fund user with {_DEPOSIT_USDC // 1000}k mUSDC")
-    _send(
-        ctx.w3, ctx.deployer, ctx.usdc.functions.mint(ctx.user.address, _DEPOSIT_USDC * 10**6)
-    )
+    _send(ctx.w3, ctx.deployer, ctx.usdc.functions.mint(ctx.user.address, _DEPOSIT_USDC * 10**6))
     bal = ctx.usdc.functions.balanceOf(ctx.user.address).call()
     assert bal == _DEPOSIT_USDC * 10**6, f"user mUSDC balance {bal} unexpected"
 
@@ -342,9 +342,7 @@ def step_set_meta(ctx: Ctx) -> bytes:
 
 
 def step_deposit_and_delegate(ctx: Ctx) -> None:
-    print(
-        f"[3] user approve + deposit {_DEPOSIT_USDC // 1000}k mUSDC + delegate to AllocatorVault"
-    )
+    print(f"[3] user approve + deposit {_DEPOSIT_USDC // 1000}k mUSDC + delegate to AllocatorVault")
     _send(
         ctx.w3,
         ctx.user,
@@ -399,9 +397,7 @@ def _kite_long_series_b() -> list[int]:
     return [int(1.55e18 + i * 7e15) for i in range(16)]  # 1.55 → 1.655
 
 
-def _prove(
-    prover_url: str, strategy_class: str, witness_inputs: dict[str, Any]
-) -> dict[str, Any]:
+def _prove(prover_url: str, strategy_class: str, witness_inputs: dict[str, Any]) -> dict[str, Any]:
     """Synchronous httpx call to the local prover service. snarkjs proof gen
     clocks ~2-10s per proof on dev hardware (mean-reversion is ~2x momentum
     by constraint count); allow 60s."""
@@ -430,7 +426,7 @@ def step_emit_momentum_trades(ctx: Ctx) -> None:
     """
     print("\n[5] commitInitialParamsHash + executeWithProof × 2 momentum vaults")
     momentum_vaults: list[tuple[str, Contract, list[int]]] = [
-        ("strategyVaultMomentum",         ctx.strategy_vaults[0], _kite_long_series_a()),
+        ("strategyVaultMomentum", ctx.strategy_vaults[0], _kite_long_series_a()),
         ("strategyVaultMomentumVariant2", ctx.strategy_vaults[1], _kite_long_series_b()),
     ]
     for nonce_offset, (key, vault, prices) in enumerate(momentum_vaults):
@@ -497,7 +493,7 @@ def step_emit_mean_reversion_trades(ctx: Ctx) -> None:
     """
     print("\n[6] commitInitialParamsHash + executeWithProof × 2 mean-reversion vaults")
     mr_vaults: list[tuple[str, Contract, list[int]]] = [
-        ("strategyVaultMeanReversion",         ctx.strategy_vaults[2], _meanrev_long_series_a()),
+        ("strategyVaultMeanReversion", ctx.strategy_vaults[2], _meanrev_long_series_a()),
         ("strategyVaultMeanReversionVariant2", ctx.strategy_vaults[3], _meanrev_long_series_b()),
     ]
     for nonce_offset, (key, vault, prices) in enumerate(mr_vaults):
@@ -560,8 +556,13 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
     """
     print("\n[7] executeYieldRotationWithProof × 2 yield-rotation vaults")
     yr_vaults: list[tuple[str, Contract, str, str]] = [
-        ("strategyVaultYieldRotation",         ctx.strategy_vaults[4], "AAVE_USDC", "COMPOUND_USDC"),
-        ("strategyVaultYieldRotationVariant2", ctx.strategy_vaults[5], "AAVE_USDT", "COMPOUND_USDT"),
+        ("strategyVaultYieldRotation", ctx.strategy_vaults[4], "AAVE_USDC", "COMPOUND_USDC"),
+        (
+            "strategyVaultYieldRotationVariant2",
+            ctx.strategy_vaults[5],
+            "AAVE_USDT",
+            "COMPOUND_USDT",
+        ),
     ]
     for nonce_offset, (key, vault, from_m, to_m) in enumerate(yr_vaults):
         print(f"  ── {key} ({from_m} → {to_m}) ──")
@@ -659,10 +660,7 @@ def assert_pr1_skeleton(ctx: Ctx, start_block: int) -> None:
     # Filter to allocations for our user — Phase 1 e2e may have left
     # state on the same anvil if SKIP_ANVIL_BOOT was used.
     user_addr = ctx.user.address.lower()
-    our_allocs = [
-        e for e in alloc_created
-        if e["args"]["user"].lower() == user_addr
-    ]
+    our_allocs = [e for e in alloc_created if e["args"]["user"].lower() == user_addr]
     assert len(our_allocs) == 6, (
         f"expected exactly 6 AllocationCreated for user, got {len(our_allocs)} "
         f"(total events: {len(alloc_created)})"
@@ -749,10 +747,12 @@ def assert_pr2c_yield_rotation_trades(ctx: Ctx, start_block: int) -> None:
     variant2_to = variant2_logs[0]["args"]["mTo"]
     assert primary_hash != variant2_hash, "YR trade_hashes collided across vaults"
     assert (primary_from, primary_to) == (1, 2), (
-        f"primary rotation expected AAVE_USDC(1) → COMPOUND_USDC(2), got {primary_from} → {primary_to}"
+        f"primary rotation expected AAVE_USDC(1) → COMPOUND_USDC(2), "
+        f"got {primary_from} → {primary_to}"
     )
     assert (variant2_from, variant2_to) == (3, 4), (
-        f"variant2 rotation expected AAVE_USDT(3) → COMPOUND_USDT(4), got {variant2_from} → {variant2_to}"
+        f"variant2 rotation expected AAVE_USDT(3) → COMPOUND_USDT(4), "
+        f"got {variant2_from} → {variant2_to}"
     )
     print(
         f"  ✓ YieldRotationAttested on primary  {primary.address} "
@@ -813,9 +813,7 @@ def step_drive_reputation(ctx: Ctx, start_block: int) -> dict[str, EngineUpdate]
 # ── PR3.5 — WS7.A params rotation in scenario ─────────────
 
 
-def step_rotate_params_for_strategy(
-    ctx: Ctx, vault_role: str = "strategyVaultMomentum"
-) -> bytes:
+def step_rotate_params_for_strategy(ctx: Ctx, vault_role: str = "strategyVaultMomentum") -> bytes:
     """WS7.A: drive `initiateParamsRotation` → fast-forward past
     `stakeCooldown` (7 days per `DeployPhase1.STAKE_COOLDOWN`) →
     `completeParamsRotation`. Operator-only; uses the deployer key
@@ -952,7 +950,7 @@ def step_drive_bootstrap_pool(
         rebalance_cadence_sec=3_600,
         valid_until=0,
         bootstrap_share_bps=1_000,  # 10% — default
-        min_attested_trades=1,      # graduate the 6 trading vaults
+        min_attested_trades=1,  # graduate the 6 trading vaults
     )
     targets = SentinelAllocator().allocate(meta, candidates, capital=_DEPOSIT_USDC)
     by_id = {t.strategy_id.lower(): t for t in targets}
@@ -988,15 +986,13 @@ def assert_pr3_5c_bootstrap_pool(
 
     # 1. Fresh vault is in the result.
     assert fresh_addr_lower in by_id, (
-        f"fresh strategy {fresh_addr_lower} missing from allocator output; "
-        f"got {list(by_id)}"
+        f"fresh strategy {fresh_addr_lower} missing from allocator output; got {list(by_id)}"
     )
     fresh_target = by_id[fresh_addr_lower]
 
     # 2. Non-zero capital.
     assert fresh_target.capital_usd > 0, (
-        f"fresh strategy received zero capital from bootstrap pool; "
-        f"target={fresh_target}"
+        f"fresh strategy received zero capital from bootstrap pool; target={fresh_target}"
     )
     print(
         f"  ✓ fresh strategy {fresh_addr_lower[:10]}… got "
@@ -1005,8 +1001,7 @@ def assert_pr3_5c_bootstrap_pool(
 
     # 3. Per-strategy cap respected.
     assert fresh_target.weight_bps <= 5_000, (
-        f"fresh strategy weight {fresh_target.weight_bps} bps exceeds "
-        "max_per_strategy_bps=5000"
+        f"fresh strategy weight {fresh_target.weight_bps} bps exceeds max_per_strategy_bps=5000"
     )
     print(f"  ✓ weight_bps={fresh_target.weight_bps} respects max_per_strategy_bps=5000")
 
@@ -1042,18 +1037,18 @@ def assert_pr3_5_rotation_reset(
 ) -> None:
     """Verify the rotation re-tick produces the expected reset:
 
-      1. The rotated vault's `last_rotation_epoch` is now > 0 (fetched
-         by LocalGoldskyStub from the on-chain ParamsRotated event).
-      2. Its post-rotation `trades_attested` (the engine input) drops
-         to 0 — every pre-rotation trade timestamp is < rotation epoch.
-      3. Its post-rotation score collapses to the WS7.B cold-start
-         floor: `W_STAKE × stake_normalized` ≈ 1000 (e4) since stake
-         is at the cohort cap.
-      4. Risk + drawdown components are PRESERVED across the rotation —
-         the rotated vault's `max_drawdown_bps_90d` does not change
-         (rotation cannot mask prior drawdown history).
-      5. The 5 non-rotated vaults' scores are UNCHANGED across the
-         re-tick (their `last_rotation_epoch` is still 0).
+    1. The rotated vault's `last_rotation_epoch` is now > 0 (fetched
+       by LocalGoldskyStub from the on-chain ParamsRotated event).
+    2. Its post-rotation `trades_attested` (the engine input) drops
+       to 0 — every pre-rotation trade timestamp is < rotation epoch.
+    3. Its post-rotation score collapses to the WS7.B cold-start
+       floor: `W_STAKE × stake_normalized` ≈ 1000 (e4) since stake
+       is at the cohort cap.
+    4. Risk + drawdown components are PRESERVED across the rotation —
+       the rotated vault's `max_drawdown_bps_90d` does not change
+       (rotation cannot mask prior drawdown history).
+    5. The 5 non-rotated vaults' scores are UNCHANGED across the
+       re-tick (their `last_rotation_epoch` is still 0).
     """
     print("\n=== PR3.5 WS7.A rotation-reset assertions ===")
 
@@ -1104,7 +1099,7 @@ def assert_pr3_5_rotation_reset(
     )
 
     # 5. Non-rotated vaults: scores unchanged across the re-tick.
-    for (key, _cls) in _STRATEGY_VAULT_KEYS:
+    for key, _cls in _STRATEGY_VAULT_KEYS:
         if key == rotated_role:
             continue
         sid = ctx.addrs[key].lower()
@@ -1126,18 +1121,18 @@ def assert_pr3b_reputation_822(
 ) -> None:
     """Full §8.2 assertions on the engine output:
 
-      1. All 6 strategies received a score and a signed update envelope.
-      2. ScoreComponents has all 5 sub-components populated with the
-         expected sign / range (perf ∈ [-1,1], others ∈ [0,1]).
-      3. Cohort stats are reported per class for each window — even when
-         in the documented `is_fallback=True` mode (cohort_size=2 <
-         MIN_COHORT_SIZE=3 per WS7.B).
-      4. Within-class divergence: the primary strategy of each class
-         must score strictly higher than its variant2 sibling.
-      5. Drawdown ranking: momentum_v1 variant2 (heavy 28% drawdown)
-         must have a strictly LOWER `risk` component than its primary
-         (no drawdown).
-      6. componentsHash is a 32-byte non-empty value (typehash v2 input).
+    1. All 6 strategies received a score and a signed update envelope.
+    2. ScoreComponents has all 5 sub-components populated with the
+       expected sign / range (perf ∈ [-1,1], others ∈ [0,1]).
+    3. Cohort stats are reported per class for each window — even when
+       in the documented `is_fallback=True` mode (cohort_size=2 <
+       MIN_COHORT_SIZE=3 per WS7.B).
+    4. Within-class divergence: the primary strategy of each class
+       must score strictly higher than its variant2 sibling.
+    5. Drawdown ranking: momentum_v1 variant2 (heavy 28% drawdown)
+       must have a strictly LOWER `risk` component than its primary
+       (no drawdown).
+    6. componentsHash is a 32-byte non-empty value (typehash v2 input).
     """
     print("\n=== PR3.B reputation §8.2 assertions ===")
 
@@ -1188,7 +1183,7 @@ def assert_pr3b_reputation_822(
 
     # 4. Within-class divergence: primary > variant2.
     pairs = (
-        ("strategyVaultMomentum",     "strategyVaultMomentumVariant2",     "momentum"),
+        ("strategyVaultMomentum", "strategyVaultMomentumVariant2", "momentum"),
         ("strategyVaultMeanReversion", "strategyVaultMeanReversionVariant2", "mean-rev"),
         ("strategyVaultYieldRotation", "strategyVaultYieldRotationVariant2", "yield-rot"),
     )
@@ -1227,13 +1222,13 @@ def assert_pr3b_reputation_822(
 def assert_pr3a_oracle_and_nav(ctx: Ctx, start_block: int) -> None:
     """Verify the cadence drivers landed:
 
-      - `Committed` events on both oracle anchors == ANCHOR_COMMITS_PER_ANCHOR
-      - `NAVReported` events per vault == NAV_SAMPLES_PER_VAULT
-      - Each anchor's commit windows are strictly monotonic (the
-        contract enforces this; we cross-check that the read path
-        agrees with the write path).
-      - NAV trajectories are non-degenerate per vault (final NAV
-        differs from initial).
+    - `Committed` events on both oracle anchors == ANCHOR_COMMITS_PER_ANCHOR
+    - `NAVReported` events per vault == NAV_SAMPLES_PER_VAULT
+    - Each anchor's commit windows are strictly monotonic (the
+      contract enforces this; we cross-check that the read path
+      agrees with the write path).
+    - NAV trajectories are non-degenerate per vault (final NAV
+      differs from initial).
     """
     print("\n=== PR3.A oracle-anchor + NAV-trajectory assertions ===")
 
@@ -1256,28 +1251,20 @@ def assert_pr3a_oracle_and_nav(ctx: Ctx, start_block: int) -> None:
             we = int(ev["args"]["windowEnd"])
             assert we > ws, f"{label} commit window not strictly positive: {ws}..{we}"
             if prev_end is not None:
-                assert ws == prev_end, (
-                    f"{label} commit cadence broken: ws={ws} prev_we={prev_end}"
-                )
+                assert ws == prev_end, f"{label} commit cadence broken: ws={ws} prev_we={prev_end}"
             prev_end = we
-    print(
-        f"  ✓ OraclePriceAnchor.Committed × {len(price_logs)} (monotonic windows)"
-    )
-    print(
-        f"  ✓ OracleYieldAnchor.Committed × {len(yield_logs)} (monotonic windows)"
-    )
+    print(f"  ✓ OraclePriceAnchor.Committed × {len(price_logs)} (monotonic windows)")
+    print(f"  ✓ OracleYieldAnchor.Committed × {len(yield_logs)} (monotonic windows)")
 
     for (key, _cls), vault in zip(_STRATEGY_VAULT_KEYS, ctx.strategy_vaults, strict=True):
         nav_logs = _logs(vault, "NAVReported", start_block)
         assert len(nav_logs) == NAV_SAMPLES_PER_VAULT, (
-            f"{key}: expected {NAV_SAMPLES_PER_VAULT} NAVReported events, "
-            f"got {len(nav_logs)}"
+            f"{key}: expected {NAV_SAMPLES_PER_VAULT} NAVReported events, got {len(nav_logs)}"
         )
         first = int(nav_logs[0]["args"]["totalNAV"])
         last = int(nav_logs[-1]["args"]["totalNAV"])
         assert first != last, (
-            f"{key}: NAV trajectory is flat (start={first}, end={last}); "
-            "should diverge by class"
+            f"{key}: NAV trajectory is flat (start={first}, end={last}); should diverge by class"
         )
     print("  ✓ NAVReported × 30 per vault, 6 distinct trajectories")
     print("\nPR3.A: oracle anchor cadence + NAV trajectories GREEN")
@@ -1291,9 +1278,7 @@ def main() -> int:
     parser.add_argument("--rpc-url", default=os.environ.get("RPC_URL", "http://127.0.0.1:8545"))
     parser.add_argument(
         "--deployments",
-        default=os.environ.get(
-            "DEPLOYMENTS_FILE", "contracts/deployments/anvil-kite-phase2.json"
-        ),
+        default=os.environ.get("DEPLOYMENTS_FILE", "contracts/deployments/anvil-kite-phase2.json"),
     )
     parser.add_argument(
         "--prover-url",

@@ -60,7 +60,7 @@ def _to_wad(price_usd: float) -> str:
 
 
 def _kite_series() -> list[dict[str, str | int]]:
-    """KITE: ramp 1.50→1.75 (0..70) → drawdown 1.75→1.20 (70..150) → recovery 1.20→1.45 (150..200)."""
+    """KITE: ramp 1.50→1.75 (0..70), drawdown 1.75→1.20 (70..150), recovery (150..200)."""
     out = []
     for i in range(BARS):
         if i <= 70:

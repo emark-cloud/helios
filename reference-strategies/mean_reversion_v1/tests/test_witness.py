@@ -63,9 +63,7 @@ def test_long_entry_selectors_one_hot() -> None:
 
 def test_short_entry_selectors_one_hot() -> None:
     req = _build(
-        intent=_intent(
-            asset_in="WETH", asset_out="USDC", direction=Direction.SHORT
-        ),
+        intent=_intent(asset_in="WETH", asset_out="USDC", direction=Direction.SHORT),
     )
     inp = req.inputs
     assert inp["is_long_entry"] == "0"

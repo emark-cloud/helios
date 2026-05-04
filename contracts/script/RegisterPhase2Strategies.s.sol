@@ -57,9 +57,11 @@ contract RegisterPhase2Strategies is Script {
     ///      *different* from the primary strategy's hash (which Phase-1
     ///      sets to zero, so any non-zero value satisfies the cohort
     ///      diversity invariant).
-    bytes32 internal constant PARAMS_HASH_MOM_V2 = keccak256("helios.mom_v1.variant2.signal_threshold_300");
+    bytes32 internal constant PARAMS_HASH_MOM_V2 =
+        keccak256("helios.mom_v1.variant2.signal_threshold_300");
     bytes32 internal constant PARAMS_HASH_MR_V2 = keccak256("helios.mr_v1.variant2.n_sigma_300");
-    bytes32 internal constant PARAMS_HASH_YR_V2 = keccak256("helios.yr_v1.variant2.bridging_cost_60");
+    bytes32 internal constant PARAMS_HASH_YR_V2 =
+        keccak256("helios.yr_v1.variant2.bridging_cost_60");
 
     struct Inputs {
         uint256 deployerPk;
@@ -95,9 +97,8 @@ contract RegisterPhase2Strategies is Script {
         address deployer = vm.addr(i.deployerPk);
 
         vm.startBroadcast(i.deployerPk);
-        v.strategyVaultMomentumVariant2 = _deployVariant(
-            i, deployer, CLASS_MOM, PARAMS_HASH_MOM_V2, "momentum_v1.variant2"
-        );
+        v.strategyVaultMomentumVariant2 =
+            _deployVariant(i, deployer, CLASS_MOM, PARAMS_HASH_MOM_V2, "momentum_v1.variant2");
         v.strategyVaultMeanReversionVariant2 = _deployVariant(
             i, deployer, CLASS_MR, PARAMS_HASH_MR_V2, "mean_reversion_v1.variant2"
         );

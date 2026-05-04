@@ -165,7 +165,10 @@ contract RegisterPhase2StrategiesTest is Test {
         return outLabel;
     }
 
-    function _inputs(string memory suffix) internal returns (RegisterPhase2Strategies.Inputs memory) {
+    function _inputs(string memory suffix)
+        internal
+        returns (RegisterPhase2Strategies.Inputs memory)
+    {
         return RegisterPhase2Strategies.Inputs({
             deployerPk: deployerPk,
             usdc: address(usdc),
@@ -178,7 +181,8 @@ contract RegisterPhase2StrategiesTest is Test {
     }
 
     function test_RegistersTwoStrategiesPerClass() public {
-        RegisterPhase2Strategies.Variant2Addresses memory v = script.runWith(_inputs("two-per-class"));
+        RegisterPhase2Strategies.Variant2Addresses memory v =
+            script.runWith(_inputs("two-per-class"));
 
         address[] memory mom = strategyRegistry.strategiesByClass(CLASS_MOM);
         address[] memory mr = strategyRegistry.strategiesByClass(CLASS_MR);

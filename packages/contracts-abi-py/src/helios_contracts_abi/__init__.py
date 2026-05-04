@@ -17,13 +17,13 @@ from helios_contracts_abi.class_ids import (
 
 __all__ = [
     "ADDRESSES",
-    "CHAIN_IDS",
     "BYTES32_TO_SLUG",
-    "ChainName",
+    "CHAIN_IDS",
     "MEAN_REVERSION_V1",
     "MOMENTUM_V1",
     "SLUG_TO_BYTES32",
     "YIELD_ROTATION_V1",
+    "ChainName",
     "class_id_as_field",
     "class_id_for_slug",
 ]

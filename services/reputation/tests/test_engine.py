@@ -226,7 +226,7 @@ async def test_params_rotation_only_filters_perf_age_not_drawdown(
     snaps = [
         NavEvent(timestamp=_NOW - 5 * DAY_SEC, total_nav_e18=10**18),
         NavEvent(timestamp=_NOW - 4 * DAY_SEC, total_nav_e18=15 * 10**17),  # peak
-        NavEvent(timestamp=_NOW - 2 * DAY_SEC, total_nav_e18=9 * 10**17),   # trough
+        NavEvent(timestamp=_NOW - 2 * DAY_SEC, total_nav_e18=9 * 10**17),  # trough
     ]
     state = StrategyState(
         strategy_id="0x" + "f2" * 20,

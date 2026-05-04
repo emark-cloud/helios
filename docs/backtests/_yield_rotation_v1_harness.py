@@ -49,7 +49,11 @@ def run(seed: int) -> dict[str, float | int]:
 
     for tick in range(TICKS):
         ticks_now = {
-            m: YieldTick(market_id=m, apy_bps_e6=synth_apy_bps(seed, m, tick), timestamp_ms=tick * 3_600_000)
+            m: YieldTick(
+                market_id=m,
+                apy_bps_e6=synth_apy_bps(seed, m, tick),
+                timestamp_ms=tick * 3_600_000,
+            )
             for m in MARKETS
         }
         active = strategy._active_market  # type: ignore[attr-defined]
@@ -58,7 +62,9 @@ def run(seed: int) -> dict[str, float | int]:
             realized_yield_bps_ticks += apy
         intent = strategy.on_yield_tick(ticks_now)
         if intent is not None:
-            rotations.append((tick, intent.m_from, intent.m_to, intent.apy_to_bps - intent.apy_from_bps))
+            rotations.append(
+                (tick, intent.m_from, intent.m_to, intent.apy_to_bps - intent.apy_from_bps)
+            )
             strategy.set_active_market(intent.m_to)
 
     # Convert ticks-of-bps into annualised return: each tick is 1 hour;
@@ -83,11 +89,23 @@ def _median(xs: list[int]) -> float:
     return (xs[n // 2 - 1] + xs[n // 2]) / 2.0
 
 
+_HEADER = (
+    f"{'seed':>6} | {'rotations':>10} | {'avg_active_apy_bps':>20} | "
+    f"{'pos_diff':>10} | {'median_diff_bps':>16}"
+)
+
+
+def _format_row(r: dict[str, float | int]) -> str:
+    return (
+        f"{r['seed']:>6} | {r['rotations']:>10} | {r['avg_active_apy_bps']:>20} | "
+        f"{r['rotations_with_pos_diff']:>10} | {r['median_diff_bps']:>16}"
+    )
+
+
 def main() -> None:
-    print(f"{'seed':>6} | {'rotations':>10} | {'avg_active_apy_bps':>20} | {'pos_diff':>10} | {'median_diff_bps':>16}")
+    print(_HEADER)
     for seed in (17, 42, 101, 314, 7331):
-        r = run(seed)
-        print(f"{r['seed']:>6} | {r['rotations']:>10} | {r['avg_active_apy_bps']:>20} | {r['rotations_with_pos_diff']:>10} | {r['median_diff_bps']:>16}")
+        print(_format_row(run(seed)))
 
 
 if __name__ == "__main__":

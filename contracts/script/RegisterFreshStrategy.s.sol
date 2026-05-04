@@ -69,9 +69,8 @@ contract RegisterFreshStrategy is Script {
         // which set type(uint256).max — defensive in case a different
         // operator broadcasts.
         MockERC20(i.usdc).approve(i.strategyRegistry, type(uint256).max);
-        StrategyRegistry(i.strategyRegistry).registerStrategy(
-            freshVault, CLASS_MOM, STRATEGY_STAKE_3
-        );
+        StrategyRegistry(i.strategyRegistry)
+            .registerStrategy(freshVault, CLASS_MOM, STRATEGY_STAKE_3);
         vm.stopBroadcast();
 
         _logAndPersist(freshVault, i.outLabel);
@@ -127,10 +126,7 @@ contract RegisterFreshStrategy is Script {
         uint256 deployedAtVal = vm.parseJsonUint(raw, ".deployedAt");
 
         string memory addrsBody = _existingAddresses(raw);
-        addrsBody = string.concat(
-            addrsBody,
-            _kvLast("strategyVaultMomentumVariant3", freshVault)
-        );
+        addrsBody = string.concat(addrsBody, _kvLast("strategyVaultMomentumVariant3", freshVault));
 
         string memory merged = string.concat(
             "{\n",

@@ -53,11 +53,11 @@ def class_id_as_field(slug: str) -> int:
 
 
 __all__ = [
-    "MOMENTUM_V1",
-    "MEAN_REVERSION_V1",
-    "YIELD_ROTATION_V1",
-    "SLUG_TO_BYTES32",
     "BYTES32_TO_SLUG",
-    "class_id_for_slug",
+    "MEAN_REVERSION_V1",
+    "MOMENTUM_V1",
+    "SLUG_TO_BYTES32",
+    "YIELD_ROTATION_V1",
     "class_id_as_field",
+    "class_id_for_slug",
 ]

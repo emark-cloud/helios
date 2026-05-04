@@ -12,13 +12,11 @@ too — Poseidon over those 11 fields fixes both roots.
 from __future__ import annotations
 
 from oracle.poseidon import poseidon_hash
-
 from yield_rotation_v1.merkle import (
     build_allowlist_tree,
     build_yield_tree,
     inclusion_proof,
 )
-
 
 # Canonical fixture inputs from gen-fixture-yr.js
 MARKETS = {
@@ -41,13 +39,9 @@ YIELD_SNAPSHOTS = [
 ]
 
 # publicSignals[5] from contracts/test/fixtures/yield_rotation_v1.json
-EXPECTED_YIELD_ROOT = (
-    19617008100108992903905573385623852931387633461552456891295159462318722212376
-)
+EXPECTED_YIELD_ROOT = 19617008100108992903905573385623852931387633461552456891295159462318722212376
 # publicSignals[0]
-EXPECTED_TRADE_HASH = (
-    20663455979481276034561464138722727257422408101475448626751031931004162363337
-)
+EXPECTED_TRADE_HASH = 20663455979481276034561464138722727257422408101475448626751031931004162363337
 
 
 def test_yield_tree_root_matches_js_fixture() -> None:
@@ -99,10 +93,7 @@ def test_inclusion_proof_recovers_root_yield() -> None:
     leaf = tree.levels[0][0]
     cur = leaf
     for path_bit, sib in zip(proof.path_indices, proof.siblings, strict=True):
-        if path_bit == 0:
-            cur = poseidon_hash([cur, sib])
-        else:
-            cur = poseidon_hash([sib, cur])
+        cur = poseidon_hash([cur, sib]) if path_bit == 0 else poseidon_hash([sib, cur])
     assert cur == tree.root
 
 
@@ -111,10 +102,7 @@ def test_inclusion_proof_recovers_root_allowlist() -> None:
     proof = inclusion_proof(tree, 1)  # COMPOUND_USDC
     cur = tree.levels[0][1]
     for path_bit, sib in zip(proof.path_indices, proof.siblings, strict=True):
-        if path_bit == 0:
-            cur = poseidon_hash([cur, sib])
-        else:
-            cur = poseidon_hash([sib, cur])
+        cur = poseidon_hash([cur, sib]) if path_bit == 0 else poseidon_hash([sib, cur])
     assert cur == tree.root
 
 

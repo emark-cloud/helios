@@ -29,9 +29,8 @@ from typing import Any
 _ORACLE_SRC = Path(__file__).resolve().parent.parent / "services" / "oracle" / "src"
 if str(_ORACLE_SRC) not in sys.path:
     sys.path.insert(0, str(_ORACLE_SRC))
-from oracle.poseidon import poseidon_chain, poseidon_hash  # noqa: E402
-
-from helios_contracts_abi.class_ids import class_id_as_field  # noqa: E402
+from helios_contracts_abi.class_ids import class_id_as_field
+from oracle.poseidon import poseidon_chain, poseidon_hash
 
 PRICE_OBSERVATIONS = 16
 
@@ -79,9 +78,7 @@ def build_momentum_witness(
     signal_threshold * price_first`.
     """
     if len(price_observations_e18) != PRICE_OBSERVATIONS:
-        raise ValueError(
-            f"price_observations_e18 must be exactly {PRICE_OBSERVATIONS} bars"
-        )
+        raise ValueError(f"price_observations_e18 must be exactly {PRICE_OBSERVATIONS} bars")
     if amount_in > max_position_size:
         raise ValueError("amount_in > max_position_size violates circuit constraint 1")
 
@@ -190,9 +187,7 @@ def build_mean_reversion_witness(
     (e.g. `200` ⇒ 2.00σ).
     """
     if len(price_observations) != PRICE_OBSERVATIONS:
-        raise ValueError(
-            f"price_observations must be exactly {PRICE_OBSERVATIONS} bars"
-        )
+        raise ValueError(f"price_observations must be exactly {PRICE_OBSERVATIONS} bars")
     if amount_in > max_position_size:
         raise ValueError("amount_in > max_position_size violates circuit constraint 1")
 
@@ -359,9 +354,7 @@ def build_yield_rotation_witness(
 
     # Leaves are pre-Poseidon-hashed: yield leaf = Poseidon(market_id, apy);
     # allowlist leaf = Poseidon(market_id). Pad both trees up to 2^depth.
-    yield_leaves = [
-        poseidon_hash([_MARKETS[m], _APY_BPS[m]]) for m in _MARKET_ORDER
-    ]
+    yield_leaves = [poseidon_hash([_MARKETS[m], _APY_BPS[m]]) for m in _MARKET_ORDER]
     yield_pad = poseidon_hash([0, 0])
     while len(yield_leaves) < (1 << YIELD_DEPTH):
         yield_leaves.append(yield_pad)
@@ -440,10 +433,10 @@ def build_yield_rotation_witness(
 
 __all__ = [
     "ALLOW_DEPTH",
-    "MeanReversionWitness",
-    "MomentumWitness",
     "PRICE_OBSERVATIONS",
     "YIELD_DEPTH",
+    "MeanReversionWitness",
+    "MomentumWitness",
     "YieldRotationWitness",
     "build_mean_reversion_witness",
     "build_momentum_witness",

@@ -73,6 +73,7 @@ select = ["E", "F", "I", "W", "B", "UP", "SIM", "PL", "RUF"]
 ignore = [
     "PLR0913",  # too many args — not useful for config classes
     "PLR2004",  # magic numbers — fine for BPS constants etc
+    "RUF001",   # ambiguous unicode in strings (× / − in user-facing print + log lines)
     "RUF002",   # ambiguous unicode in docstrings (en-dash in specs)
     "RUF003",   # ambiguous unicode in comments
 ]
@@ -82,6 +83,20 @@ ignore = [
 "packages/helios-cli/**/*.py" = ["B008"]
 # Alembic uses its own migrations DSL.
 "services/*/migrations/*.py" = ["E402", "F401"]
+# E2E scripts: top-level import order is dictated by sys.path manipulation
+# (workspace package discovery) and we deliberately keep heavy imports
+# function-local for fast startup of CLI subcommands.
+"scripts/**/*.py" = ["E402", "PLC0415"]
+"scenarios/**/*.py" = ["RUF046"]
+# Mean-reversion signal logic is a flat decision tree (long-entry, short-entry,
+# stop-loss, mean re-cross, no-op) — early returns are clearer than nesting.
+"reference-strategies/mean_reversion_v1/src/mean_reversion_v1/strategy.py" = ["PLR0911"]
+# Oracle Settings holds the full env-var surface area for the service —
+# intentional length, not a refactor target.
+"services/oracle/src/oracle/service.py" = ["PLR0915"]
+# Test files often inline imports inside the test for clarity over a
+# cross-test side-effect when one test exercises an optional dependency.
+"reference-strategies/**/tests/*.py" = ["PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

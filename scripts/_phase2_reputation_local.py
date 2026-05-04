@@ -101,8 +101,7 @@ class LocalGoldskyStub:
         for ev in logs:
             if str(ev["args"]["strategyId"]).lower() != target:
                 continue
-            if ev["blockNumber"] > latest_block:
-                latest_block = ev["blockNumber"]
+            latest_block = max(latest_block, ev["blockNumber"])
         if latest_block == 0:
             return 0
         block = self._w3.eth.get_block(latest_block)
@@ -114,14 +113,10 @@ class LocalGoldskyStub:
             reg = _strategy_record(self._registry, vault.address)
 
             nav_logs = list(
-                vault.events.NAVReported.get_logs(
-                    from_block=self._from_block, to_block="latest"
-                )
+                vault.events.NAVReported.get_logs(from_block=self._from_block, to_block="latest")
             )
             trade_logs = list(
-                vault.events.TradeAttested.get_logs(
-                    from_block=self._from_block, to_block="latest"
-                )
+                vault.events.TradeAttested.get_logs(from_block=self._from_block, to_block="latest")
             )
             yr_logs = list(
                 vault.events.YieldRotationAttested.get_logs(
