@@ -78,21 +78,19 @@ contract StrategyVaultTest is Test {
         });
 
         impl = new StrategyVault();
-        bytes memory initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                registry,
-                address(verifier),
-                allowedRouter,
-                navOracle,
-                allocatorVault,
-                priceAnchor,
-                yieldAnchor,
-                owner
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: registry,
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: allocatorVault,
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
         vault = StrategyVault(address(new ERC1967Proxy(address(impl), initData)));
 
         // Fund allocator vault and approve the strategy vault.
@@ -140,21 +138,19 @@ contract StrategyVaultTest is Test {
             stakeAmount: 0,
             paramsHash: bytes32(0)
         });
-        bytes memory initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                registry,
-                address(verifier),
-                allowedRouter,
-                navOracle,
-                allocatorVault,
-                priceAnchor,
-                yieldAnchor,
-                owner
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: registry,
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: allocatorVault,
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
         vm.expectRevert();
         new ERC1967Proxy(address(freshImpl), initData);
     }
@@ -171,19 +167,20 @@ contract StrategyVaultTest is Test {
             stakeAmount: 0,
             paramsHash: bytes32(0)
         });
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: registry,
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: allocatorVault,
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        vault.initialize(
-            m,
-            usdc,
-            registry,
-            address(verifier),
-            allowedRouter,
-            navOracle,
-            allocatorVault,
-            priceAnchor,
-            yieldAnchor,
-            owner
-        );
+        vault.initialize(p);
     }
 
     function test_Initialize_DisablesOnImplementation() public {
@@ -198,19 +195,20 @@ contract StrategyVaultTest is Test {
             stakeAmount: 0,
             paramsHash: bytes32(0)
         });
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: registry,
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: allocatorVault,
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(
-            m,
-            usdc,
-            registry,
-            address(verifier),
-            allowedRouter,
-            navOracle,
-            allocatorVault,
-            priceAnchor,
-            yieldAnchor,
-            owner
-        );
+        impl.initialize(p);
     }
 
     // ── allocateFrom ────────────────────────────────────────────────

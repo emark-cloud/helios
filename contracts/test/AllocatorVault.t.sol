@@ -149,21 +149,19 @@ contract AllocatorVaultTest is Test {
         // The strategy vault needs the AllocatorVault address as its allocator
         // peer. We may not yet know that address before deployment in the real
         // case (paired in DeployPhase1.s.sol), but in tests we already do.
-        bytes memory initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(registry),
-                address(verifier),
-                allowedRouter,
-                navOracle,
-                address(allocatorVault),
-                priceAnchor,
-                yieldAnchor,
-                owner
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: address(registry),
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: address(allocatorVault),
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
         s = StrategyVault(address(new ERC1967Proxy(address(impl), initData)));
     }
 

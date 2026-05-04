@@ -53,6 +53,7 @@ from helios_contracts_abi import (
 )
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
+    IOracleAnchor_ABI,
     IReputationAnchor_ABI,
     IStrategyVault_ABI,
     IUserVault_ABI,
@@ -114,6 +115,7 @@ class Ctx:
     strategy_meanrev: Contract
     reputation_anchor: Contract
     usdc: Contract
+    price_anchor: Contract
 
 
 # ── Setup ────────────────────────────────────────────────────
@@ -186,6 +188,10 @@ def _setup(rpc_url: str, deployments: Path) -> Ctx:
         address=Web3.to_checksum_address(addrs["usdc"]),
         abi=_ERC20_MINT_ABI,
     )
+    price_anchor = w3.eth.contract(
+        address=Web3.to_checksum_address(addrs["oraclePriceAnchor"]),
+        abi=IOracleAnchor_ABI,
+    )
     return Ctx(
         w3=w3,
         chain_id=chain_id,
@@ -199,6 +205,7 @@ def _setup(rpc_url: str, deployments: Path) -> Ctx:
         strategy_meanrev=strategy_meanrev,
         reputation_anchor=reputation_anchor,
         usdc=usdc,
+        price_anchor=price_anchor,
     )
 
 
@@ -295,7 +302,60 @@ def step_allocate(ctx: Ctx, strategy: str, amount_usdc: int) -> dict[str, Any]:
     )
 
 
-def step_execute_with_proof(ctx: Ctx, strategy: Contract) -> dict[str, Any]:
+_PHASE1_ORACLE_ROOT = keccak(b"phase1-e2e-oracle-root")
+
+
+def step_commit_oracle_root(ctx: Ctx) -> bytes:
+    """Post a single EIP-712-signed price commit so `_validateAndVerify`'s
+    `priceAnchor.isKnownRoot(...)` check passes.
+
+    PR1a (`StrategyVault` ↔ `OraclePriceAnchor`) made the oracle root in
+    `publicInputs[13]` a real on-chain check — the prior `bytes32(0)`
+    placeholder no longer flies. The Phase 1 e2e still uses the mock
+    Groth16 verifier, but the anchor binding runs *before* the verifier,
+    so we need a single legitimate commit. Window math mirrors
+    `_phase2_oracle_nav._commits_for_anchor` (millisecond units, monotonic
+    adjacency). One commit is enough — Phase 1 only fires one trade.
+    """
+    print("[4.5] deployer commits a single price-anchor root (post-PR1a binding)")
+    nonce = ctx.price_anchor.functions.nonce().call()
+    base_ts_ms = int(ctx.w3.eth.get_block("latest").get("timestamp", int(time.time()))) * 1_000
+    bar_window_ms = 60 * 1_000  # 1 minute, generous for a single Phase 1 commit
+    window_start = base_ts_ms
+    window_end = base_ts_ms + bar_window_ms
+    domain = {
+        "name": "HeliosOraclePriceAnchor",
+        "version": "1",
+        "chainId": ctx.chain_id,
+        "verifyingContract": Web3.to_checksum_address(ctx.price_anchor.address),
+    }
+    types = {
+        "OraclePriceCommit": [
+            {"name": "root", "type": "bytes32"},
+            {"name": "windowStart", "type": "uint64"},
+            {"name": "windowEnd", "type": "uint64"},
+            {"name": "nonce", "type": "uint256"},
+        ]
+    }
+    message = {
+        "root": _PHASE1_ORACLE_ROOT,
+        "windowStart": window_start,
+        "windowEnd": window_end,
+        "nonce": nonce,
+    }
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    sig = bytes(ctx.deployer.sign_message(encoded).signature)
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        ctx.price_anchor.functions.commit(_PHASE1_ORACLE_ROOT, window_start, window_end, sig),
+    )
+    return _PHASE1_ORACLE_ROOT
+
+
+def step_execute_with_proof(
+    ctx: Ctx, strategy: Contract, oracle_root: bytes
+) -> dict[str, Any]:
     """Send executeWithProof with mock-friendly publicInputs.
 
     DeployPhase1 registers MockGroth16Verifier(true) for momentum_v1 in
@@ -307,8 +367,9 @@ def step_execute_with_proof(ctx: Ctx, strategy: Contract) -> dict[str, Any]:
     Public-input layout matches `StrategyVault.PI_*` indices (14 slots
     total, post-WS7.A schema). The vault validates declaredClass /
     strategyVault / paramsHash / allocator / asset universe / block
-    window before forwarding to the verifier; mock-verifier-true makes
-    the proof bytes themselves a no-op.
+    window + oracle root (PR1a binding) before forwarding to the
+    verifier; mock-verifier-true makes the proof bytes themselves a
+    no-op.
     """
     print("[5] operator executeWithProof (mock verifier; trades=[] skips swap)")
     block = ctx.w3.eth.block_number
@@ -333,7 +394,7 @@ def step_execute_with_proof(ctx: Ctx, strategy: Contract) -> dict[str, Any]:
         0,  # 10 PI_NONCE
         block,  # 11 PI_BLOCK_WINDOW_START
         block + 50,  # 12 PI_BLOCK_WINDOW_END
-        0,  # 13 PI_ORACLE_ROOT (unchecked under mock verifier)
+        int.from_bytes(oracle_root, "big"),  # 13 PI_ORACLE_ROOT (PR1a binding)
     ]
     return _send(
         ctx.w3,
@@ -507,7 +568,8 @@ def main() -> int:
     step_set_meta(ctx)
     step_deposit_and_delegate(ctx)
     step_allocate(ctx, ctx.addrs["strategyVaultMomentum"], 10_000)
-    step_execute_with_proof(ctx, ctx.strategy_momentum)
+    oracle_root = step_commit_oracle_root(ctx)
+    step_execute_with_proof(ctx, ctx.strategy_momentum, oracle_root)
     step_post_reputation(ctx)
 
     # NAV is reported in the same base units as the underlying asset

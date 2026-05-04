@@ -139,21 +139,19 @@ contract RegisterPhase2Strategies is Script {
             stakeAmount: STRATEGY_STAKE_2,
             paramsHash: paramsHash
         });
-        bytes memory init = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                MockERC20(i.usdc),
-                i.strategyRegistry,
-                i.tradeVerifier,
-                i.swapRouter,
-                deployer,
-                i.allocatorVault,
-                i.oraclePriceAnchor,
-                i.oracleYieldAnchor,
-                deployer
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: MockERC20(i.usdc),
+            registry: i.strategyRegistry,
+            verifier: i.tradeVerifier,
+            allowedRouter: i.swapRouter,
+            navOracle: deployer,
+            allocatorVault: i.allocatorVault,
+            priceAnchor: i.oraclePriceAnchor,
+            yieldAnchor: i.oracleYieldAnchor,
+            owner: deployer
+        });
+        bytes memory init = abi.encodeCall(StrategyVault.initialize, (p));
         address vault = address(new ERC1967Proxy(address(impl), init));
         console2.log(string.concat("StrategyVault[", label, "]:"), vault);
         return vault;

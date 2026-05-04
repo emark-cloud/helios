@@ -196,21 +196,19 @@ contract DeployPhase1 is Script {
             // deploy script leaves it zero. Real strategies set it before registering.
             paramsHash: bytes32(0)
         });
-        bytes memory init = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                MockERC20(a.usdc),
-                a.strategyRegistry,
-                a.tradeVerifier,
-                a.swapRouter,
-                deployer, // navOracle (deployer in Phase 1)
-                a.allocatorVault,
-                a.oraclePriceAnchor,
-                a.oracleYieldAnchor,
-                deployer
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: MockERC20(a.usdc),
+            registry: a.strategyRegistry,
+            verifier: a.tradeVerifier,
+            allowedRouter: a.swapRouter,
+            navOracle: deployer, // navOracle (deployer in Phase 1)
+            allocatorVault: a.allocatorVault,
+            priceAnchor: a.oraclePriceAnchor,
+            yieldAnchor: a.oracleYieldAnchor,
+            owner: deployer
+        });
+        bytes memory init = abi.encodeCall(StrategyVault.initialize, (p));
         address vault = address(new ERC1967Proxy(address(impl), init));
         console2.log(string.concat("StrategyVault (", label, "):"), vault);
         return vault;

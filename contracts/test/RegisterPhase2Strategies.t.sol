@@ -134,21 +134,19 @@ contract RegisterPhase2StrategiesTest is Test {
             stakeAmount: STRATEGY_STAKE_V1,
             paramsHash: bytes32(0)
         });
-        bytes memory init = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(strategyRegistry),
-                address(tav),
-                address(swapRouter),
-                deployer,
-                address(allocatorVault),
-                address(priceAnchor),
-                address(yieldAnchor),
-                deployer
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: address(strategyRegistry),
+            verifier: address(tav),
+            allowedRouter: address(swapRouter),
+            navOracle: deployer,
+            allocatorVault: address(allocatorVault),
+            priceAnchor: address(priceAnchor),
+            yieldAnchor: address(yieldAnchor),
+            owner: deployer
+        });
+        bytes memory init = abi.encodeCall(StrategyVault.initialize, (p));
         return address(new ERC1967Proxy(address(impl), init));
     }
 

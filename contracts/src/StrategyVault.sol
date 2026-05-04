@@ -113,42 +113,47 @@ contract StrategyVault is
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
 
+    /// @notice Bundled initializer params. Bundled because passing 10 distinct
+    ///         arguments blows the no-optimizer build's 16-stack-slot ceiling
+    ///         under `forge coverage` (Stack too deep).
+    struct InitParams {
+        StrategyManifest manifest;
+        IERC20 baseAsset;
+        address registry;
+        address verifier;
+        address allowedRouter;
+        address navOracle;
+        address allocatorVault;
+        address priceAnchor;
+        address yieldAnchor;
+        address owner;
+    }
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(
-        StrategyManifest calldata manifest_,
-        IERC20 baseAsset_,
-        address registry_,
-        address verifier_,
-        address allowedRouter_,
-        address navOracle_,
-        address allocatorVault_,
-        address priceAnchor_,
-        address yieldAnchor_,
-        address owner_
-    ) external initializer {
+    function initialize(InitParams calldata p) external initializer {
         if (
-            manifest_.operator == address(0) || address(baseAsset_) == address(0)
-                || registry_ == address(0) || verifier_ == address(0)
-                || allowedRouter_ == address(0) || navOracle_ == address(0)
-                || allocatorVault_ == address(0) || priceAnchor_ == address(0)
-                || yieldAnchor_ == address(0) || owner_ == address(0)
+            p.manifest.operator == address(0) || address(p.baseAsset) == address(0)
+                || p.registry == address(0) || p.verifier == address(0)
+                || p.allowedRouter == address(0) || p.navOracle == address(0)
+                || p.allocatorVault == address(0) || p.priceAnchor == address(0)
+                || p.yieldAnchor == address(0) || p.owner == address(0)
         ) revert ZeroAddress();
 
-        __Ownable_init(owner_);
+        __Ownable_init(p.owner);
 
-        _manifest = manifest_;
-        baseAsset = baseAsset_;
-        registry = registry_;
-        verifier = verifier_;
-        allowedRouter = allowedRouter_;
-        navOracle = navOracle_;
-        allocatorVault = allocatorVault_;
-        priceAnchor = priceAnchor_;
-        yieldAnchor = yieldAnchor_;
+        _manifest = p.manifest;
+        baseAsset = p.baseAsset;
+        registry = p.registry;
+        verifier = p.verifier;
+        allowedRouter = p.allowedRouter;
+        navOracle = p.navOracle;
+        allocatorVault = p.allocatorVault;
+        priceAnchor = p.priceAnchor;
+        yieldAnchor = p.yieldAnchor;
     }
 
     modifier onlyOperator() {
