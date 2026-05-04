@@ -353,9 +353,7 @@ def step_commit_oracle_root(ctx: Ctx) -> bytes:
     return _PHASE1_ORACLE_ROOT
 
 
-def step_execute_with_proof(
-    ctx: Ctx, strategy: Contract, oracle_root: bytes
-) -> dict[str, Any]:
+def step_execute_with_proof(ctx: Ctx, strategy: Contract, oracle_root: bytes) -> dict[str, Any]:
     """Send executeWithProof with mock-friendly publicInputs.
 
     DeployPhase1 registers MockGroth16Verifier(true) for momentum_v1 in
