@@ -111,6 +111,10 @@ class ReputationEngine:
             _log.warning("reputation.goldsky.error", err=str(exc), exc_info=True)
             return []
 
+        # WS7.A: when last_rotation_epoch > 0, perf+age windows reset to
+        # the rotation epoch (track-record breaks visibly across
+        # rotations). Risk + proof use the full 90d window so a rotation
+        # cannot wipe drawdown / proof history.
         sharpes_by_strategy = {s.strategy_id: _windowed_sharpes(s, ts) for s in states}
         cohort_by_class = _build_cohorts(states, sharpes_by_strategy)
         max_stake_by_class = _max_stake_by_class(states)
@@ -155,9 +159,26 @@ class ReputationEngine:
         valid_proofs = sum(1 for t in windowed_trades.last_30d if t.proof_valid)
         attempts = len(windowed_trades.last_30d)
         max_dd_bps_90d = _max_drawdown_bps(state.nav_snapshots_90d)
-        realized_pnl_30d_e18 = _nav_delta(
-            slice_windows(state.nav_snapshots_90d, now_unix).last_30d
-        )
+        realized_pnl_30d_e18 = _nav_delta(slice_windows(state.nav_snapshots_90d, now_unix).last_30d)
+
+        # WS7.A: post-rotation track record. When last_rotation_epoch > 0,
+        # AgeScore counts only post-rotation attestations and PerformanceScore
+        # uses Sharpes from post-rotation NAVs. The score input's
+        # `trades_attested` becomes the post-rotation count — when zero,
+        # `compute_score` takes the WS7.B cold-start path (stake-only floor)
+        # which is the correct rendering of "track record reset".
+        rotation_epoch = state.last_rotation_epoch
+        if rotation_epoch > 0:
+            # Strict `>` so events at the exact rotation timestamp count
+            # as pre-rotation (the rotation tx is the boundary, not the
+            # first post-rotation block). Matches "track record reset"
+            # semantics: the strategy starts fresh from the next bar.
+            post_navs = [n for n in state.nav_snapshots_90d if n.timestamp > rotation_epoch]
+            post_trades = [t for t in state.trades_90d if t.timestamp > rotation_epoch]
+            sharpes = _windowed_sharpes_from_navs(post_navs, now_unix)
+            age_trades_attested = len(post_trades)
+        else:
+            age_trades_attested = state.trades_attested
 
         inputs = ScoreInputs(
             sharpes=sharpes,
@@ -166,7 +187,7 @@ class ReputationEngine:
             total_proof_attempts=attempts,
             stake_e18=state.stake_e18,
             max_stake_in_class_e18=max_stake_in_class_e18,
-            trades_attested=state.trades_attested,
+            trades_attested=age_trades_attested,
         )
         outputs = compute_score(inputs, cohort)
 
@@ -204,7 +225,11 @@ class ReputationEngine:
 
 
 def _windowed_sharpes(state: StrategyState, now_unix: int) -> WindowSharpe:
-    w = slice_windows(state.nav_snapshots_90d, now_unix)
+    return _windowed_sharpes_from_navs(state.nav_snapshots_90d, now_unix)
+
+
+def _windowed_sharpes_from_navs(navs: list[NavEvent], now_unix: int) -> WindowSharpe:
+    w = slice_windows(navs, now_unix)
     return WindowSharpe(
         sharpe_7d=annualized_sharpe_from_nav(_to_pairs(w.last_7d)),
         sharpe_30d=annualized_sharpe_from_nav(_to_pairs(w.last_30d)),

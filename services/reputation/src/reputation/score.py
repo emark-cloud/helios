@@ -124,9 +124,7 @@ def compute_score(inputs: ScoreInputs, cohort: CohortContext) -> ScoreOutputs:
     if inputs.trades_attested <= 0:
         floor = W_STAKE * stake
         score_e4 = max(-10_000, min(10_000, round(10_000 * floor)))
-        components = ScoreComponents(
-            performance=0.0, risk=0.0, proof=0.0, stake=stake, age=0.0
-        )
+        components = ScoreComponents(performance=0.0, risk=0.0, proof=0.0, stake=stake, age=0.0)
         zero_breakdown = PerformanceBreakdown(
             sharpe_7d=inputs.sharpes.sharpe_7d,
             sharpe_30d=inputs.sharpes.sharpe_30d,
@@ -149,9 +147,7 @@ def compute_score(inputs: ScoreInputs, cohort: CohortContext) -> ScoreOutputs:
 
     aggregate = W_PERF * perf + W_RISK * risk + W_PROOF * proof + W_STAKE * stake + W_AGE * age
     score_e4 = max(-10_000, min(10_000, round(10_000 * aggregate)))
-    components = ScoreComponents(
-        performance=perf, risk=risk, proof=proof, stake=stake, age=age
-    )
+    components = ScoreComponents(performance=perf, risk=risk, proof=proof, stake=stake, age=age)
     return ScoreOutputs(
         score_e4=score_e4,
         components=components,
@@ -160,9 +156,7 @@ def compute_score(inputs: ScoreInputs, cohort: CohortContext) -> ScoreOutputs:
     )
 
 
-def _performance(
-    s: WindowSharpe, cohort: CohortContext
-) -> tuple[float, PerformanceBreakdown]:
+def _performance(s: WindowSharpe, cohort: CohortContext) -> tuple[float, PerformanceBreakdown]:
     n7 = normalize(s.sharpe_7d, cohort.win_7d)
     n30 = normalize(s.sharpe_30d, cohort.win_30d)
     n90 = normalize(s.sharpe_90d, cohort.win_90d)

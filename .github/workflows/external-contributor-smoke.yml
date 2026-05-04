@@ -1,0 +1,84 @@
+# External-contributor smoke — runs the full Dockerfile + smoke.sh
+# pipeline against a published GitHub Release of the four Helios
+# Python wheels. Manual-dispatch only because:
+#
+#   1. the smoke pulls transitive deps from real PyPI inside Docker,
+#      which is occasionally flaky and would gate unrelated PRs.
+#   2. it's downstream of release-wheels.yml — there's nothing to
+#      validate until a `sdk-v*` tag has produced release assets.
+#
+# Run via Actions → "external-contributor-smoke" → Run workflow,
+# selecting the tag (defaults to the latest `sdk-v*`).
+
+name: external-contributor-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to smoke (e.g. sdk-v0.1.0). Latest sdk-v* if blank."
+        required: false
+        type: string
+      install_mode:
+        description: "Install mode. Default 'release' (GitHub Release wheels)."
+        required: false
+        type: choice
+        default: release
+        options:
+          - release
+          - testpypi
+          - local
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Build smoke image and run helios backtest + simulate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(gh release list --limit 10 --exclude-drafts --exclude-pre-releases \
+                    --json tagName --jq '.[] | .tagName | select(startswith("sdk-v"))' \
+                    | head -1)
+          fi
+          if [ -z "${TAG:-}" ]; then
+            echo "::error::No sdk-v* release found and no tag input given."
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^sdk-v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::tag '$TAG' must look like sdk-v<semver>"
+            exit 1
+          fi
+          VERSION="${TAG#sdk-v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Smoking ${TAG} (version ${VERSION})"
+
+      - name: Compose wheel base URL
+        id: url
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "wheel_base_url=https://github.com/${REPO}/releases/download/${TAG}/" >> "$GITHUB_OUTPUT"
+
+      - name: Run smoke
+        env:
+          INSTALL_MODE: ${{ inputs.install_mode }}
+          SDK_VERSION: ${{ steps.tag.outputs.version }}
+          WHEEL_BASE_URL: ${{ steps.url.outputs.wheel_base_url }}
+        run: ./docs/external-contributor/smoke.sh

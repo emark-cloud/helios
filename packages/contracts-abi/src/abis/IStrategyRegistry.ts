@@ -4,6 +4,37 @@
 export const IStrategyRegistryAbi = [
   {
     "type": "function",
+    "name": "commitInitialParamsHash",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "paramsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "completeParamsRotation",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "completeStakeWithdrawal",
     "inputs": [
       {
@@ -30,6 +61,24 @@ export const IStrategyRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "initiateParamsRotation",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newParamsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "initiateStakeWithdrawal",
     "inputs": [
       {
@@ -45,6 +94,68 @@ export const IStrategyRegistryAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "marketAllowlistRoot",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "paramsHashOf",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingParamsHashOf",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "unlockAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -73,6 +184,24 @@ export const IStrategyRegistryAbi = [
         "internalType": "address"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMarketAllowlistRoot",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -208,6 +337,100 @@ export const IStrategyRegistryAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "MarketAllowlistRootSet",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ParamsHashCommitted",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "paramsHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotated",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationInitiated",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "unlockAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -374,12 +597,37 @@ export const IStrategyRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "NoPendingParamsRotation",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotOperator",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotReputationAnchor",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashAlreadyCommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashNotCommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsRotationAlreadyPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsRotationCooldownActive",
     "inputs": []
   },
   {

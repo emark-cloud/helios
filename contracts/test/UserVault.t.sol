@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { UserVault } from "../src/UserVault.sol";
 import { IUserVault } from "../src/interfaces/IUserVault.sol";
 import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
@@ -43,7 +44,7 @@ contract UserVaultTest is Test {
 
     function _meta() internal view returns (MetaStrategyLib.MetaStrategy memory m) {
         bytes32[] memory classes = new bytes32[](1);
-        classes[0] = keccak256("momentum_v1");
+        classes[0] = ClassIds.MOMENTUM_V1;
         address[] memory allowed = new address[](1);
         allowed[0] = address(usdc);
         uint32[] memory chains = new uint32[](1);

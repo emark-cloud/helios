@@ -6,8 +6,6 @@
  * figures live on the `<Numeric>` atom; this module only produces strings.
  */
 
-import { keccak256, toBytes } from "viem";
-
 const USD_FMT = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -89,10 +87,11 @@ export function formatTimestamp(tsSec: number): string {
   });
 }
 
-// Strategy classes are stored on-chain as `keccak256(<slug>)` — see
-// contracts/script/DeployPhase1.s.sol. The Goldsky subgraph emits the
-// raw bytes32 hash; the frontend filter chips emit slugs. Bridge both
-// here so callers don't have to care which form they hold.
+// Strategy classes are stored on-chain as Poseidon-derived bytes32 (see
+// contracts/src/ClassIds.sol — keccak256 produced digests above the BN254
+// field modulus and broke real proofs). The Goldsky subgraph emits the
+// raw bytes32; the frontend filter chips emit slugs. Bridge both here so
+// callers don't have to care which form they hold.
 const SLUG_TO_LABEL: Record<string, string> = {
   momentum_v1: "Momentum",
   mean_reversion_v1: "Mean reversion",
@@ -101,25 +100,20 @@ const SLUG_TO_LABEL: Record<string, string> = {
 
 const CLASS_SLUGS = Object.keys(SLUG_TO_LABEL);
 
-// Canonical class hashes the contracts emit. Each is `keccak256(bytes(slug))`
-// (see contracts/script/DeployPhase1.s.sol). Pinned here so a slug typo or a
-// viem-side hash regression trips the assertion below at module load instead
-// of silently breaking strategy filters.
-const EXPECTED_SLUG_HASH: Record<string, string> = {
-  momentum_v1: "0xad6ed03b237b0e0f63908c2621ef31bea0cee25afc33ff5afce41a6616f380c2",
-  mean_reversion_v1: "0x54ae267da80c601691ee3a47741957a75855c187d2e5889a2730d370497dee53",
-  yield_rotation_v1: "0xc374a93a514f884efa35d762ae78fdf668a42b901247e7f8b214b0156a2fdce9",
+// Canonical class identifiers, mirrored from contracts/src/ClassIds.sol.
+// Convention: `Poseidon([int.from_bytes(<slug>, "big")])`. Drift between
+// these values and Solidity is caught by contracts/test/ClassIds.t.sol's
+// FFI parity test (re-derives via the canonical Python Poseidon helper).
+const SLUG_TO_HASH_LITERAL: Record<string, string> = {
+  momentum_v1: "0x2a9aa442064b635baec37a7a259282faa5563a653a8325378d5676c6f04bc9dd",
+  mean_reversion_v1: "0x18602f4f74172d545f5258541634e1a125c3a4e1227ee2a4cbee957d3490f1fb",
+  yield_rotation_v1: "0x2e882135c6afc3bda02a9c8a7c6a351198d97599c804a2575a3d616073a87251",
 };
 
 const HASH_TO_SLUG: Record<string, string> = {};
 const SLUG_TO_HASH: Record<string, string> = {};
 for (const slug of CLASS_SLUGS) {
-  const hash = keccak256(toBytes(slug)).toLowerCase();
-  if (hash !== EXPECTED_SLUG_HASH[slug]) {
-    throw new Error(
-      `class hash drift for "${slug}": got ${hash}, expected ${EXPECTED_SLUG_HASH[slug]}`,
-    );
-  }
+  const hash = SLUG_TO_HASH_LITERAL[slug]!.toLowerCase();
   HASH_TO_SLUG[hash] = slug;
   SLUG_TO_HASH[slug] = hash;
 }

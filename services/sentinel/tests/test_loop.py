@@ -337,9 +337,7 @@ async def test_cold_start_strategy_receives_bootstrap_allocation() -> None:
 
     await loop.tick_once(now=1_000)
 
-    by_strat = {
-        c.strategy: c.amount for c in onchain.pending if c.method == "allocateToStrategy"
-    }
+    by_strat = {c.strategy: c.amount for c in onchain.pending if c.method == "allocateToStrategy"}
     # Both strategies funded — fresh one out of the bootstrap pool, veteran
     # out of the main pool.
     assert fresh.strategy_id in by_strat

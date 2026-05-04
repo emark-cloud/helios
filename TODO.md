@@ -296,11 +296,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `docs/reputation-math.md` mirrors the framing once the doc is written in Phase 6 (note in this checklist, not separately tracked)
 
 ### Acceptance for Phase 2
-- [ ] Multiple strategies of each class registered with non-zero capital
-- [ ] Reputation scores visibly diverge based on realized performance + drawdown
-- [ ] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md`
-- [ ] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs
-- [ ] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch
+- [x] Multiple strategies of each class registered with non-zero capital — WS6 PR1 + `RegisterPhase2Strategies.s.sol` + PR3.5.C register 7 vaults across 3 classes (2 per class + 1 cold-start fresh momentum); 5 Foundry tests assert `strategiesByClass(C).length ≥ 2` and stake pulled from operator
+- [x] Reputation scores visibly diverge based on realized performance + drawdown — WS6 PR3.B drives the §8.2 engine over 90d compressed time; `scripts/e2e_scenario_phase2.py:1198` asserts `primary.outputs.score_e4 > variant2.outputs.score_e4` for every class
+- [x] Backtest reports for each reference strategy committed under `docs/backtests/<class>_90d.md` — `36fa0cf` (5 seeds per class; YR uses a stand-alone `on_yield_tick` harness pending Phase 3 SDK support)
+- [x] External contributor could, in principle, publish a new momentum strategy using only the SDK + public docs — PR5.A (`d0058af`) shipped the Dockerfile + smoke + fixtures; PR5.B (`aebc61b`) added `release-wheels.yml` to attach the four wheels to a GitHub Release on every `sdk-v*` tag and renamed the CLI dist to `helios-trader-cli` (the bare `helios-cli` PyPI name is squatted by an unrelated LLM-usage tracker). `sdk-v0.1.0` cut + verified end-to-end: `helios-strategy-sdk` published to test-PyPI, all four wheels attached to `https://github.com/emark-cloud/helios/releases/tag/sdk-v0.1.0`, `INSTALL_MODE=release` smoke green against the real release URL — pip's "Successfully installed" line contains the four expected `helios-*` packages with no squatter swap.
+- [x] WS7.A: a `ParamsRotated` event is emitted in the e2e scenario; reputation engine resets `AgeScore` on the new params epoch — WS6 PR3.5.A + PR3.5.B; `scripts/e2e_scenario_phase2.py:813-1117` runs `initiateParamsRotation` → `evm_increaseTime(7d)` → `completeParamsRotation` → re-tick the engine and asserts the reset
 - [x] WS7.B: e2e scenario includes a brand-new strategy with zero trade history that receives a bootstrap allocation through Sentinel (`services/sentinel/tests/test_loop.py::test_cold_start_strategy_receives_bootstrap_allocation`)
 - [x] WS7.C: meta-strategy schema carries the three defund fields; UserVault tests assert round-trip + default-on-zero; AllocatorVault test fixtures construct the new fields even though enforcement is deferred to Phase 4
 
@@ -328,6 +328,11 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] Reputation Engine computes allocator scores from aggregate user net P&L above HWM, drawdown discipline (did they actually fire bad strategies on time?), user retention, stake
 - [ ] `postReputationUpdate` with `actor_type = ALLOCATOR`
 - [ ] Allocator leaderboards queryable via subgraph
+
+### SX — Strategy SDK hardening (carried over from Phase 2 backtest writeups)
+- [ ] **YR-aware backtest engine.** `helios.backtest.run_backtest` only drives `on_bar` today, so `helios backtest` emits zero trades against `YieldRotationStrategy` (which overrides `on_bar` to a no-op and listens on `on_yield_tick`). Add an `on_yield_tick` driver path so YR strategies surface in `helios backtest` like the directional classes; remove the stand-alone harness in `docs/backtests/_yield_rotation_v1_harness.py` once the CLI can produce equivalent output.
+- [ ] **Position flipping in `_apply_intent`.** Mean-rev signal flips currently stack onto open positions instead of auto-EXITing first; spec'd as a known follow-up in `docs/backtests/mean_reversion_v1_90d.md`. Add a "flip = exit + open" path with explicit tests for LONG→SHORT and SHORT→LONG transitions.
+- [ ] **NAV-based / vol-target sizing helper.** Once flipping is fixed, ship a sizing helper that re-sizes against current NAV (not stale cash) so reference strategies stop over-leveraging across long runs.
 
 ### FE — Allocator surface
 - [ ] `/allocators` directory: Sentinel first with "Official Reference" badge, Helix second (same badge), space for third parties below

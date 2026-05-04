@@ -18,6 +18,7 @@ import {
 import { ReputationAnchorV2 } from "../src/ReputationAnchorV2.sol";
 import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
 import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 
 /// @notice Phase-2 canonical deploy. Reads Phase-1 infrastructure addresses
 ///         from env, then layers on the Phase-2 surface in a single
@@ -62,9 +63,9 @@ import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 ///         `StrategyRegistry` (per WS3.A both expose owner-gated setters).
 ///         Vault proxies are not touched. No mainnet impact.
 contract DeployPhase2 is Script {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     struct Phase2Addresses {
         address momentumVerifier;

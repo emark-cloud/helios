@@ -138,6 +138,11 @@ def test_stake_topup_requires_amount(deployments_dir: Path) -> None:
 def test_stake_live_requires_keys(deployments_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Make sure live mode trips on missing operator key when neither flag
     # nor env var is set — protects against accidental no-op submissions.
+    # We only assert on exit_code because Typer/Click route the
+    # BadParameter message through Rich, which writes to a separate
+    # stderr stream and renders into a panel whose wrapping varies by
+    # terminal width — both make substring matching on result.output
+    # fragile across Python/Click versions.
     monkeypatch.delenv("KITE_RPC_URL", raising=False)
     monkeypatch.delenv("OPERATOR_PK", raising=False)
     result = runner.invoke(
@@ -152,7 +157,9 @@ def test_stake_live_requires_keys(deployments_dir: Path, monkeypatch: pytest.Mon
         ],
     )
     assert result.exit_code != 0
-    assert "rpc-url" in result.output or "operator-pk" in result.output
+    # Sanity: it must be a UsageError-class abort (Click exits 2), not a
+    # crash (which would be exit 1 with a Python traceback).
+    assert result.exit_code == 2
 
 
 # ── helios test-proof ──────────────────────────────────────────────
@@ -230,7 +237,12 @@ def test_test_proof_round_trip(
     assert posted["body"]["strategyClass"] == "momentum_v1"
     assert captured["proof_len"] == 256
     assert captured["public_inputs"] == [10, 20]
-    assert captured["declared_class"].rstrip(b"\x00") == b"momentum_v1"
+    # Pinned to ClassIds.MOMENTUM_V1 in contracts/src/ClassIds.sol
+    # (Poseidon-derived bytes32, BN254-fit).
+    assert (
+        captured["declared_class"].hex()
+        == "2a9aa442064b635baec37a7a259282faa5563a653a8325378d5676c6f04bc9dd"
+    )
 
 
 def test_test_proof_skip_onchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

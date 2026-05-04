@@ -1,0 +1,41 @@
+{
+  "actor": "0x3333333333333333333333333333333333333333",
+  "declaredClass": "0x2e882135c6afc3bda02a9c8a7c6a351198d97599c804a2575a3d616073a87251",
+  "score_e4": 4050,
+  "components": {
+    "performance": 0.20,
+    "risk": 0.50,
+    "proof": 1.00,
+    "stake": 0.30,
+    "age": 0.20
+  },
+  "components_hash": "0x4a7c1d2e5f8a3b6c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f70819283a4b5c6d",
+  "perf_breakdown": {
+    "sharpe_7d": 0.18,
+    "sharpe_30d": 0.24,
+    "sharpe_90d": 0.21,
+    "norm_7d": 0.20,
+    "norm_30d": 0.22,
+    "norm_90d": 0.18
+  },
+  "cohort": {
+    "win_7d": { "size": 2, "median": 0.20, "iqr": 0.10, "is_fallback": true },
+    "win_30d": { "size": 2, "median": 0.22, "iqr": 0.12, "is_fallback": true },
+    "win_90d": { "size": 2, "median": 0.19, "iqr": 0.09, "is_fallback": true }
+  },
+  "weights": {
+    "performance": 0.40,
+    "risk": 0.25,
+    "proof": 0.15,
+    "stake": 0.10,
+    "age": 0.10
+  },
+  "inputs": {
+    "stake_e18": "8000000000000000000000",
+    "max_stake_in_class_e18": "30000000000000000000000",
+    "trades_attested": 42,
+    "max_drawdown_bps_90d": 880,
+    "valid_proofs": 42,
+    "total_proof_attempts": 42
+  }
+}

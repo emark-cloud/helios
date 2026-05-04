@@ -145,6 +145,21 @@ IUserVault_ABI = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "defundTwapBars",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundBondBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundConfirmBlocks",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       }
@@ -214,6 +229,21 @@ IUserVault_ABI = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "defundTwapBars",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundBondBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundConfirmBlocks",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       },
@@ -899,6 +929,46 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
+    "name": "executeYieldRotationWithProof",
+    "inputs": [
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "publicInputs",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "trades",
+        "type": "tuple[]",
+        "internalType": "struct IStrategyVault.Call[]",
+        "components": [
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "manifest",
     "inputs": [],
     "outputs": [
@@ -1203,6 +1273,67 @@ IStrategyVault_ABI = [
     "anonymous": False
   },
   {
+    "type": "event",
+    "name": "YieldRotationAttested",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "allocator",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "tradeHash",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "mFrom",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "mTo",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountRotating",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "yieldOracleRoot",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "blockWindowEnd",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": False
+  },
+  {
     "type": "error",
     "name": "AllocatorMismatch",
     "inputs": []
@@ -1252,6 +1383,37 @@ IStrategyVault_ABI = [
 IStrategyRegistry_ABI = [
   {
     "type": "function",
+    "name": "commitInitialParamsHash",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "paramsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "completeParamsRotation",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "completeStakeWithdrawal",
     "inputs": [
       {
@@ -1278,6 +1440,24 @@ IStrategyRegistry_ABI = [
   },
   {
     "type": "function",
+    "name": "initiateParamsRotation",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newParamsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "initiateStakeWithdrawal",
     "inputs": [
       {
@@ -1293,6 +1473,68 @@ IStrategyRegistry_ABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "marketAllowlistRoot",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "paramsHashOf",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingParamsHashOf",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "unlockAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1321,6 +1563,24 @@ IStrategyRegistry_ABI = [
         "internalType": "address"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMarketAllowlistRoot",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -1456,6 +1716,100 @@ IStrategyRegistry_ABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "MarketAllowlistRootSet",
+    "inputs": [
+      {
+        "name": "declaredClass",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "ParamsHashCommitted",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "paramsHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotated",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "oldHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationInitiated",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "oldHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "unlockAt",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": False
   },
   {
     "type": "event",
@@ -1622,12 +1976,37 @@ IStrategyRegistry_ABI = [
   },
   {
     "type": "error",
+    "name": "NoPendingParamsRotation",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotOperator",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotReputationAnchor",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashAlreadyCommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsHashNotCommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsRotationAlreadyPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ParamsRotationCooldownActive",
     "inputs": []
   },
   {
@@ -2207,6 +2586,11 @@ IReputationAnchor_ABI = [
             "name": "actorType",
             "type": "uint8",
             "internalType": "enum IReputationAnchor.ActorType"
+          },
+          {
+            "name": "componentsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -2267,6 +2651,11 @@ IReputationAnchor_ABI = [
             "name": "actorType",
             "type": "uint8",
             "internalType": "enum IReputationAnchor.ActorType"
+          },
+          {
+            "name": "componentsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -2329,6 +2718,11 @@ IReputationAnchor_ABI = [
             "name": "actorType",
             "type": "uint8",
             "internalType": "enum IReputationAnchor.ActorType"
+          },
+          {
+            "name": "componentsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -2602,6 +2996,11 @@ IHeliosOApp_ABI = [
             "name": "actorType",
             "type": "uint8",
             "internalType": "enum IReputationAnchor.ActorType"
+          },
+          {
+            "name": "componentsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },

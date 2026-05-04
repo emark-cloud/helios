@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from helios_contracts_abi.class_ids import SLUG_TO_BYTES32
+
 
 def proof_to_bytes(proof: dict[str, Any]) -> bytes:
     """Pack a snarkjs Groth16 proof into the 256-byte form the
@@ -41,18 +43,23 @@ def public_signals_to_uints(public_signals: list[str]) -> list[int]:
 def class_to_bytes32(declared_class: str) -> bytes:
     """`bytes32` encoding of a class identifier.
 
-    Operators may pass either the human name (`"momentum_v1"`) or a
-    0x-prefixed hex string. Names are right-padded to 32 bytes (matches
-    the contracts' `bytes32("momentum_v1")`-style class IDs)."""
+    Operators may pass either a known class slug (`"momentum_v1"`,
+    `"mean_reversion_v1"`, `"yield_rotation_v1"`) — looked up in
+    `helios_contracts_abi.class_ids.SLUG_TO_BYTES32` — or a 0x-prefixed
+    hex string for one-off / advanced use. Class IDs MUST be the
+    Poseidon-derived bytes32 from `contracts/src/ClassIds.sol` so the
+    Groth16 verifier's `checkField` accepts them — see the comment on
+    that library for why keccak doesn't fit."""
     if declared_class.startswith("0x"):
         raw = bytes.fromhex(declared_class[2:])
         if len(raw) > 32:
             raise ValueError(f"declared_class {declared_class} > 32 bytes")
         return raw.rjust(32, b"\x00") if len(raw) < 32 else raw
-    encoded = declared_class.encode("ascii")
-    if len(encoded) > 32:
-        raise ValueError(f"declared_class {declared_class!r} > 32 bytes")
-    return encoded.ljust(32, b"\x00")
+    if declared_class in SLUG_TO_BYTES32:
+        return SLUG_TO_BYTES32[declared_class]
+    raise ValueError(
+        f"unknown class slug {declared_class!r}; pass a known slug or a 0x-prefixed bytes32"
+    )
 
 
 __all__ = ["class_to_bytes32", "proof_to_bytes", "public_signals_to_uints"]

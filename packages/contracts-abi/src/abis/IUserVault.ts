@@ -146,6 +146,21 @@ export const IUserVaultAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "defundTwapBars",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundBondBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundConfirmBlocks",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       }
@@ -215,6 +230,21 @@ export const IUserVaultAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "defundTwapBars",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundBondBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "defundConfirmBlocks",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       },

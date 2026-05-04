@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
@@ -29,7 +30,7 @@ contract StrategyVaultTest is Test {
     uint256 internal navOracleKey;
     address internal randomCaller = makeAddr("rando");
 
-    bytes32 internal constant CLASS = keccak256("momentum_v1");
+    bytes32 internal constant CLASS = ClassIds.MOMENTUM_V1;
     uint256 internal constant MAX_CAPACITY = 1_000_000e18;
 
     event TradeAttested(

@@ -8,6 +8,7 @@ import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { MockERC20 } from "../test/mocks/MockERC20.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 
 /// @notice WS2.B — register a SECOND strategy vault per declared class so
 ///         the §8.2 reputation engine can compute cohort-relative scores
@@ -41,9 +42,9 @@ import { MockERC20 } from "../test/mocks/MockERC20.sol";
 ///         that need to bypass `vm.envAddress` (parallel workers cannot
 ///         serialize the env map between threads).
 contract RegisterPhase2Strategies is Script {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     uint16 internal constant STRATEGY_FEE_BPS = 1500; // 15% — tighter than primary's 10%
     uint256 internal constant STRATEGY_STAKE_2 = 5000e6; // 5k USDC
@@ -56,9 +57,11 @@ contract RegisterPhase2Strategies is Script {
     ///      *different* from the primary strategy's hash (which Phase-1
     ///      sets to zero, so any non-zero value satisfies the cohort
     ///      diversity invariant).
-    bytes32 internal constant PARAMS_HASH_MOM_V2 = keccak256("helios.mom_v1.variant2.signal_threshold_300");
+    bytes32 internal constant PARAMS_HASH_MOM_V2 =
+        keccak256("helios.mom_v1.variant2.signal_threshold_300");
     bytes32 internal constant PARAMS_HASH_MR_V2 = keccak256("helios.mr_v1.variant2.n_sigma_300");
-    bytes32 internal constant PARAMS_HASH_YR_V2 = keccak256("helios.yr_v1.variant2.bridging_cost_60");
+    bytes32 internal constant PARAMS_HASH_YR_V2 =
+        keccak256("helios.yr_v1.variant2.bridging_cost_60");
 
     struct Inputs {
         uint256 deployerPk;
@@ -94,9 +97,8 @@ contract RegisterPhase2Strategies is Script {
         address deployer = vm.addr(i.deployerPk);
 
         vm.startBroadcast(i.deployerPk);
-        v.strategyVaultMomentumVariant2 = _deployVariant(
-            i, deployer, CLASS_MOM, PARAMS_HASH_MOM_V2, "momentum_v1.variant2"
-        );
+        v.strategyVaultMomentumVariant2 =
+            _deployVariant(i, deployer, CLASS_MOM, PARAMS_HASH_MOM_V2, "momentum_v1.variant2");
         v.strategyVaultMeanReversionVariant2 = _deployVariant(
             i, deployer, CLASS_MR, PARAMS_HASH_MR_V2, "mean_reversion_v1.variant2"
         );

@@ -45,6 +45,12 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from eth_keys.datatypes import PrivateKey
 from eth_utils.crypto import keccak
+from helios_contracts_abi import (
+    MEAN_REVERSION_V1 as CLASS_MR_BYTES32,
+)
+from helios_contracts_abi import (
+    MOMENTUM_V1 as CLASS_MOM_BYTES32,
+)
 from helios_contracts_abi.abis import (
     IAllocatorVault_ABI,
     IReputationAnchor_ABI,
@@ -214,11 +220,9 @@ def step_set_meta(ctx: Ctx) -> bytes:
     the caller. We build a structurally-valid EIP-712 sig anyway so the
     audit trail looks right when Passport swaps in."""
     print("[2] user setMetaStrategy")
-    momentum_class = keccak(b"momentum_v1")
-    meanrev_class = keccak(b"mean_reversion_v1")
     meta_struct = (
         keccak(b"phase1-demo-meta"),  # metaStrategyHash (Poseidon in real Passport)
-        [momentum_class, meanrev_class],  # allowedStrategyClasses
+        [CLASS_MOM_BYTES32, CLASS_MR_BYTES32],  # allowedStrategyClasses
         [Web3.to_checksum_address(ctx.addrs["usdc"])],  # allowedAssets
         [ctx.chain_id],  # allowedChains
         100_000 * 10**6,  # maxCapital (100k USDC)
@@ -228,6 +232,13 @@ def step_set_meta(ctx: Ctx) -> bytes:
         2_500,  # maxFeeRateBps
         3_600,  # rebalanceCadenceSec (1h)
         0,  # validUntil (never expires)
+        # WS7.C — auto-defund knobs. Pass zeros; UserVault substitutes
+        # `MetaStrategyLib.DEFAULT_DEFUND_*` defaults on first write
+        # (twapBars=3, bondBps=50, confirmBlocks=25). Phase 2 stores
+        # them; Phase 4 wires AllocatorVault enforcement.
+        0,  # defundTwapBars
+        0,  # defundBondBps
+        0,  # defundConfirmBlocks
     )
     # [PASSPORT-STUB] EIP-712 sig — UserVault.setMetaStrategy doesn't verify
     # in Phase 1, but we sign over a structurally-valid payload so the
@@ -292,18 +303,37 @@ def step_execute_with_proof(ctx: Ctx, strategy: Contract) -> dict[str, Any]:
     would need real router calldata); the StrategyVault still emits
     TradeAttested with the full public-input payload, and that's what
     the subgraph + reputation engine consume.
+
+    Public-input layout matches `StrategyVault.PI_*` indices (14 slots
+    total, post-WS7.A schema). The vault validates declaredClass /
+    strategyVault / paramsHash / allocator / asset universe / block
+    window before forwarding to the verifier; mock-verifier-true makes
+    the proof bytes themselves a no-op.
     """
     print("[5] operator executeWithProof (mock verifier; trades=[] skips swap)")
     block = ctx.w3.eth.block_number
+    # _activeParamsHash() prefers the registry-committed value (post-WS7.A
+    # rotation) and falls back to manifest.paramsHash. DeployPhase1 doesn't
+    # call commitInitialParamsHash, so for the Phase 1 e2e we read the
+    # manifest directly — equivalent to the on-chain fallback.
+    # StrategyManifest layout: (declaredClass, assetUniverse, maxCapacity,
+    # feeRateBps, operator, stakeAmount, paramsHash) — paramsHash is at idx 6.
+    params_hash = strategy.functions.manifest().call()[6]
     public_inputs = [
-        0,  # asset_in (universe[0] = USDC)
-        0,  # asset_out
-        1_000 * 10**6,  # amount_in (1k USDC notional)
-        990 * 10**6,  # min_amount_out
-        1,  # direction (long)
-        block,  # window_start
-        block + 50,  # window_end
-        int.from_bytes(keccak(b"phase1-e2e-trade-1")[:32], "big"),  # trade_hash
+        int.from_bytes(keccak(b"phase1-e2e-trade-1")[:32], "big"),  # 0  PI_TRADE_HASH
+        int.from_bytes(CLASS_MOM_BYTES32, "big"),  # 1  PI_DECLARED_CLASS
+        int(strategy.address, 16),  # 2  PI_STRATEGY_VAULT (uint160)
+        int.from_bytes(params_hash, "big"),  # 3  PI_PARAMS_HASH
+        int(ctx.allocator_vault.address, 16),  # 4  PI_ALLOCATOR
+        0,  # 5  PI_ASSET_IN  (universe[0] = USDC)
+        0,  # 6  PI_ASSET_OUT
+        1_000 * 10**6,  # 7  PI_AMOUNT_IN  (1k USDC notional)
+        990 * 10**6,  # 8  PI_MIN_AMOUNT_OUT
+        1,  # 9  PI_DIRECTION  (long)
+        0,  # 10 PI_NONCE
+        block,  # 11 PI_BLOCK_WINDOW_START
+        block + 50,  # 12 PI_BLOCK_WINDOW_END
+        0,  # 13 PI_ORACLE_ROOT (unchecked under mock verifier)
     ]
     return _send(
         ctx.w3,
@@ -320,11 +350,14 @@ def step_report_nav(ctx: Ctx, strategy: Contract, total_nav: int, ts: int) -> di
     base-asset units inside `AllocatorVault.defundStrategy`."""
     print(f"[6] navOracle reportNAV({total_nav / 10**6:.2f} USDC @ ts={ts})")
     # Match StrategyVault.reportNAV exactly:
-    #   digest = keccak256(abi.encode(address(this), totalNAV_, timestamp))
-    # where timestamp is uint64 — both width-padded to 32 bytes by abi.encode.
+    #   digest = keccak256(abi.encode(block.chainid, address(this),
+    #                                 totalNAV_, timestamp))
+    # where timestamp is uint64 — width-padded to 32 bytes by abi.encode.
+    # chainid was added to the digest in WS1 (cross-chain replay protection);
+    # the Phase 1 e2e script lagged behind until the WS6 fixup.
     body = abi_encode(
-        ["address", "uint256", "uint64"],
-        [strategy.address, total_nav, ts],
+        ["uint256", "address", "uint256", "uint64"],
+        [ctx.chain_id, strategy.address, total_nav, ts],
     )
     digest = keccak(body)
     pk_obj = PrivateKey(bytes.fromhex(_OPERATOR_PK[2:]))
@@ -373,6 +406,14 @@ def step_post_reputation(ctx: Ctx) -> dict[str, Any]:
         "chainId": ctx.chain_id,
         "verifyingContract": Web3.to_checksum_address(ctx.addrs["reputationAnchor"]),
     }
+    # Phase 1 deploys ReputationAnchor V1, whose `_UPDATE_TYPEHASH`
+    # has 8 fields and does NOT include componentsHash (V2 added that
+    # field in WS3.A but the registries still point at V1 — Phase 5
+    # propagates V2). So we sign over the V1 typed-data schema, but
+    # the function signature itself was regenerated from the V2-shaped
+    # interface struct (which V1 imports), so the call argument must
+    # include the bytes32 componentsHash slot. V1 silently ignores it.
+    components_hash = b"\x00" * 32
     types = {
         "ReputationUpdate": [
             {"name": "actor", "type": "address"},
@@ -397,7 +438,7 @@ def step_post_reputation(ctx: Ctx) -> dict[str, Any]:
     }
     encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
     sig = ctx.deployer.sign_message(encoded).signature
-    data_tuple = (score, block, 1, 0, 0, 10_000, actor_type)
+    data_tuple = (score, block, 1, 0, 0, 10_000, actor_type, components_hash)
     return _send(
         ctx.w3,
         ctx.deployer,

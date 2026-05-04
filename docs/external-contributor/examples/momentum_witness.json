@@ -1,0 +1,29 @@
+{
+  "_comment": "Minimal momentum_v1 trade spec for `helios test-proof`. Field set mirrors reference-strategies/momentum_v1/src/momentum_v1/witness.py (see operator-guide.md §4). The prover service completes oracle_root + trade_hash via circomlibjs Poseidon; the rest of the witness is supplied here. price_observations is a 16-bar monotonic up-trend so the momentum signal triggers cleanly.",
+  "strategyClass": "momentum_v1",
+  "declaredClass": "momentum_v1",
+  "witnessInputs": {
+    "max_position_size": "5000000000000000000000",
+    "max_slippage_bps": "30",
+    "signal_threshold": "150",
+    "stop_loss_price": "0",
+    "price_observations": [
+      "1000000000000000000",
+      "1002000000000000000",
+      "1004000000000000000",
+      "1006500000000000000",
+      "1009000000000000000",
+      "1012000000000000000",
+      "1015000000000000000",
+      "1018500000000000000",
+      "1022000000000000000",
+      "1026000000000000000",
+      "1030000000000000000",
+      "1034500000000000000",
+      "1039000000000000000",
+      "1044000000000000000",
+      "1049000000000000000",
+      "1054500000000000000"
+    ]
+  }
+}

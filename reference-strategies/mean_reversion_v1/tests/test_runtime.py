@@ -128,11 +128,11 @@ def _runtime(
 
 def _dip_prices() -> list[int]:
     """16 bars: 15 × $1000, last $700 — replicates gen-fixture-mr.js."""
-    return [int(1000 * 10**18)] * (LOOKBACK_BARS - 1) + [int(700 * 10**18)]
+    return [(1000 * 10**18)] * (LOOKBACK_BARS - 1) + [(700 * 10**18)]
 
 
 def _flat_prices() -> list[int]:
-    return [int(1000 * 10**18)] * LOOKBACK_BARS
+    return [(1000 * 10**18)] * LOOKBACK_BARS
 
 
 @pytest.mark.asyncio

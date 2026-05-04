@@ -21,11 +21,20 @@ stake management, and proof round-trips.
 
 ```bash
 pip install helios-strategy-sdk      # the SDK you'll subclass
-pip install helios-cli               # backtest + deploy + stake commands
+pip install helios-trader-cli        # backtest + deploy + stake commands
 ```
 
-Both are published to PyPI (test-PyPI today, real PyPI at Phase 4
-launch). Pin a major version once you're in production:
+> The CLI's PyPI dist name is `helios-trader-cli` (the bare
+> `helios-cli` name is squatted on real PyPI). The binary on disk is
+> still `helios`; you invoke it as `helios backtest`, `helios
+> deploy`, etc.
+
+Both are distributed via GitHub Releases of the `helios` repo today
+(see `docs/external-contributor/README.md` for a one-line
+`--find-links` install) and via test-PyPI for `helios-strategy-sdk`;
+the rest of the package set joins test-PyPI once their
+trusted-publisher entries are registered. Real PyPI publishing lands
+at Phase 4. Pin a major version once you're in production:
 `helios-strategy-sdk>=0.1,<0.2`.
 
 ---

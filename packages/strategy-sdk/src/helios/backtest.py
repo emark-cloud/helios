@@ -308,8 +308,8 @@ def _apply_intent(
             return cash, 0.0
 
     qty = notional / price if direction == Direction.LONG else -notional / price
-    cash -= notional + fee
     if direction == Direction.LONG:
+        cash -= notional + fee
         # Accumulate at volume-weighted average price (LONG only — Phase
         # 1 reference momentum strategy never flips short → long without
         # an explicit EXIT).
@@ -321,7 +321,14 @@ def _apply_intent(
         holdings[asset] = new_qty
         strategy._set_position(asset, new_qty, new_avg, Direction.LONG)
     else:
-        # SHORT — track signed quantity so mark-to-market subtracts it.
+        # SHORT entry: credit cash with the short proceeds (less fee).
+        # Mark-to-market on the per-bar loop subtracts `holdings[asset] *
+        # price` from NAV — the credit here keeps NAV cash-neutral at
+        # entry, so NAV starts at (initial − fee) and tracks
+        # (avg_entry − current_price) × |qty| as price moves. The
+        # `notional + fee > cash` guard above stays as a synthetic
+        # margin requirement (you can only short up to free cash).
+        cash += notional - fee
         prev_qty = holdings.get(asset, 0.0)
         new_qty = prev_qty + qty
         holdings[asset] = new_qty
@@ -363,11 +370,14 @@ def _close_position(
         realized = proceeds - cost
         cash += proceeds
     else:
-        # Short close: cover at current price; PnL = entry - current.
+        # Short close: pay buyback at current price. The original short
+        # proceeds were already credited to cash on entry (see
+        # `_apply_intent`'s SHORT branch), so we only debit the cost
+        # here. Realized P&L is the net (entry credit − buyback cost).
         cost = notional + fee
-        proceeds = abs(qty) * avg_entry
-        realized = proceeds - cost
-        cash += realized  # short collateral simplification
+        proceeds_at_entry = abs(qty) * avg_entry
+        realized = proceeds_at_entry - cost
+        cash -= cost
     fill = TradeFill(
         bar=bar,
         timestamp=ts,

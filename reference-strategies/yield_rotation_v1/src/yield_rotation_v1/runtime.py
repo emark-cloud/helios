@@ -90,9 +90,7 @@ class YieldRotationRuntime:
         self._subs = list(market_subscriptions)
         if not self._subs:
             raise ValueError("market_subscriptions must be non-empty")
-        self._nav_signer = (
-            Account.from_key(_normalize_pk(nav_oracle_pk)) if nav_oracle_pk else None
-        )
+        self._nav_signer = Account.from_key(_normalize_pk(nav_oracle_pk)) if nav_oracle_pk else None
         self._block_provider = block_provider or _DummyBlockProvider()
         self._nonce = config.nonce_seed
         self._yield_task: asyncio.Task[None] | None = None
@@ -109,12 +107,8 @@ class YieldRotationRuntime:
     def start(self) -> None:
         if self._yield_task is None:
             self._stop.clear()
-            self._yield_task = asyncio.create_task(
-                self._yield_loop(), name="yield_rotation.ticks"
-            )
-            self._nav_task = asyncio.create_task(
-                self._nav_loop(), name="yield_rotation.nav"
-            )
+            self._yield_task = asyncio.create_task(self._yield_loop(), name="yield_rotation.ticks")
+            self._nav_task = asyncio.create_task(self._nav_loop(), name="yield_rotation.nav")
 
     async def stop(self) -> None:
         self._stop.set()
@@ -131,9 +125,7 @@ class YieldRotationRuntime:
         while not self._stop.is_set():
             await self.tick_yield()
             try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=self._cfg.yield_interval_sec
-                )
+                await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.yield_interval_sec)
             except TimeoutError:
                 continue
 
@@ -148,9 +140,7 @@ class YieldRotationRuntime:
             try:
                 tick = await self._oracle.fetch_latest_tick(market_str, registry_id)
             except Exception as exc:
-                _log.warning(
-                    "yield_rotation.oracle.error", market=market_str, err=str(exc)
-                )
+                _log.warning("yield_rotation.oracle.error", market=market_str, err=str(exc))
                 self.stats.last_error = str(exc)
                 continue
             if tick is None:
@@ -233,15 +223,11 @@ class YieldRotationRuntime:
     async def _nav_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=self._cfg.nav_interval_sec
-                )
+                await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.nav_interval_sec)
             except TimeoutError:
                 self.tick_nav(self._strategy.available_capital)
 
-    def tick_nav(
-        self, total_nav_usd: float, *, timestamp: int | None = None
-    ) -> ExecutionRecord:
+    def tick_nav(self, total_nav_usd: float, *, timestamp: int | None = None) -> ExecutionRecord:
         """Sign + submit one NAV report. Mirrors momentum's runtime — the
         StrategyVault digest is `keccak256(abi.encode(vault, totalNAV,
         timestamp))` recovering to `navOracle`."""
@@ -255,10 +241,7 @@ class YieldRotationRuntime:
             else b"\x00" * 20
         )
         body = (
-            b"\x00" * 12
-            + vault_word
-            + total_nav_e18.to_bytes(32, "big")
-            + ts.to_bytes(32, "big")
+            b"\x00" * 12 + vault_word + total_nav_e18.to_bytes(32, "big") + ts.to_bytes(32, "big")
         )
         digest = keccak(body)
         sig = self._nav_signer._key_obj.sign_msg_hash(digest)  # type: ignore[attr-defined]

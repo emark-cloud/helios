@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import { RegisterPhase2Strategies } from "../script/RegisterPhase2Strategies.s.sol";
@@ -25,9 +26,9 @@ import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 ///           - the variant2 vault carries a non-zero, distinct paramsHash
 ///             (the cohort diversity invariant the §8.2 engine reads)
 contract RegisterPhase2StrategiesTest is Test {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     uint16 internal constant ALLOCATOR_FEE_BPS = 500;
     uint16 internal constant STRATEGY_FEE_BPS_V1 = 1000;
@@ -164,7 +165,10 @@ contract RegisterPhase2StrategiesTest is Test {
         return outLabel;
     }
 
-    function _inputs(string memory suffix) internal returns (RegisterPhase2Strategies.Inputs memory) {
+    function _inputs(string memory suffix)
+        internal
+        returns (RegisterPhase2Strategies.Inputs memory)
+    {
         return RegisterPhase2Strategies.Inputs({
             deployerPk: deployerPk,
             usdc: address(usdc),
@@ -177,7 +181,8 @@ contract RegisterPhase2StrategiesTest is Test {
     }
 
     function test_RegistersTwoStrategiesPerClass() public {
-        RegisterPhase2Strategies.Variant2Addresses memory v = script.runWith(_inputs("two-per-class"));
+        RegisterPhase2Strategies.Variant2Addresses memory v =
+            script.runWith(_inputs("two-per-class"));
 
         address[] memory mom = strategyRegistry.strategiesByClass(CLASS_MOM);
         address[] memory mr = strategyRegistry.strategiesByClass(CLASS_MR);

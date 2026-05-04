@@ -7,7 +7,6 @@ witness) and that vector parity holds for the canonical fixture inputs.
 from __future__ import annotations
 
 import pytest
-
 from yield_rotation_v1.types import RotationIntent, YieldTick
 from yield_rotation_v1.witness import (
     ALLOW_TREE_DEPTH,
@@ -39,12 +38,8 @@ FIXTURE_BLOCK_END = 200
 FIXTURE_THRESHOLD = 80
 FIXTURE_BRIDGING = 30
 
-EXPECTED_TRADE_HASH = (
-    20663455979481276034561464138722727257422408101475448626751031931004162363337
-)
-EXPECTED_YIELD_ROOT = (
-    19617008100108992903905573385623852931387633461552456891295159462318722212376
-)
+EXPECTED_TRADE_HASH = 20663455979481276034561464138722727257422408101475448626751031931004162363337
+EXPECTED_YIELD_ROOT = 19617008100108992903905573385623852931387633461552456891295159462318722212376
 
 
 def _build_fixture_witness():
@@ -125,9 +120,7 @@ def test_witness_amount_is_e18() -> None:
 
 
 def test_witness_rejects_below_threshold_differential() -> None:
-    intent = RotationIntent(
-        m_from=1, m_to=2, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=525
-    )
+    intent = RotationIntent(m_from=1, m_to=2, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=525)
     with pytest.raises(ValueError, match="below threshold"):
         build_yield_rotation_witness(
             intent=intent,
@@ -146,9 +139,7 @@ def test_witness_rejects_below_threshold_differential() -> None:
 
 
 def test_witness_rejects_non_allowlisted_market() -> None:
-    intent = RotationIntent(
-        m_from=1, m_to=99, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=550
-    )
+    intent = RotationIntent(m_from=1, m_to=99, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=550)
     with pytest.raises(ValueError, match="allowlist"):
         build_yield_rotation_witness(
             intent=intent,
@@ -164,9 +155,7 @@ def test_witness_rejects_non_allowlisted_market() -> None:
 
 
 def test_witness_rejects_missing_snapshot() -> None:
-    intent = RotationIntent(
-        m_from=1, m_to=2, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=550
-    )
+    intent = RotationIntent(m_from=1, m_to=2, amount_in_usd=1.0, apy_from_bps=420, apy_to_bps=550)
     # Snapshot for m_to=2 is missing.
     with pytest.raises(ValueError, match="yield snapshot missing"):
         build_yield_rotation_witness(

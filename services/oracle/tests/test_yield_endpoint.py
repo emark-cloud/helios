@@ -54,9 +54,7 @@ async def test_yield_endpoint_returns_signed_snapshots() -> None:
         assert "aave-v3:USDC" in mbody["configured"]
         assert "aave-v3:USDC" in mbody["active"]
 
-        recent = await client.get(
-            "/v1/yield/recent", params={"market_id": "aave-v3:USDC", "n": 3}
-        )
+        recent = await client.get("/v1/yield/recent", params={"market_id": "aave-v3:USDC", "n": 3})
         assert recent.status_code == 200
         body = recent.json()
         assert body["n"] == 3
@@ -67,9 +65,7 @@ async def test_yield_endpoint_returns_signed_snapshots() -> None:
             assert snap["signature"].startswith("0x") and len(snap["signature"]) == 132
             assert snap["source"].startswith("aave")
 
-        root = await client.get(
-            "/v1/yield/root", params={"market_id": "aave-v3:USDC", "n": 3}
-        )
+        root = await client.get("/v1/yield/root", params={"market_id": "aave-v3:USDC", "n": 3})
         assert root.status_code == 200
         rbody = root.json()
         assert rbody["root"].isdigit() and 0 < int(rbody["root"]) < (1 << 254)
@@ -77,9 +73,7 @@ async def test_yield_endpoint_returns_signed_snapshots() -> None:
         assert int(rbody["root_bytes32"], 16) == int(rbody["root"])
         assert rbody["hash"] == "poseidon"
 
-        missing = await client.get(
-            "/v1/yield/recent", params={"market_id": "venus:USDC", "n": 3}
-        )
+        missing = await client.get("/v1/yield/recent", params={"market_id": "venus:USDC", "n": 3})
         assert missing.status_code == 404
 
 
@@ -92,9 +86,7 @@ async def test_yield_recent_empty_before_polling() -> None:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        recent = await client.get(
-            "/v1/yield/recent", params={"market_id": "aave-v3:USDC", "n": 3}
-        )
+        recent = await client.get("/v1/yield/recent", params={"market_id": "aave-v3:USDC", "n": 3})
         assert recent.status_code == 200
         body = recent.json()
         assert body["n"] == 0

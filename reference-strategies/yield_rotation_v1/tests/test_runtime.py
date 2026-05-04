@@ -11,7 +11,6 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from yield_rotation_v1.executor import ExecutionRecord, TradeExecutor
 from yield_rotation_v1.prover_client import ProofResult, ProverDegraded
 from yield_rotation_v1.runtime import RuntimeConfig, YieldRotationRuntime
@@ -40,9 +39,7 @@ class _FakeProver:
         self.calls: list[dict[str, Any]] = []
         self._degrade = degrade
 
-    async def prove(
-        self, *, strategy_class: str, witness_inputs: dict[str, Any]
-    ) -> ProofResult:
+    async def prove(self, *, strategy_class: str, witness_inputs: dict[str, Any]) -> ProofResult:
         self.calls.append({"class": strategy_class, "inputs": witness_inputs})
         if self._degrade:
             raise ProverDegraded("prover degraded")
@@ -154,9 +151,7 @@ async def test_tick_yield_no_op_when_oracle_returns_nothing() -> None:
 @pytest.mark.asyncio
 async def test_runtime_requires_subscriptions() -> None:
     strategy = YieldRotationStrategy(allowlisted_markets=(1, 2))
-    executor = TradeExecutor(
-        rpc_url="", operator_pk="", strategy_vault_address="", chain_id=2368
-    )
+    executor = TradeExecutor(rpc_url="", operator_pk="", strategy_vault_address="", chain_id=2368)
     with pytest.raises(ValueError, match="market_subscriptions"):
         YieldRotationRuntime(
             strategy=strategy,

@@ -87,11 +87,7 @@ class MeanReversionStrategy(StrategyAgent):
         self._reset_exit_flags()
 
         # ── Stop-loss exit (long-only — Phase 2 reference impl) ─────────
-        if (
-            position > 0
-            and self._stop_loss_price > 0
-            and last_price <= self._stop_loss_price
-        ):
+        if position > 0 and self._stop_loss_price > 0 and last_price <= self._stop_loss_price:
             self._last_is_stop_loss = True
             return TradeIntent(
                 asset_in=asset,

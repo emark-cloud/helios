@@ -1,0 +1,117 @@
+# Builds the four publishable Helios Python packages and attaches the
+# wheels to a GitHub Release on every `sdk-v*` tag. PR5.B uses these
+# release assets as the canonical install source for the
+# external-contributor flow (see docs/external-contributor/README.md
+# `INSTALL_MODE=release`) — independent of test.pypi.org availability.
+#
+# This workflow does NOT publish to PyPI. The companion
+# `publish-sdk-testpypi.yml` continues to publish helios-strategy-sdk
+# to test-PyPI via OIDC; the three remaining packages will be added
+# there once their trusted-publisher entries are registered.
+
+name: release-wheels
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. sdk-v0.1.0). Defaults to the workflow ref."
+        required: false
+        type: string
+
+permissions:
+  contents: write  # required to create the GitHub Release
+
+jobs:
+  build-and-release:
+    name: Build wheels and attach to GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.x"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Resolve tag and version
+        id: meta
+        env:
+          GH_REF: ${{ github.ref }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GH_REF#refs/tags/}"
+          fi
+          if [[ ! "$TAG" =~ ^sdk-v[0-9]+\.[0-9]+\.[0-9]+([.-].+)?$ ]]; then
+            echo "::error::tag '$TAG' must look like sdk-v<semver>"
+            exit 1
+          fi
+          VERSION="${TAG#sdk-v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify all four package versions match the tag
+        env:
+          EXPECTED: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for pkg_dir in packages/contracts-abi-py packages/strategy-sdk packages/allocator-sdk packages/helios-cli; do
+            actual=$(uv run --no-project python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('${pkg_dir}/pyproject.toml').read_text())['project']['version'])")
+            echo "${pkg_dir} version=${actual}"
+            if [ "$actual" != "$EXPECTED" ]; then
+              echo "::error::${pkg_dir} version ${actual} does not match tag version ${EXPECTED}"
+              exit 1
+            fi
+          done
+
+      - name: Build all four wheels
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for pkg in helios-contracts-abi helios-strategy-sdk helios-allocator-sdk helios-trader-cli; do
+            uv build --package "$pkg" --sdist --wheel --out-dir dist
+          done
+          ls -la dist
+
+      - name: Create / update GitHub Release with wheels
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          body: |
+            Helios Python SDK + CLI ${{ steps.meta.outputs.version }}.
+
+            Install via:
+
+                pip install \
+                  --find-links https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag }}/ \
+                  --extra-index-url https://pypi.org/simple/ \
+                  helios-trader-cli
+
+            (The bare `helios-cli` PyPI name is squatted by an unrelated
+            project; we publish under `helios-trader-cli` to avoid the
+            footgun. The binary on disk is still `helios`.)
+
+            See `docs/external-contributor/README.md` for the canonical
+            external-contributor flow that consumes these wheels.
+
+            Mirroring to test-PyPI happens once the trusted-publisher
+            entries for `helios-trader-cli`, `helios-allocator-sdk`, and
+            `helios-contracts-abi` are registered (web-UI gated;
+            `helios-strategy-sdk` is already wired via
+            `publish-sdk-testpypi.yml`).
+          files: dist/*
+          fail_on_unmatched_files: true

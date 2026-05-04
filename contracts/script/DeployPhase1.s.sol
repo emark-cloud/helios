@@ -15,6 +15,7 @@ import { UserVault } from "../src/UserVault.sol";
 import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
 import { MockERC20 } from "../test/mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "../test/mocks/MockGroth16Verifier.sol";
+import { ClassIds } from "../src/ClassIds.sol";
 
 /// @notice Phase 1 end-to-end deploy. Bootstraps the full vertical slice
 ///         (registries → anchor → verifier → vaults → mock swap router) on
@@ -30,9 +31,9 @@ import { MockGroth16Verifier } from "../test/mocks/MockGroth16Verifier.sol";
 ///
 ///         Outputs an addresses bundle to deployments/<chain>-phase1.json.
 contract DeployPhase1 is Script {
-    bytes32 internal constant CLASS_MOM = keccak256("momentum_v1");
-    bytes32 internal constant CLASS_MR = keccak256("mean_reversion_v1");
-    bytes32 internal constant CLASS_YR = keccak256("yield_rotation_v1");
+    bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
+    bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
+    bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     uint16 internal constant ALLOCATOR_FEE_BPS = 500;
     uint16 internal constant STRATEGY_FEE_BPS = 1000;
