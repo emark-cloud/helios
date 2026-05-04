@@ -97,6 +97,7 @@ function asField(n) {
   const ap_to = proveInclusion(allowTree, 1, ALLOW_DEPTH);
 
   const declared_class = asField("0x9abc");
+  const strategy_vault = asField("0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee");
   const m_from = asField(MARKETS.AAVE_USDC);
   const m_to = asField(MARKETS.COMPOUND_USDC);
   const amount_rotating = "1000000000000000000";
@@ -108,8 +109,13 @@ function asField(n) {
   const bridging_cost = "30";
   const markets_allowlist_root = allowTree.root;
 
+  const params_hash = ph([signal_threshold, bridging_cost]);
+
   const trade_hash = ph([
     declared_class,
+    strategy_vault,
+    params_hash,
+    markets_allowlist_root,
     m_from,
     m_to,
     amount_rotating,
@@ -117,14 +123,14 @@ function asField(n) {
     allocator_address,
     nonce,
     block_window_end,
-    signal_threshold,
-    bridging_cost,
-    markets_allowlist_root,
   ]);
 
   const input = {
     trade_hash,
     declared_class,
+    strategy_vault,
+    params_hash,
+    markets_allowlist_root,
     m_from,
     m_to,
     amount_rotating,
@@ -137,7 +143,6 @@ function asField(n) {
     apy_to: "550",
     signal_threshold,
     bridging_cost,
-    markets_allowlist_root,
 
     yield_path_indices_from: yp_from.path_indices,
     yield_siblings_from: yp_from.siblings,

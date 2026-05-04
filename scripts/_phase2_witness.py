@@ -44,11 +44,14 @@ class MomentumWitness:
     `StrategyRegistry.commitInitialParamsHash` before this proof can land
     — it equals `Poseidon([max_position_size, max_slippage_bps,
     signal_threshold, stop_loss_price])` and the circuit re-derives it
-    from the private witnesses.
+    from the private witnesses. `oracle_root` is the bytes32 to commit
+    via `OraclePriceAnchor.commit` before this proof can land — PR1a
+    binding (`isKnownRoot`) gates execution on it.
     """
 
     inputs: dict[str, Any]
     params_hash: bytes
+    oracle_root: bytes
 
 
 def build_momentum_witness(
@@ -145,6 +148,7 @@ def build_momentum_witness(
     return MomentumWitness(
         inputs=inputs,
         params_hash=params_hash.to_bytes(32, "big"),
+        oracle_root=oracle_root.to_bytes(32, "big"),
     )
 
 
@@ -156,6 +160,7 @@ class MeanReversionWitness:
 
     inputs: dict[str, Any]
     params_hash: bytes
+    oracle_root: bytes
 
 
 def build_mean_reversion_witness(
@@ -257,6 +262,7 @@ def build_mean_reversion_witness(
     return MeanReversionWitness(
         inputs=inputs,
         params_hash=params_hash.to_bytes(32, "big"),
+        oracle_root=oracle_root.to_bytes(32, "big"),
     )
 
 
@@ -268,16 +274,18 @@ ALLOW_DEPTH = 4  # 16 markets in the registry allowlist
 
 @dataclass(frozen=True, slots=True)
 class YieldRotationWitness:
-    """Result of `build_yield_rotation_witness`. Unlike momentum and
-    mean-rev, YR has no `params_hash` — the operator-set `signal_threshold`
-    and `bridging_cost` are folded into the trade_hash directly, and the
-    on-chain `_validateAndVerifyYR` does not enforce any params binding
-    (TODO(WS7.A) — Poseidon-on-Solidity dependency, tracked in
-    `contracts/src/StrategyVault.sol`)."""
+    """Result of `build_yield_rotation_witness`. Mirrors `MomentumWitness`:
+    `params_hash` is the bytes32 to commit via
+    `StrategyRegistry.commitInitialParamsHash` before the proof can land —
+    it equals `Poseidon(signal_threshold, bridging_cost)` and the circuit
+    re-derives it from the private witnesses. `markets_allowlist_root` is
+    the bytes32 to set via `StrategyRegistry.setMarketAllowlistRoot` for
+    the YR class so the on-chain `AllowlistRootMismatch` check passes."""
 
     inputs: dict[str, Any]
     yield_oracle_root: int
     markets_allowlist_root: int
+    params_hash: bytes
 
 
 def _build_poseidon_tree(leaves: list[int], depth: int) -> tuple[int, list[list[int]]]:
@@ -334,6 +342,7 @@ _MARKET_ORDER: list[str] = ["AAVE_USDC", "COMPOUND_USDC", "AAVE_USDT", "COMPOUND
 
 def build_yield_rotation_witness(
     *,
+    strategy_vault: str,
     allocator_vault: str,
     nonce: int,
     block_window_end: int,
@@ -376,15 +385,23 @@ def build_yield_rotation_witness(
 
     declared_class_field = class_id_as_field("yield_rotation_v1")
     allocator_field = int(allocator_vault, 16)
+    strategy_vault_field = int(strategy_vault, 16)
     m_from_field = _MARKETS[from_market]
     m_to_field = _MARKETS[to_market]
 
-    # 11-element trade_hash — note no strategy_vault, but YES allowlist
-    # root + signal_threshold + bridging_cost (so the prover can't lie
-    # about either). Field order MUST match circuits/yield_rotation_v1.circom:202.
+    # PR2: signal_threshold + bridging_cost stay private, but their
+    # commitment (params_hash = Poseidon(threshold, bridging)) is now a
+    # public input — the vault checks it against `_activeParamsHash()`.
+    params_hash_int = poseidon_hash([signal_threshold_bps, bridging_cost_bps])
+
+    # 11-element trade_hash. Field order MUST match
+    # circuits/yield_rotation_v1.circom Constraint 9.
     trade_hash = poseidon_hash(
         [
             declared_class_field,
+            strategy_vault_field,
+            params_hash_int,
+            allow_root,
             m_from_field,
             m_to_field,
             amount_rotating,
@@ -392,9 +409,6 @@ def build_yield_rotation_witness(
             allocator_field,
             nonce,
             block_window_end,
-            signal_threshold_bps,
-            bridging_cost_bps,
-            allow_root,
         ]
     )
 
@@ -402,6 +416,9 @@ def build_yield_rotation_witness(
         # Public — circuit's `main { public [...] }`.
         "trade_hash": str(trade_hash),
         "declared_class": str(declared_class_field),
+        "strategy_vault": str(strategy_vault_field),
+        "params_hash": str(params_hash_int),
+        "markets_allowlist_root": str(allow_root),
         "m_from": str(m_from_field),
         "m_to": str(m_to_field),
         "amount_rotating": str(amount_rotating),
@@ -414,7 +431,6 @@ def build_yield_rotation_witness(
         "apy_to": str(_APY_BPS[to_market]),
         "signal_threshold": str(signal_threshold_bps),
         "bridging_cost": str(bridging_cost_bps),
-        "markets_allowlist_root": str(allow_root),
         "yield_path_indices_from": yp_from_indices,
         "yield_siblings_from": yp_from_siblings,
         "yield_path_indices_to": yp_to_indices,
@@ -428,6 +444,7 @@ def build_yield_rotation_witness(
         inputs=inputs,
         yield_oracle_root=yield_root,
         markets_allowlist_root=allow_root,
+        params_hash=params_hash_int.to_bytes(32, "big"),
     )
 
 

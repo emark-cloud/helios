@@ -8,31 +8,47 @@ pragma circom 2.1.9;
 // between two allowlisted lending markets where the APY differential
 // (net of bridging cost) exceeds an operator-declared threshold.
 //
-// Public-input layout (9 signals → adapter _PUBLIC_INPUT_COUNT = 9):
+// Public-input layout (12 signals → adapter _PUBLIC_INPUT_COUNT = 12):
 //
-//   [0]  trade_hash         Poseidon over public + private operator-set
-//                            and registry-set parameters. The on-chain
-//                            side recomputes this hash using the
-//                            StrategyManifest's stored signal_threshold
-//                            and bridging_cost plus
-//                            StrategyRegistry.marketAllowlistRoot(class).
+//   [0]  trade_hash             Poseidon(11) over all the other public
+//                                 inputs. The on-chain side recomputes
+//                                 the binding by checking each public
+//                                 input directly (allocator, vault,
+//                                 params_hash, allowlist_root, …) — so
+//                                 a prover can't shift any field
+//                                 without invalidating either the
+//                                 trade_hash equality (in-circuit) or
+//                                 the on-chain check.
 //   [1]  declared_class
-//   [2]  m_from             market id capital is rotating out of
-//   [3]  m_to               market id capital is rotating into
-//   [4]  amount_rotating    base-asset amount being moved
-//   [5]  yield_oracle_root  Merkle root over (market_id, apy_bps) leaves
-//                            signed by the yield oracle
-//   [6]  allocator
-//   [7]  nonce              cross-vault dedup
-//   [8]  block_window_end   on-chain freshness gate (block.number ≤ this)
+//   [2]  strategy_vault         on-chain `address(this)` equality check;
+//                                 prevents cross-vault replay between
+//                                 sibling YR vaults under the same
+//                                 allocator.
+//   [3]  params_hash            Poseidon(signal_threshold, bridging_cost).
+//                                 Operator-set thresholds stay private,
+//                                 but their commitment is public — the
+//                                 vault checks against
+//                                 `_activeParamsHash()` so the operator
+//                                 can't tweak gates per-trade.
+//   [4]  markets_allowlist_root registry-committed root over allowlisted
+//                                 market ids; vault checks against
+//                                 `StrategyRegistry.marketAllowlistRoot(class)`.
+//   [5]  m_from                 market id capital is rotating out of
+//   [6]  m_to                   market id capital is rotating into
+//   [7]  amount_rotating        base-asset amount being moved
+//   [8]  yield_oracle_root      Merkle root over (market_id, apy_bps)
+//                                 leaves signed by the yield oracle
+//   [9]  allocator_address
+//   [10] nonce                  cross-vault dedup
+//   [11] block_window_end       on-chain freshness gate (block.number ≤ this)
 //
 // Private witness:
 //   apy_from, apy_to                 APY snapshots in bps (linked via the
 //                                     yield-oracle Merkle proof)
 //   signal_threshold                 minimum required differential, bps
+//                                     (bound via params_hash PI)
 //   bridging_cost                    operator-amortised bridging cost, bps
-//   markets_allowlist_root           registry-set Merkle root over
-//                                     allowlisted market ids
+//                                     (bound via params_hash PI)
 //   yield_path_from / yield_path_to  Merkle paths under yield_oracle_root
 //   allow_path_from / allow_path_to  Merkle paths under markets_allowlist_root
 //
@@ -81,6 +97,9 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     // ── Public inputs ───────────────────────────────────────────────
     signal input trade_hash;
     signal input declared_class;
+    signal input strategy_vault;
+    signal input params_hash;
+    signal input markets_allowlist_root;
     signal input m_from;
     signal input m_to;
     signal input amount_rotating;
@@ -94,7 +113,6 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     signal input apy_to;
     signal input signal_threshold;
     signal input bridging_cost;
-    signal input markets_allowlist_root;
 
     signal input yield_path_indices_from[YIELD_DEPTH];
     signal input yield_siblings_from[YIELD_DEPTH];
@@ -194,29 +212,44 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     component amountPositive = Num2Bits(128);
     amountPositive.in <== amount_minus_one;
 
-    // ── Constraint 8: trade_hash binding ────────────────────────────
-    // trade_hash = Poseidon(11) over the canonical tuple. The on-chain
-    // side recomputes this with values pulled from the StrategyManifest
-    // (signal_threshold, bridging_cost) and StrategyRegistry
-    // (markets_allowlist_root) — so the prover can't lie about either.
+    // ── Constraint 8: params_hash binding ───────────────────────────
+    // params_hash = Poseidon(signal_threshold, bridging_cost). The vault
+    // checks the public params_hash against `_activeParamsHash()` (the
+    // registry-committed value, set via commitInitialParamsHash /
+    // rotateParams). Operators cannot loosen the threshold or fudge the
+    // bridging cost on a per-trade basis without rotating the manifest.
+    component paramsPoseidon = Poseidon(2);
+    paramsPoseidon.inputs[0] <== signal_threshold;
+    paramsPoseidon.inputs[1] <== bridging_cost;
+    params_hash === paramsPoseidon.out;
+
+    // ── Constraint 9: trade_hash binding ────────────────────────────
+    // trade_hash = Poseidon(11) over the canonical public-input tuple
+    // (everything but trade_hash itself). Each component is also checked
+    // independently on-chain (vault, allocator, params, allowlist, …) so
+    // the prover cannot substitute a fresh proof for a different vault
+    // while keeping the same trade_hash.
     component tradePoseidon = Poseidon(11);
     tradePoseidon.inputs[0] <== declared_class;
-    tradePoseidon.inputs[1] <== m_from;
-    tradePoseidon.inputs[2] <== m_to;
-    tradePoseidon.inputs[3] <== amount_rotating;
-    tradePoseidon.inputs[4] <== yield_oracle_root;
-    tradePoseidon.inputs[5] <== allocator_address;
-    tradePoseidon.inputs[6] <== nonce;
-    tradePoseidon.inputs[7] <== block_window_end;
-    tradePoseidon.inputs[8] <== signal_threshold;
-    tradePoseidon.inputs[9] <== bridging_cost;
-    tradePoseidon.inputs[10] <== markets_allowlist_root;
+    tradePoseidon.inputs[1] <== strategy_vault;
+    tradePoseidon.inputs[2] <== params_hash;
+    tradePoseidon.inputs[3] <== markets_allowlist_root;
+    tradePoseidon.inputs[4] <== m_from;
+    tradePoseidon.inputs[5] <== m_to;
+    tradePoseidon.inputs[6] <== amount_rotating;
+    tradePoseidon.inputs[7] <== yield_oracle_root;
+    tradePoseidon.inputs[8] <== allocator_address;
+    tradePoseidon.inputs[9] <== nonce;
+    tradePoseidon.inputs[10] <== block_window_end;
     trade_hash === tradePoseidon.out;
 }
 
 component main { public [
     trade_hash,
     declared_class,
+    strategy_vault,
+    params_hash,
+    markets_allowlist_root,
     m_from,
     m_to,
     amount_rotating,

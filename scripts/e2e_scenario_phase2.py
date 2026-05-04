@@ -411,6 +411,88 @@ def _prove(prover_url: str, strategy_class: str, witness_inputs: dict[str, Any])
     return resp.json()
 
 
+def _anchor_for_vault(ctx: Ctx, vault: Contract, *, kind: str) -> Contract:
+    """Resolve the anchor a specific vault was initialized against.
+
+    DeployPhase1 deploys a local OraclePriceAnchor / OracleYieldAnchor
+    pair so the Phase-1 stack stays standalone; DeployPhase2 deploys
+    its own pair and the deployments-file `oraclePriceAnchor` /
+    `oracleYieldAnchor` keys overwrite Phase 1's. The 6 Phase 1 vaults
+    are pinned to Phase-1 anchors at init; the 3 Phase-2 variant2
+    vaults to Phase-2 anchors. Querying `vault.priceAnchor()` /
+    `vault.yieldAnchor()` is the only way to know which is which.
+    """
+    if kind == "price":
+        addr = vault.functions.priceAnchor().call()
+    elif kind == "yield":
+        addr = vault.functions.yieldAnchor().call()
+    else:
+        raise ValueError(f"unknown anchor kind: {kind!r}")
+    return ctx.w3.eth.contract(address=addr, abi=IOracleAnchor_ABI)
+
+
+def _commit_proof_oracle_root(
+    ctx: Ctx,
+    *,
+    anchor: Contract,
+    domain_name: str,
+    root: bytes,
+) -> None:
+    """Post a single EIP-712-signed commit so a proof's oracle_root /
+    yield_oracle_root PI passes `_validateAndVerify`'s `isKnownRoot`
+    check. PR1a wired the vault to consult both anchors before the
+    Groth16 verifier; the bulk `step_drive_oracle_anchors` cadence
+    posts deterministic placeholder roots that don't match what the
+    witness actually computes, so each trade-emission step appends a
+    one-shot commit for its specific root.
+
+    Window is anchored at the chain's current commit count so we
+    always sit strictly after `prev.windowEnd` (the contract's
+    monotonicity check). 60s window — generous for a single commit.
+    """
+    nonce = anchor.functions.nonce().call()
+    count = anchor.functions.commitCount().call()
+    if count > 0:
+        # Strict adjacency to the previous commit so `assert_pr3a_oracle`'s
+        # `ws == prev_we` invariant continues to hold across the mix of
+        # bulk-cadence and per-proof commits.
+        prev_end = int(anchor.functions.commitAt(count - 1).call()[2])
+        window_start = prev_end
+    else:
+        window_start = (
+            int(ctx.w3.eth.get_block("latest").get("timestamp", int(time.time()))) * 1_000
+        )
+    window_end = window_start + 60_000
+    domain = {
+        "name": domain_name,
+        "version": "1",
+        "chainId": ctx.chain_id,
+        "verifyingContract": Web3.to_checksum_address(anchor.address),
+    }
+    type_name = "OraclePriceCommit" if "Price" in domain_name else "OracleYieldCommit"
+    types = {
+        type_name: [
+            {"name": "root", "type": "bytes32"},
+            {"name": "windowStart", "type": "uint64"},
+            {"name": "windowEnd", "type": "uint64"},
+            {"name": "nonce", "type": "uint256"},
+        ]
+    }
+    message = {
+        "root": root,
+        "windowStart": window_start,
+        "windowEnd": window_end,
+        "nonce": nonce,
+    }
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    sig = bytes(ctx.deployer.sign_message(encoded).signature)
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        anchor.functions.commit(root, window_start, window_end, sig),
+    )
+
+
 def step_emit_momentum_trades(ctx: Ctx) -> None:
     """Drive a real Groth16 momentum_v1 trade on each of the 2 momentum
     vaults. Per vault:
@@ -451,6 +533,17 @@ def step_emit_momentum_trades(ctx: Ctx) -> None:
             ctx.strategy_registry.functions.commitInitialParamsHash(
                 vault.address, witness.params_hash
             ),
+        )
+        # 2b. Commit the proof's oracle_root to *this vault's* price
+        # anchor so `_validateAndVerify`'s PR1a `isKnownRoot` check
+        # passes. Phase-1 and Phase-2 vaults have distinct anchor pairs
+        # (see `_anchor_for_vault`).
+        print(f"    OraclePriceAnchor.commit({witness.oracle_root.hex()[:10]}…)")
+        _commit_proof_oracle_root(
+            ctx,
+            anchor=_anchor_for_vault(ctx, vault, kind="price"),
+            domain_name="HeliosOraclePriceAnchor",
+            root=witness.oracle_root,
         )
         # 3. Generate proof.
         print("    proving (snarkjs.fullProve)…")
@@ -515,6 +608,13 @@ def step_emit_mean_reversion_trades(ctx: Ctx) -> None:
                 vault.address, witness.params_hash
             ),
         )
+        print(f"    OraclePriceAnchor.commit({witness.oracle_root.hex()[:10]}…)")
+        _commit_proof_oracle_root(
+            ctx,
+            anchor=_anchor_for_vault(ctx, vault, kind="price"),
+            domain_name="HeliosOraclePriceAnchor",
+            root=witness.oracle_root,
+        )
         print("    proving (snarkjs.fullProve)…")
         result = _prove(ctx.prover_url, "mean_reversion_v1", witness.inputs)
         proof_bytes = proof_to_bytes(result["proof"])
@@ -536,7 +636,8 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
     """Drive a real Groth16 yield_rotation_v1 rotation on each of the 2
     YR vaults. Distinct from momentum/mean-rev:
 
-      - 9 public inputs (no params_hash, no strategy_vault).
+      - 12 public inputs (PR2 promoted strategy_vault, params_hash,
+        markets_allowlist_root from private witnesses to PIs).
       - Witness includes Poseidon Merkle inclusion proofs against both
         a 64-leaf yield-oracle tree and a 16-leaf allowlist tree —
         constructed in `_phase2_witness::build_yield_rotation_witness`
@@ -544,11 +645,13 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
         (AAVE_USDC / COMPOUND_USDC / AAVE_USDT / COMPOUND_USDT).
       - On-chain entry point is `executeYieldRotationWithProof`, not
         `executeWithProof`.
-      - No `commitInitialParamsHash` step — the YR class binds
-        operator parameters via the trade_hash itself, not a separate
-        params slot. The on-chain side's params-binding TODO is a
-        Phase 5+ Poseidon-on-Solidity dependency (see comment at
-        contracts/src/StrategyVault.sol::executeYieldRotationWithProof).
+      - Per-vault `commitInitialParamsHash(Poseidon(threshold, bridging))`
+        before the proof — same flow as momentum / mean-rev. Without
+        this the vault's `_activeParamsHash()` returns zero and the
+        proof's `params_hash` PI doesn't match.
+      - One-shot `setMarketAllowlistRoot(CLASS_YR, allow_root)` before
+        the first proof so the registry's per-class root matches the
+        PI built from the canonical 4-market test cosmos.
 
     Primary rotates AAVE_USDC → COMPOUND_USDC (130bps differential);
     variant2 rotates AAVE_USDT → COMPOUND_USDT (120bps). Both clear
@@ -564,15 +667,50 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
             "COMPOUND_USDT",
         ),
     ]
+    # Seed the registry's allowlist root from the canonical 4-market
+    # cosmos. Owner is the deployer (set in DeployPhase1.s.sol).
+    seed_witness = build_yield_rotation_witness(
+        strategy_vault=yr_vaults[0][1].address,
+        allocator_vault=ctx.allocator_vault.address,
+        nonce=0,
+        block_window_end=ctx.w3.eth.block_number + 100,
+    )
+    allowlist_root_bytes = seed_witness.markets_allowlist_root.to_bytes(32, "big")
+    print(f"    setMarketAllowlistRoot(YR, {allowlist_root_bytes.hex()[:10]}…)")
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        ctx.strategy_registry.functions.setMarketAllowlistRoot(
+            CLASS_YR_BYTES32, allowlist_root_bytes
+        ),
+    )
+
     for nonce_offset, (key, vault, from_m, to_m) in enumerate(yr_vaults):
         print(f"  ── {key} ({from_m} → {to_m}) ──")
         block = ctx.w3.eth.block_number
         witness = build_yield_rotation_witness(
+            strategy_vault=vault.address,
             allocator_vault=ctx.allocator_vault.address,
             nonce=nonce_offset,
             block_window_end=block + 100,
             from_market=from_m,
             to_market=to_m,
+        )
+        print(f"    commitInitialParamsHash({witness.params_hash.hex()[:10]}…)")
+        _send(
+            ctx.w3,
+            ctx.deployer,
+            ctx.strategy_registry.functions.commitInitialParamsHash(
+                vault.address, witness.params_hash
+            ),
+        )
+        yield_root_bytes = witness.yield_oracle_root.to_bytes(32, "big")
+        print(f"    OracleYieldAnchor.commit({yield_root_bytes.hex()[:10]}…)")
+        _commit_proof_oracle_root(
+            ctx,
+            anchor=_anchor_for_vault(ctx, vault, kind="yield"),
+            domain_name="HeliosOracleYieldAnchor",
+            root=yield_root_bytes,
         )
         print("    proving (snarkjs.fullProve)…")
         result = _prove(ctx.prover_url, "yield_rotation_v1", witness.inputs)
@@ -1234,12 +1372,16 @@ def assert_pr3a_oracle_and_nav(ctx: Ctx, start_block: int) -> None:
 
     price_logs = _logs(ctx.oracle_price_anchor, "Committed", start_block)
     yield_logs = _logs(ctx.oracle_yield_anchor, "Committed", start_block)
-    assert len(price_logs) == ANCHOR_COMMITS_PER_ANCHOR, (
-        f"expected {ANCHOR_COMMITS_PER_ANCHOR} OraclePriceAnchor.Committed events, "
+    # `>=` because each trade-emission step appends a per-proof commit
+    # for its actual oracle_root after the bulk cadence (PR1a binding —
+    # see `_commit_proof_oracle_root`). Adjacency is still verified
+    # below across the full sequence.
+    assert len(price_logs) >= ANCHOR_COMMITS_PER_ANCHOR, (
+        f"expected ≥ {ANCHOR_COMMITS_PER_ANCHOR} OraclePriceAnchor.Committed events, "
         f"got {len(price_logs)}"
     )
-    assert len(yield_logs) == ANCHOR_COMMITS_PER_ANCHOR, (
-        f"expected {ANCHOR_COMMITS_PER_ANCHOR} OracleYieldAnchor.Committed events, "
+    assert len(yield_logs) >= ANCHOR_COMMITS_PER_ANCHOR, (
+        f"expected ≥ {ANCHOR_COMMITS_PER_ANCHOR} OracleYieldAnchor.Committed events, "
         f"got {len(yield_logs)}"
     )
     # Window monotonicity — contract refuses overlap, but check that
@@ -1299,10 +1441,16 @@ def main() -> int:
     step_set_meta(ctx)
     step_deposit_and_delegate(ctx)
     step_allocate_all(ctx)
+    # PR1a (oracle-root binding) requires every proof's `oracle_root` /
+    # `yield_oracle_root` PI to be a root the off-chain oracle has
+    # actually committed. Drive the bulk anchor cadence FIRST so the
+    # 200-bar 90d window is filled, then each trade-emission step
+    # appends a fresh single commit for its specific witness root before
+    # calling executeWithProof (see `_commit_proof_oracle_root`).
+    step_drive_oracle_anchors(ctx)
     step_emit_momentum_trades(ctx)
     step_emit_mean_reversion_trades(ctx)
     step_emit_yield_rotation_trades(ctx)
-    step_drive_oracle_anchors(ctx)
     step_drive_nav_trajectories(ctx)
     pre_rotation_updates = step_drive_reputation(ctx, start_block)
     step_rotate_params_for_strategy(ctx)

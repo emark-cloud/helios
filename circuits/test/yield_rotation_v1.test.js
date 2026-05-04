@@ -108,9 +108,16 @@ function buildYieldTree(snapshots) {
   return buildTree(leaves, YIELD_DEPTH);
 }
 
+function paramsHashOf(input) {
+  return poseidonHash([input.signal_threshold, input.bridging_cost]);
+}
+
 function tradeHashOf(input) {
   return poseidonHash([
     input.declared_class,
+    input.strategy_vault,
+    input.params_hash,
+    input.markets_allowlist_root,
     input.m_from,
     input.m_to,
     input.amount_rotating,
@@ -118,9 +125,6 @@ function tradeHashOf(input) {
     input.allocator_address,
     input.nonce,
     input.block_window_end,
-    input.signal_threshold,
-    input.bridging_cost,
-    input.markets_allowlist_root,
   ]);
 }
 
@@ -152,6 +156,7 @@ function buildValidInput() {
 
   const input = {
     declared_class: asField("0x9abc"),
+    strategy_vault: asField("0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee"),
     m_from: asField(MARKETS.AAVE_USDC),
     m_to: asField(MARKETS.COMPOUND_USDC),
     amount_rotating: "1000000000000000000",
@@ -177,6 +182,7 @@ function buildValidInput() {
     allow_siblings_to: ap_to.siblings,
   };
 
+  input.params_hash = paramsHashOf(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -190,8 +196,11 @@ test("yield_rotation_v1: valid rotation accepted", async () => {
 
 test("yield_rotation_v1: differential below threshold rejected", async () => {
   const input = buildValidInput();
-  // Bump threshold past the 130 bps real differential.
+  // Bump threshold past the 130 bps real differential. params_hash must be
+  // re-derived; otherwise the constraint that catches us first is the
+  // params_hash equality, not the differential check.
   input.signal_threshold = "200";
+  input.params_hash = paramsHashOf(input);
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
 });
@@ -200,6 +209,7 @@ test("yield_rotation_v1: bridging cost erodes differential past threshold", asyn
   const input = buildValidInput();
   // Real differential 130 bps; threshold 80; raise bridging to 60 ⇒ net −10.
   input.bridging_cost = "60";
+  input.params_hash = paramsHashOf(input);
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
 });
@@ -264,5 +274,26 @@ test("yield_rotation_v1: tampered allowlist root rejected", async () => {
   const input = buildValidInput();
   input.markets_allowlist_root = poseidonHash([42]);
   input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
+});
+
+test("yield_rotation_v1: params_hash diverges from (threshold,bridging) rejected", async () => {
+  // Lie about the public params_hash while leaving the private inputs
+  // intact. Constraint 8 (params_hash === Poseidon(signal_threshold,
+  // bridging_cost)) catches us, blocking the on-chain
+  // `_activeParamsHash()` substitution attack.
+  const input = buildValidInput();
+  input.params_hash = poseidonHash([999, 999]);
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
+});
+
+test("yield_rotation_v1: strategy_vault rebinding without trade_hash refresh rejected", async () => {
+  // Replaying a fresh proof against a different vault: the prover
+  // changes strategy_vault but forgets to rebuild trade_hash. The
+  // Constraint 9 trade_hash equality catches us. (On-chain the same
+  // attack is also caught by `address(this) == publicInputs[2]`.)
+  const input = buildValidInput();
+  input.strategy_vault = asField("0xdeadbeef00000000000000000000000000000000");
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
 });

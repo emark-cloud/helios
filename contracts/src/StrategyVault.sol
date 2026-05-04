@@ -69,14 +69,17 @@ contract StrategyVault is
     // bind a different witness set. MUST match circuits/yield_rotation_v1.circom.
     uint256 internal constant PI_YR_TRADE_HASH = 0;
     uint256 internal constant PI_YR_DECLARED_CLASS = 1;
-    uint256 internal constant PI_YR_M_FROM = 2;
-    uint256 internal constant PI_YR_M_TO = 3;
-    uint256 internal constant PI_YR_AMOUNT = 4;
-    uint256 internal constant PI_YR_YIELD_ORACLE_ROOT = 5;
-    uint256 internal constant PI_YR_ALLOCATOR = 6;
-    uint256 internal constant PI_YR_NONCE = 7;
-    uint256 internal constant PI_YR_BLOCK_WINDOW_END = 8;
-    uint256 internal constant PI_YR_LENGTH = 9;
+    uint256 internal constant PI_YR_STRATEGY_VAULT = 2;
+    uint256 internal constant PI_YR_PARAMS_HASH = 3;
+    uint256 internal constant PI_YR_ALLOWLIST_ROOT = 4;
+    uint256 internal constant PI_YR_M_FROM = 5;
+    uint256 internal constant PI_YR_M_TO = 6;
+    uint256 internal constant PI_YR_AMOUNT = 7;
+    uint256 internal constant PI_YR_YIELD_ORACLE_ROOT = 8;
+    uint256 internal constant PI_YR_ALLOCATOR = 9;
+    uint256 internal constant PI_YR_NONCE = 10;
+    uint256 internal constant PI_YR_BLOCK_WINDOW_END = 11;
+    uint256 internal constant PI_YR_LENGTH = 12;
 
     StrategyManifest internal _manifest;
     IERC20 public baseAsset;
@@ -123,6 +126,7 @@ contract StrategyVault is
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
+    error AllowlistRootMismatch();
 
     /// @notice Bundled initializer params. Bundled because passing 10 distinct
     ///         arguments blows the no-optimizer build's 16-stack-slot ceiling
@@ -245,23 +249,19 @@ contract StrategyVault is
         _emitTradeAttested(publicInputs);
     }
 
-    /// @notice yield_rotation_v1 entry path. The 9-PI layout omits asset
-    ///         indices, params_hash, and an explicit window-start (rotation
-    ///         is whole-position; the allocator picks the destination
-    ///         market). Private witnesses bound by the circuit but not
-    ///         visible here:
-    ///           - signal_threshold (operator-declared APY-diff gate)
-    ///           - bridging_cost
-    ///           - markets_allowlist_root (canonical root lives in
-    ///             StrategyRegistry.marketAllowlistRoot — operators are
-    ///             expected to use it; full on-chain enforcement requires
-    ///             promoting that root to a public input in the circuit,
-    ///             which is a v2 change).
-    /// @dev TODO(WS7.A): once Poseidon-on-Solidity ships, recompute the
-    ///      YR trade_hash here against the registry's committed paramsHash
-    ///      to defend against operators feeding stale params into a fresh
-    ///      proof. The circuit already enforces the binding between
-    ///      private witnesses and the trade_hash.
+    /// @notice yield_rotation_v1 entry path. The 12-PI layout omits asset
+    ///         indices and an explicit window-start (rotation is
+    ///         whole-position; the allocator picks the destination
+    ///         market) but binds the same hardening fields as the swap
+    ///         path: vault address, params hash, and the registry's
+    ///         markets allowlist root. Private witnesses bound by the
+    ///         circuit but not visible on chain:
+    ///           - signal_threshold (operator-declared APY-diff gate;
+    ///             commitment lives in publicInputs[PI_YR_PARAMS_HASH]
+    ///             and is checked against `_activeParamsHash()`)
+    ///           - bridging_cost (same)
+    ///           - APY snapshots and Merkle paths under the yield-oracle
+    ///             and allowlist roots
     function executeYieldRotationWithProof(
         bytes calldata proof,
         uint256[] calldata publicInputs,
@@ -320,6 +320,28 @@ contract StrategyVault is
 
         if (bytes32(publicInputs[PI_YR_DECLARED_CLASS]) != _manifest.declaredClass) {
             revert ClassMismatch();
+        }
+        // Cross-vault replay guard. Without this, two YR vaults registered
+        // under one allocator could replay each other's freshly-attested
+        // proofs — phase2-review.md C-2.
+        if (address(uint160(publicInputs[PI_YR_STRATEGY_VAULT])) != address(this)) {
+            revert VaultMismatch();
+        }
+        // Bind the proof to the registry-committed (signal_threshold,
+        // bridging_cost) tuple via Poseidon(t, b). Without this, the
+        // operator could lower the threshold per-trade and pass any
+        // signal — phase2-review.md C-3.
+        if (bytes32(publicInputs[PI_YR_PARAMS_HASH]) != _activeParamsHash()) {
+            revert ParamsHashMismatch();
+        }
+        // Bind to the registry-committed allowlist root for this class.
+        // Without this, `setMarketAllowlistRoot` is decoration —
+        // phase2-review.md C-3.
+        if (
+            bytes32(publicInputs[PI_YR_ALLOWLIST_ROOT])
+                != IStrategyRegistry(registry).marketAllowlistRoot(_manifest.declaredClass)
+        ) {
+            revert AllowlistRootMismatch();
         }
         if (address(uint160(publicInputs[PI_YR_ALLOCATOR])) != allocatorVault) {
             revert AllocatorMismatch();

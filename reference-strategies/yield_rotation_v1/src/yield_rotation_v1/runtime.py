@@ -105,6 +105,7 @@ class YieldRotationRuntime:
         market_subscriptions: Iterable[tuple[str, int]],
         nav_oracle_pk: str = "",
         allocator_address: str = "0x" + "0" * 40,
+        strategy_vault_address: str = "0x" + "0" * 40,
         block_provider: BlockProvider | None = None,
     ) -> None:
         self._strategy = strategy
@@ -113,6 +114,7 @@ class YieldRotationRuntime:
         self._executor = executor
         self._cfg = config
         self._allocator_address = allocator_address
+        self._strategy_vault_address = strategy_vault_address
         # `market_subscriptions` is the list of (oracle market_id string,
         # registry market id int) pairs the operator polls. The string
         # keys YieldStore; the int is what the circuit + allowlist tree
@@ -202,6 +204,7 @@ class YieldRotationRuntime:
                 yield_snapshots=snapshots,
                 allowlisted_markets=list(self._strategy.allowlisted_markets),
                 declared_class_field=self._cfg.declared_class_field,
+                strategy_vault=self._strategy_vault_address,
                 allocator_address=self._allocator_address,
                 nonce=nonce,
                 block_window_end=block_end,
