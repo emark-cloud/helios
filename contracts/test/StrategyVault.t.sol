@@ -546,10 +546,18 @@ contract StrategyVaultTest is Test {
     // ── reportNAV ──────────────────────────────────────────────────
 
     function _reportNAV(uint256 nav, uint64 ts) internal {
-        bytes32 digest = keccak256(abi.encode(block.chainid, address(vault), nav, ts));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, digest);
-        bytes memory sig = abi.encodePacked(r, s, v);
+        bytes memory sig = _signNAV(vault, nav, ts);
         vault.reportNAV(abi.encode(nav, ts, sig));
+    }
+
+    function _signNAV(StrategyVault v_, uint256 nav, uint64 ts)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 digest = v_.navDigest(nav, ts);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function test_ReportNAV_HappyPath() public {
@@ -564,18 +572,78 @@ contract StrategyVaultTest is Test {
     function test_ReportNAV_RevertsOnStaleTimestamp() public {
         uint64 ts = uint64(block.timestamp + 1);
         _reportNAV(1000e6, ts);
+        // Pre-compute the second sig outside expectRevert so the staticcall
+        // to `navDigest` doesn't consume the expectation slot.
+        bytes memory sig2 = _signNAV(vault, 1500e6, ts);
         vm.expectRevert(StrategyVault.StaleNav.selector);
-        _reportNAV(1500e6, ts);
+        vault.reportNAV(abi.encode(uint256(1500e6), ts, sig2));
     }
 
     function test_ReportNAV_RevertsOnBadSigner() public {
         uint64 ts = uint64(block.timestamp + 1);
         (, uint256 wrongKey) = makeAddrAndKey("wrongOracle");
-        bytes32 digest = keccak256(abi.encode(block.chainid, address(vault), uint256(1000e6), ts));
+        bytes32 digest = vault.navDigest(1000e6, ts);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
         vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+    }
+
+    function test_ReportNAV_RevertsOnLegacyRawDigest() public {
+        // Pre-PR1b raw signing format must be rejected — proves cross-vault
+        // and cross-chain replay protection now hangs off the EIP-712 domain
+        // rather than the inlined chainid + verifyingContract values.
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes32 legacyDigest =
+            keccak256(abi.encode(block.chainid, address(vault), uint256(1000e6), ts));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, legacyDigest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
+        vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+    }
+
+    function test_ReportNAV_RejectsCrossVaultReplay() public {
+        // Sign a NAV update for `vault`, then deploy a sibling vault and
+        // confirm the same signature is rejected there. EIP-712 binds the
+        // digest to `verifyingContract` so reuse is impossible.
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes32 digest = vault.navDigest(1000e6, ts);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        // Spin up a sibling vault with the same navOracle.
+        StrategyVault sibling;
+        {
+            address[] memory universe = new address[](1);
+            universe[0] = address(usdc);
+            IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
+                declaredClass: CLASS,
+                assetUniverse: universe,
+                maxCapacity: MAX_CAPACITY,
+                feeRateBps: 1000,
+                operator: operator,
+                stakeAmount: 5000e18,
+                paramsHash: bytes32(uint256(0xfee5))
+            });
+            StrategyVault siblingImpl = new StrategyVault();
+            StrategyVault.InitParams memory p = StrategyVault.InitParams({
+                manifest: m,
+                baseAsset: usdc,
+                registry: registry,
+                verifier: address(verifier),
+                allowedRouter: allowedRouter,
+                navOracle: navOracle,
+                allocatorVault: allocatorVault,
+                priceAnchor: priceAnchor,
+                yieldAnchor: yieldAnchor,
+                owner: owner
+            });
+            bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
+            sibling = StrategyVault(address(new ERC1967Proxy(address(siblingImpl), initData)));
+        }
+
+        vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
+        sibling.reportNAV(abi.encode(uint256(1000e6), ts, sig));
     }
 
     // ── slash ──────────────────────────────────────────────────────

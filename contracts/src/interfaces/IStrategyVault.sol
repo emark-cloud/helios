@@ -96,4 +96,9 @@ interface IStrategyVault {
     function totalNAV() external view returns (uint256);
     function navOf(address allocator) external view returns (uint256);
     function allocationOf(address allocator) external view returns (uint256);
+
+    /// @notice EIP-712 digest the navOracle is expected to sign for a given
+    ///         NAV/timestamp tuple. See `reportNAV` for the typehash and
+    ///         domain parameters.
+    function navDigest(uint256 totalNAV_, uint64 timestamp) external view returns (bytes32);
 }

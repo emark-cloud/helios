@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 from eth_account import Account
-from eth_keys.datatypes import PrivateKey, Signature
-from eth_utils.crypto import keccak
+from eth_account.messages import encode_typed_data
+from eth_keys.datatypes import Signature
 from helios.types import MarketSnapshot
 from mean_reversion_v1.executor import TradeExecutor
 from mean_reversion_v1.oracle_client import (
@@ -191,8 +191,9 @@ async def test_dry_run_executor_records_pending() -> None:
 
 def test_nav_signing_round_trip() -> None:
     """NAV signature must recover to the configured nav_oracle key
-    against StrategyVault's `keccak256(abi.encode(vault, totalNAV, ts))`
-    with no EIP-191 prefix."""
+    against StrategyVault's EIP-712 `NAVUpdate(uint256 totalNAV, uint64
+    timestamp)` digest under domain `(HeliosStrategyVault, "1", chainId,
+    verifyingContract=vault)`."""
     nav_pk = "0x" + "33" * 32
     nav_addr = Account.from_key(nav_pk).address
 
@@ -218,17 +219,25 @@ def test_nav_signing_round_trip() -> None:
     sig_hex = record.extras["signature_hex"]
     signature = bytes.fromhex(sig_hex)
 
-    vault_word = bytes.fromhex(executor.vault[2:].rjust(40, "0"))
-    body = (
-        b"\x00" * 12
-        + vault_word
-        + (10_000 * 10**18).to_bytes(32, "big")
-        + (1_700_000_000).to_bytes(32, "big")
+    domain = {
+        "name": "HeliosStrategyVault",
+        "version": "1",
+        "chainId": 2368,
+        "verifyingContract": executor.vault,
+    }
+    types = {
+        "NAVUpdate": [
+            {"name": "totalNAV", "type": "uint256"},
+            {"name": "timestamp", "type": "uint64"},
+        ]
+    }
+    message = {"totalNAV": 10_000 * 10**18, "timestamp": 1_700_000_000}
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    expected = Account.from_key(nav_pk).sign_message(encoded)
+    assert signature == bytes(expected.signature)
+    assert Account.recover_message(encoded, signature=signature) == nav_addr
+    sig_for_recover = signature[:64] + bytes([signature[64] - 27])
+    recovered_pubkey = Signature(signature_bytes=sig_for_recover).recover_public_key_from_msg_hash(
+        expected.message_hash
     )
-    digest = keccak(body)
-
-    pk_obj = PrivateKey(bytes.fromhex(nav_pk[2:]))
-    expected_sig = pk_obj.sign_msg_hash(digest)
-    recovered_pubkey = Signature(signature_bytes=signature).recover_public_key_from_msg_hash(digest)
     assert recovered_pubkey.to_checksum_address() == nav_addr
-    assert signature == expected_sig.to_bytes()

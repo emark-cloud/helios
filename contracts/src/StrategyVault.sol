@@ -9,6 +9,9 @@ import {
     OwnableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {
+    EIP712Upgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {
     ReentrancyGuardTransient
 } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -29,10 +32,18 @@ contract StrategyVault is
     IStrategyVault,
     Initializable,
     OwnableUpgradeable,
+    EIP712Upgradeable,
     ReentrancyGuardTransient,
     UUPSUpgradeable
 {
     using SafeERC20 for IERC20;
+
+    /// @dev EIP-712 typehash for off-chain NAV updates. Bound to
+    ///      `(name="HeliosStrategyVault", version="1", chainId, verifyingContract)`
+    ///      by `_hashTypedDataV4`, so a navOracle signature for vault A on
+    ///      chain X cannot be replayed against vault B or onto another chain.
+    bytes32 internal constant _NAV_UPDATE_TYPEHASH =
+        keccak256("NAVUpdate(uint256 totalNAV,uint64 timestamp)");
 
     // Public-input layout decoded from publicInputs[]. MUST match the
     // declaration order in circuits/momentum_v1.circom's `public[...]`
@@ -144,6 +155,7 @@ contract StrategyVault is
         ) revert ZeroAddress();
 
         __Ownable_init(p.owner);
+        __EIP712_init("HeliosStrategyVault", "1");
 
         _manifest = p.manifest;
         baseAsset = p.baseAsset;
@@ -374,22 +386,35 @@ contract StrategyVault is
 
     /// @notice Apply an off-chain NAV snapshot signed by `navOracle`.
     /// @dev signedNAV = abi.encode(uint256 totalNAV, uint64 timestamp, bytes signature).
-    ///      The signature is over
-    ///      keccak256(abi.encode(block.chainid, address(this), totalNAV, timestamp))
-    ///      with no EIP-191 prefix — the oracle signs the raw digest directly.
-    ///      block.chainid binds the signature to a specific chain so the same
-    ///      NAV update cannot be replayed against a sibling vault on another chain.
+    ///      The signature is EIP-712 typed-data over
+    ///      `NAVUpdate(uint256 totalNAV, uint64 timestamp)` under the domain
+    ///      `(HeliosStrategyVault, "1", chainId, verifyingContract)`. The
+    ///      domain pins the digest to (a) this chain and (b) this vault, so
+    ///      a navOracle signature cannot be replayed against a sibling vault
+    ///      or onto a different chain. The pre-Phase-2 raw-digest format is
+    ///      unsupported — signers must produce typed-data signatures.
     function reportNAV(bytes calldata signedNAV) external {
         (uint256 totalNAV_, uint64 timestamp, bytes memory signature) =
             abi.decode(signedNAV, (uint256, uint64, bytes));
         if (timestamp <= lastNAVTimestamp) revert StaleNav();
-        bytes32 digest = keccak256(abi.encode(block.chainid, address(this), totalNAV_, timestamp));
+        bytes32 structHash = keccak256(abi.encode(_NAV_UPDATE_TYPEHASH, totalNAV_, timestamp));
+        bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, signature);
         if (signer != navOracle) revert NavSignatureInvalid();
 
         _totalNAV = totalNAV_;
         lastNAVTimestamp = timestamp;
         emit NAVReported(address(this), totalNAV_, timestamp);
+    }
+
+    /// @notice Helper for off-chain signers — exposes the EIP-712 digest the
+    ///         vault expects for a given NAV/timestamp tuple. Mirrors the
+    ///         `_hashTypedDataV4(structHash)` path inside `reportNAV` so a
+    ///         signer can debug a recovered-address mismatch against a
+    ///         deterministic source of truth.
+    function navDigest(uint256 totalNAV_, uint64 timestamp) external view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(_NAV_UPDATE_TYPEHASH, totalNAV_, timestamp));
+        return _hashTypedDataV4(structHash);
     }
 
     // ── Slash (registry-only halt) ──────────────────────────────────

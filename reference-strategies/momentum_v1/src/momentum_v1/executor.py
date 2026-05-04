@@ -108,6 +108,10 @@ class TradeExecutor:
     def router(self) -> str:
         return self._router
 
+    @property
+    def chain_id(self) -> int:
+        return self._chain_id
+
     # ── Calldata builders ─────────────────────────────────────
     def build_swap_calldata(
         self,

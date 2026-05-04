@@ -13,8 +13,9 @@ trade emission and reputation scoring:
   2. `NavTrajectoryDriver` — synthesizes a per-strategy daily NAV
      curve over 30 daily samples ending at `synthetic_now`. Each
      curve is signed exactly the way `StrategyVault.reportNAV`
-     verifies (raw `keccak256(abi.encode(chainid, vault, totalNAV,
-     timestamp))` digest, no EIP-191 prefix; v ∈ {27,28}).
+     verifies — EIP-712 typed data over `NAVUpdate(uint256 totalNAV,
+     uint64 timestamp)` under domain `(HeliosStrategyVault, "1",
+     chainId, verifyingContract=vault)`; v ∈ {27,28}.
 
 The trajectories are deliberately diverging across the 6 vaults so
 the §8.2 reputation engine produces non-trivially-different scores
@@ -35,7 +36,6 @@ from typing import Any
 from eth_abi.abi import encode as abi_encode
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from eth_keys.datatypes import PrivateKey
 from eth_utils.crypto import keccak
 from web3 import Web3
 from web3.contract.contract import Contract
@@ -294,20 +294,28 @@ def _sign_nav(
     timestamp: int,
     signer_pk: str,
 ) -> bytes:
-    """Match `StrategyVault.reportNAV`:
-        digest = keccak256(abi.encode(chainid, address(this), totalNAV, timestamp))
-    No EIP-191 prefix — the oracle signs the raw digest. v is bumped
-    to {27,28} for OZ ECDSA.recover.
-    """
-    body = abi_encode(
-        ["uint256", "address", "uint256", "uint64"],
-        [chain_id, Web3.to_checksum_address(vault_address), total_nav, timestamp],
-    )
-    digest = keccak(body)
-    pk_obj = PrivateKey(bytes.fromhex(signer_pk[2:] if signer_pk.startswith("0x") else signer_pk))
-    sig_obj = pk_obj.sign_msg_hash(digest)
-    raw = sig_obj.to_bytes()
-    return raw[:64] + bytes([raw[64] + 27])
+    """Match `StrategyVault.reportNAV` — EIP-712 typed data over
+    `NAVUpdate(uint256 totalNAV, uint64 timestamp)` under domain
+    `(name="HeliosStrategyVault", version="1", chainId,
+    verifyingContract=vault)`. eth_account.sign_message produces a
+    65-byte signature with v ∈ {27,28}, which is what OZ ECDSA.recover
+    expects."""
+    domain = {
+        "name": "HeliosStrategyVault",
+        "version": "1",
+        "chainId": chain_id,
+        "verifyingContract": Web3.to_checksum_address(vault_address),
+    }
+    types = {
+        "NAVUpdate": [
+            {"name": "totalNAV", "type": "uint256"},
+            {"name": "timestamp", "type": "uint64"},
+        ]
+    }
+    message = {"totalNAV": total_nav, "timestamp": timestamp}
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    pk = signer_pk[2:] if signer_pk.startswith("0x") else signer_pk
+    return bytes(Account.from_key(bytes.fromhex(pk)).sign_message(encoded).signature)
 
 
 def encode_signed_nav(

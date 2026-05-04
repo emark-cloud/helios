@@ -448,7 +448,7 @@ contract AllocatorVaultTest is Test {
     // ── helpers ────────────────────────────────────────────────────
 
     function _reportNAV(StrategyVault s, uint256 nav, uint64 ts) internal {
-        bytes32 digest = keccak256(abi.encode(block.chainid, address(s), nav, ts));
+        bytes32 digest = s.navDigest(nav, ts);
         (uint8 v, bytes32 r, bytes32 sigS) = vm.sign(navOracleKey, digest);
         bytes memory sig = abi.encodePacked(r, sigS, v);
         s.reportNAV(abi.encode(nav, ts, sig));
