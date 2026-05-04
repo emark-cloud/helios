@@ -97,6 +97,15 @@ interface IStrategyVault {
     function navOf(address allocator) external view returns (uint256);
     function allocationOf(address allocator) external view returns (uint256);
 
+    /// @notice Anchors the vault is bound to (set in `initialize`). Exposed
+    ///         on the interface so off-chain tooling — e.g. the e2e Phase-2
+    ///         oracle commit driver — can route a per-proof commit to the
+    ///         exact anchor instance the vault checks against, rather than
+    ///         guessing at the deployments-file value (which can shift if
+    ///         Phase-2 redeploys an anchor).
+    function priceAnchor() external view returns (address);
+    function yieldAnchor() external view returns (address);
+
     /// @notice EIP-712 digest the navOracle is expected to sign for a given
     ///         NAV/timestamp tuple. See `reportNAV` for the typehash and
     ///         domain parameters.

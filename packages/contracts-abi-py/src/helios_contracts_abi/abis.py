@@ -969,6 +969,20 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [{"name": "", "type": "address", "internalType": "address"}],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "yieldAnchor",
+    "inputs": [],
+    "outputs": [{"name": "", "type": "address", "internalType": "address"}],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "manifest",
     "inputs": [],
     "outputs": [

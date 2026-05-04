@@ -10,8 +10,8 @@ import {
 /// @notice End-to-end test: real Groth16 proof generated off-chain by
 ///         circuits/scripts/gen-fixture-yr.js → on-chain verification
 ///         through YieldRotationV1Verifier (snarkjs-generated) wrapped by
-///         the dynamic-shape adapter. YR uses 9 public inputs (rotation
-///         layout — see Helios.md §6/§9 and the circuit test).
+///         the dynamic-shape adapter. YR uses 12 public inputs (rotation
+///         layout — see Helios.md §6/§12 and the circuit test).
 contract YieldRotationV1VerifierTest is Test {
     YieldRotationV1Verifier internal raw;
     YieldRotationV1VerifierAdapter internal adapter;
@@ -42,9 +42,9 @@ contract YieldRotationV1VerifierTest is Test {
 
     function test_RawVerifier_AcceptsRealProof() public view {
         (Proof memory p, uint256[] memory pubInputs) = _loadFixture();
-        require(pubInputs.length == 9, "fixture: bad pub input count");
-        uint256[9] memory fixedInputs;
-        for (uint256 i = 0; i < 9; i++) {
+        require(pubInputs.length == 12, "fixture: bad pub input count");
+        uint256[12] memory fixedInputs;
+        for (uint256 i = 0; i < 12; i++) {
             fixedInputs[i] = pubInputs[i];
         }
         assertTrue(raw.verifyProof(p.a, p.b, p.c, fixedInputs));
@@ -69,7 +69,9 @@ contract YieldRotationV1VerifierTest is Test {
         }
         vm.expectRevert(
             abi.encodeWithSelector(
-                YieldRotationV1VerifierAdapter.WrongPublicInputCount.selector, shortInputs.length, 9
+                YieldRotationV1VerifierAdapter.WrongPublicInputCount.selector,
+                shortInputs.length,
+                12
             )
         );
         adapter.verifyProof(p.a, p.b, p.c, shortInputs);

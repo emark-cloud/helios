@@ -1,13 +1,14 @@
 """Build the witness payload yield_rotation_v1.circom expects.
 
-YR is structurally distinct from the directional classes — 9 PIs, no
-asset indices, no params_hash. The witness ships full Merkle inclusion
+YR ships 12 public inputs (PR2 promoted strategy_vault, params_hash,
+markets_allowlist_root from private witnesses to PIs so the on-chain
+side can enforce them). The witness still ships full Merkle inclusion
 proofs (yield depth 6, allowlist depth 4) which the strategy operator
-builds client-side using `merkle.py`. `trade_hash` is also computed
-client-side here (Poseidon over 11 fields) — unlike momentum/MR, the
-YR fixture script computes the trade hash before calling
-`groth16.fullProve`, so the witness is fully populated by the time it
-reaches the prover service.
+builds client-side using `merkle.py`. `trade_hash` and `params_hash`
+are computed client-side here (Poseidon over the relevant tuples);
+unlike momentum/MR, the YR fixture script computes both before
+calling `groth16.fullProve`, so the witness is fully populated by the
+time it reaches the prover service.
 
 Mirrors `circuits/scripts/gen-fixture-yr.js` line for line — vector
 parity is asserted in `tests/test_witness.py`.
@@ -54,6 +55,7 @@ def build_yield_rotation_witness(
     yield_snapshots: list[YieldTick],
     allowlisted_markets: list[int],
     declared_class_field: int,
+    strategy_vault: str,
     allocator_address: str,
     nonce: int,
     block_window_end: int,
@@ -106,15 +108,26 @@ def build_yield_rotation_witness(
 
     amount_rotating_e18 = int(intent.amount_in_usd * 10**18)
     allocator_field = _address_to_field(allocator_address)
+    strategy_vault_field = _address_to_field(strategy_vault)
     yield_root = yield_tree.root
     allowlist_root = allowlist_tree.root
 
-    # trade_hash binds the public + private operator-set + registry-set
-    # fields into a single Poseidon. The on-chain side expects this
-    # exact ordering (see Helios.md §9.4 + circuit constraint 8).
+    # PR2: signal_threshold + bridging_cost stay private witnesses, but
+    # their commitment (params_hash = Poseidon(threshold, bridging)) is
+    # a public input so the vault can match it against the registry's
+    # `_activeParamsHash()`.
+    params_hash = poseidon_hash([signal_threshold_bps, bridging_cost_bps])
+
+    # trade_hash binds the 11 non-trade-hash PIs into one Poseidon; the
+    # on-chain side checks each PI independently against an authoritative
+    # source so a substitution attack fails on either layer (circuit
+    # constraint 9 + the per-PI checks in `_validateAndVerifyYR`).
     trade_hash = poseidon_hash(
         [
             declared_class_field,
+            strategy_vault_field,
+            params_hash,
+            allowlist_root,
             intent.m_from,
             intent.m_to,
             amount_rotating_e18,
@@ -122,16 +135,16 @@ def build_yield_rotation_witness(
             allocator_field,
             nonce,
             block_window_end,
-            signal_threshold_bps,
-            bridging_cost_bps,
-            allowlist_root,
         ]
     )
 
     inputs: dict[str, Any] = {
-        # Public (9)
+        # Public (12)
         "trade_hash": str(trade_hash),
         "declared_class": str(declared_class_field),
+        "strategy_vault": str(strategy_vault_field),
+        "params_hash": str(params_hash),
+        "markets_allowlist_root": str(allowlist_root),
         "m_from": str(intent.m_from),
         "m_to": str(intent.m_to),
         "amount_rotating": str(amount_rotating_e18),
@@ -144,7 +157,6 @@ def build_yield_rotation_witness(
         "apy_to": str(apy_to),
         "signal_threshold": str(signal_threshold_bps),
         "bridging_cost": str(bridging_cost_bps),
-        "markets_allowlist_root": str(allowlist_root),
         "yield_path_indices_from": [str(i) for i in yp_from.path_indices],
         "yield_siblings_from": [str(s) for s in yp_from.siblings],
         "yield_path_indices_to": [str(i) for i in yp_to.path_indices],

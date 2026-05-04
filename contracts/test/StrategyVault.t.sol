@@ -121,6 +121,16 @@ contract StrategyVaultTest is Test {
             abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
             abi.encode(true)
         );
+
+        // PR2: YR path now binds the proof's `markets_allowlist_root` PI
+        // to the registry's per-class allowlist root. Tests use a plain
+        // EOA registry, so mock the selector to a deterministic value
+        // and reference it from `_yrInputs`. Specific tests override.
+        vm.mockCall(
+            registry,
+            abi.encodeWithSelector(IStrategyRegistry.marketAllowlistRoot.selector),
+            abi.encode(bytes32(uint256(0xa11cdef)))
+        );
     }
 
     // ── Initialization ───────────────────────────────────────────────
@@ -706,21 +716,38 @@ contract StrategyVaultTest is Test {
         vault.executeWithProof(_proofBytes(), pi, trades);
     }
 
-    // ── WS7.A: yield-rotation 9-PI entry path ──────────────────────
+    // ── PR2: yield-rotation 12-PI entry path ───────────────────────
+
+    bytes32 internal constant _YR_ALLOWLIST_ROOT = bytes32(uint256(0xa11cdef));
 
     function _yrInputs() internal view returns (uint256[] memory pi) {
-        // Layout: [trade_hash, declared_class, m_from, m_to, amount,
-        //          yield_oracle_root, allocator, nonce, block_window_end]
-        pi = new uint256[](9);
+        // Layout (must match circuits/yield_rotation_v1.circom):
+        //  [0]  trade_hash
+        //  [1]  declared_class
+        //  [2]  strategy_vault       (vault checks address(this) equality)
+        //  [3]  params_hash          (vault checks _activeParamsHash())
+        //  [4]  markets_allowlist_root (vault checks
+        //                              StrategyRegistry.marketAllowlistRoot(class))
+        //  [5]  m_from
+        //  [6]  m_to
+        //  [7]  amount_rotating
+        //  [8]  yield_oracle_root
+        //  [9]  allocator
+        //  [10] nonce
+        //  [11] block_window_end
+        pi = new uint256[](12);
         pi[0] = uint256(keccak256("yr-trade-1"));
         pi[1] = uint256(CLASS);
-        pi[2] = 1; // m_from market id
-        pi[3] = 2; // m_to market id
-        pi[4] = 1000e6; // amount rotating
-        pi[5] = uint256(keccak256("yield-oracle-root"));
-        pi[6] = uint256(uint160(allocatorVault));
-        pi[7] = 7; // nonce
-        pi[8] = block.number + 10;
+        pi[2] = uint256(uint160(address(vault)));
+        pi[3] = uint256(bytes32(uint256(0xfee5))); // matches setUp manifest paramsHash
+        pi[4] = uint256(_YR_ALLOWLIST_ROOT);
+        pi[5] = 1; // m_from market id
+        pi[6] = 2; // m_to market id
+        pi[7] = 1000e6; // amount rotating
+        pi[8] = uint256(keccak256("yield-oracle-root"));
+        pi[9] = uint256(uint160(allocatorVault));
+        pi[10] = 7; // nonce
+        pi[11] = block.number + 10;
     }
 
     function test_ExecuteYieldRotationWithProof_HappyPath() public {
@@ -733,18 +760,18 @@ contract StrategyVaultTest is Test {
             allocatorVault,
             bytes32(pi[0]),
             CLASS,
-            pi[2],
-            pi[3],
-            pi[4],
-            bytes32(pi[5]),
-            uint64(pi[8])
+            pi[5],
+            pi[6],
+            pi[7],
+            bytes32(pi[8]),
+            uint64(pi[11])
         );
         vm.prank(operator);
         vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
     }
 
     function test_ExecuteYieldRotationWithProof_RevertsOnShortInputs() public {
-        uint256[] memory pi = new uint256[](8);
+        uint256[] memory pi = new uint256[](11);
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.PublicInputsTooShort.selector);
@@ -760,9 +787,43 @@ contract StrategyVaultTest is Test {
         vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
     }
 
+    function test_ExecuteYieldRotationWithProof_RevertsOnVaultMismatch() public {
+        uint256[] memory pi = _yrInputs();
+        // Operator points the proof at a sibling vault address (cross-vault
+        // replay attempt). PR2 / phase2-review.md C-2.
+        pi[2] = uint256(uint160(makeAddr("siblingYrVault")));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.VaultMismatch.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnParamsHashMismatch() public {
+        uint256[] memory pi = _yrInputs();
+        // Stale or shifted operator-declared (signal_threshold, bridging_cost)
+        // commitment — vault rejects before the verifier. PR2 / C-3.
+        pi[3] = uint256(keccak256("stale-params"));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ParamsHashMismatch.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnAllowlistMismatch() public {
+        uint256[] memory pi = _yrInputs();
+        // Operator claims a different allowlist root than the registry
+        // committed — `setMarketAllowlistRoot` becomes load-bearing here.
+        // PR2 / C-3.
+        pi[4] = uint256(keccak256("rogue-allowlist"));
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.AllowlistRootMismatch.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
     function test_ExecuteYieldRotationWithProof_RevertsOnAllocatorMismatch() public {
         uint256[] memory pi = _yrInputs();
-        pi[6] = uint256(uint160(makeAddr("notAllocator")));
+        pi[9] = uint256(uint160(makeAddr("notAllocator")));
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(IStrategyVault.AllocatorMismatch.selector);
@@ -771,7 +832,7 @@ contract StrategyVaultTest is Test {
 
     function test_ExecuteYieldRotationWithProof_RevertsOnWindowExpired() public {
         uint256[] memory pi = _yrInputs();
-        pi[8] = block.number == 0 ? 0 : block.number - 1;
+        pi[11] = block.number == 0 ? 0 : block.number - 1;
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.WindowExpired.selector);

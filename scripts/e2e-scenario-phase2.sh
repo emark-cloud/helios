@@ -120,6 +120,12 @@ echo "[e2e] forge script DeployPhase2 → $DEPLOYMENTS_FILE (layered)"
   exit 1
 }
 
+# Phase 2 anchor addresses are written by DeployPhase2; RegisterPhase2
+# reads them via env (PR1a wired the vault to consult the anchors at
+# init time, so the registration script needs to forward them).
+ORACLE_PRICE_ANCHOR_ADDR=$(read_addr oraclePriceAnchor)
+ORACLE_YIELD_ANCHOR_ADDR=$(read_addr oracleYieldAnchor)
+
 # ── 4. RegisterPhase2Strategies ──────────────────────────────────
 echo "[e2e] forge script RegisterPhase2Strategies → $DEPLOYMENTS_FILE (layered)"
 (
@@ -130,6 +136,8 @@ echo "[e2e] forge script RegisterPhase2Strategies → $DEPLOYMENTS_FILE (layered
     ALLOCATOR_VAULT="$ALLOCATOR_VAULT_ADDR" \
     TRADE_VERIFIER="$TRADE_VERIFIER_ADDR" \
     SWAP_ROUTER="$SWAP_ROUTER_ADDR" \
+    ORACLE_PRICE_ANCHOR="$ORACLE_PRICE_ANCHOR_ADDR" \
+    ORACLE_YIELD_ANCHOR="$ORACLE_YIELD_ANCHOR_ADDR" \
     OUT_LABEL="$OUT_LABEL" \
     forge script script/RegisterPhase2Strategies.s.sol \
     --rpc-url "$RPC_URL" --broadcast --silent
@@ -153,6 +161,8 @@ echo "[e2e] forge script RegisterFreshStrategy → $DEPLOYMENTS_FILE (layered)"
     ALLOCATOR_VAULT="$ALLOCATOR_VAULT_ADDR" \
     TRADE_VERIFIER="$TRADE_VERIFIER_ADDR" \
     SWAP_ROUTER="$SWAP_ROUTER_ADDR" \
+    ORACLE_PRICE_ANCHOR="$ORACLE_PRICE_ANCHOR_ADDR" \
+    ORACLE_YIELD_ANCHOR="$ORACLE_YIELD_ANCHOR_ADDR" \
     OUT_LABEL="$OUT_LABEL" \
     forge script script/RegisterFreshStrategy.s.sol \
     --rpc-url "$RPC_URL" --broadcast --silent

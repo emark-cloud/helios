@@ -1,6 +1,6 @@
 """Witness-builder invariants for `yield_rotation_v1`.
 
-Asserts the witness shape matches `gen-fixture-yr.js` (9 PIs + private
+Asserts the witness shape matches `gen-fixture-yr.js` (12 PIs + private
 witness) and that vector parity holds for the canonical fixture inputs.
 """
 
@@ -32,13 +32,17 @@ FIXTURE_INTENT = RotationIntent(
     apy_to_bps=550,
 )
 FIXTURE_DECLARED_CLASS = 0x9ABC
+FIXTURE_STRATEGY_VAULT = "0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee"
 FIXTURE_ALLOCATOR = "0xa11ca7"
 FIXTURE_NONCE = 7
 FIXTURE_BLOCK_END = 200
 FIXTURE_THRESHOLD = 80
 FIXTURE_BRIDGING = 30
 
-EXPECTED_TRADE_HASH = 20663455979481276034561464138722727257422408101475448626751031931004162363337
+# Computed by `circuits/scripts/gen-fixture-yr.js` against the new
+# 12-PI circuit (PR2). The witness builder must reproduce these
+# bit-for-bit.
+EXPECTED_TRADE_HASH = 15551756236772019655813087469555871888267725882019474839636640940768167973683
 EXPECTED_YIELD_ROOT = 19617008100108992903905573385623852931387633461552456891295159462318722212376
 
 
@@ -48,6 +52,7 @@ def _build_fixture_witness():
         yield_snapshots=FIXTURE_SNAPSHOTS,
         allowlisted_markets=FIXTURE_ALLOWLIST,
         declared_class_field=FIXTURE_DECLARED_CLASS,
+        strategy_vault=FIXTURE_STRATEGY_VAULT,
         allocator_address=FIXTURE_ALLOCATOR,
         nonce=FIXTURE_NONCE,
         block_window_end=FIXTURE_BLOCK_END,
@@ -76,9 +81,12 @@ def test_witness_yield_root_matches_js_fixture() -> None:
 def test_witness_input_keys_complete() -> None:
     req = _build_fixture_witness()
     expected_keys = {
-        # 9 public
+        # 12 public
         "trade_hash",
         "declared_class",
+        "strategy_vault",
+        "params_hash",
+        "markets_allowlist_root",
         "m_from",
         "m_to",
         "amount_rotating",
@@ -91,7 +99,6 @@ def test_witness_input_keys_complete() -> None:
         "apy_to",
         "signal_threshold",
         "bridging_cost",
-        "markets_allowlist_root",
         "yield_path_indices_from",
         "yield_siblings_from",
         "yield_path_indices_to",
@@ -130,6 +137,7 @@ def test_witness_rejects_below_threshold_differential() -> None:
             ],
             allowlisted_markets=[1, 2],
             declared_class_field=1,
+            strategy_vault="0x" + "0" * 40,
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
@@ -146,6 +154,7 @@ def test_witness_rejects_non_allowlisted_market() -> None:
             yield_snapshots=FIXTURE_SNAPSHOTS,
             allowlisted_markets=FIXTURE_ALLOWLIST,
             declared_class_field=1,
+            strategy_vault="0x" + "0" * 40,
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
@@ -166,6 +175,7 @@ def test_witness_rejects_missing_snapshot() -> None:
             ],
             allowlisted_markets=[1, 2, 3],
             declared_class_field=1,
+            strategy_vault="0x" + "0" * 40,
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
