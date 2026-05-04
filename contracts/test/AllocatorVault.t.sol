@@ -32,6 +32,8 @@ contract AllocatorVaultTest is Test {
     address internal navOracle;
     uint256 internal navOracleKey;
     address internal allowedRouter = makeAddr("router");
+    address internal priceAnchor = makeAddr("priceAnchor");
+    address internal yieldAnchor = makeAddr("yieldAnchor");
     address internal user = makeAddr("user");
     address internal randomCaller = makeAddr("rando");
 
@@ -144,35 +146,22 @@ contract AllocatorVaultTest is Test {
             stakeAmount: 5000e6,
             paramsHash: bytes32(0)
         });
-        bytes memory initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(registry),
-                address(verifier),
-                allowedRouter,
-                navOracle,
-                address(0),
-                owner
-            )
-        );
         // The strategy vault needs the AllocatorVault address as its allocator
         // peer. We may not yet know that address before deployment in the real
         // case (paired in DeployPhase1.s.sol), but in tests we already do.
-        initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(registry),
-                address(verifier),
-                allowedRouter,
-                navOracle,
-                address(allocatorVault),
-                owner
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: address(registry),
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: address(allocatorVault),
+            priceAnchor: priceAnchor,
+            yieldAnchor: yieldAnchor,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
         s = StrategyVault(address(new ERC1967Proxy(address(impl), initData)));
     }
 

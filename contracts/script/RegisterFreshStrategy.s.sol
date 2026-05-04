@@ -42,6 +42,8 @@ contract RegisterFreshStrategy is Script {
         address allocatorVault;
         address tradeVerifier;
         address swapRouter;
+        address oraclePriceAnchor;
+        address oracleYieldAnchor;
         string outLabel;
     }
 
@@ -54,6 +56,8 @@ contract RegisterFreshStrategy is Script {
             allocatorVault: vm.envAddress("ALLOCATOR_VAULT"),
             tradeVerifier: vm.envAddress("TRADE_VERIFIER"),
             swapRouter: vm.envAddress("SWAP_ROUTER"),
+            oraclePriceAnchor: vm.envAddress("ORACLE_PRICE_ANCHOR"),
+            oracleYieldAnchor: vm.envAddress("ORACLE_YIELD_ANCHOR"),
             outLabel: vm.envOr("OUT_LABEL", _chainName())
         });
         return runWith(i);
@@ -89,19 +93,19 @@ contract RegisterFreshStrategy is Script {
             stakeAmount: STRATEGY_STAKE_3,
             paramsHash: PARAMS_HASH_MOM_V3
         });
-        bytes memory init = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                MockERC20(i.usdc),
-                i.strategyRegistry,
-                i.tradeVerifier,
-                i.swapRouter,
-                deployer,
-                i.allocatorVault,
-                deployer
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: MockERC20(i.usdc),
+            registry: i.strategyRegistry,
+            verifier: i.tradeVerifier,
+            allowedRouter: i.swapRouter,
+            navOracle: deployer,
+            allocatorVault: i.allocatorVault,
+            priceAnchor: i.oraclePriceAnchor,
+            yieldAnchor: i.oracleYieldAnchor,
+            owner: deployer
+        });
+        bytes memory init = abi.encodeCall(StrategyVault.initialize, (p));
         address vault = address(new ERC1967Proxy(address(impl), init));
         console2.log("StrategyVault[momentum_v1.variant3]:", vault);
         return vault;

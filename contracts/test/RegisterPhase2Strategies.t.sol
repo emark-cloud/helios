@@ -13,6 +13,8 @@ import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { AllocatorVault } from "../src/AllocatorVault.sol";
 import { AllocatorRegistry } from "../src/AllocatorRegistry.sol";
 import { ReputationAnchor } from "../src/ReputationAnchor.sol";
+import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
+import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 import { UserVault } from "../src/UserVault.sol";
 import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
@@ -52,6 +54,8 @@ contract RegisterPhase2StrategiesTest is Test {
     address internal mockVerifierMom;
     address internal mockVerifierMr;
     address internal mockVerifierYr;
+    OraclePriceAnchor internal priceAnchor;
+    OracleYieldAnchor internal yieldAnchor;
 
     address internal vaultMomV1;
     address internal vaultMrV1;
@@ -80,6 +84,9 @@ contract RegisterPhase2StrategiesTest is Test {
         tav.registerVerifier(CLASS_MOM, mockVerifierMom);
         tav.registerVerifier(CLASS_MR, mockVerifierMr);
         tav.registerVerifier(CLASS_YR, mockVerifierYr);
+
+        priceAnchor = new OraclePriceAnchor(deployer, deployer);
+        yieldAnchor = new OracleYieldAnchor(deployer, deployer);
 
         UserVault uvImpl = new UserVault();
         bytes memory uvInit =
@@ -127,19 +134,19 @@ contract RegisterPhase2StrategiesTest is Test {
             stakeAmount: STRATEGY_STAKE_V1,
             paramsHash: bytes32(0)
         });
-        bytes memory init = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(strategyRegistry),
-                address(tav),
-                address(swapRouter),
-                deployer,
-                address(allocatorVault),
-                deployer
-            )
-        );
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: address(strategyRegistry),
+            verifier: address(tav),
+            allowedRouter: address(swapRouter),
+            navOracle: deployer,
+            allocatorVault: address(allocatorVault),
+            priceAnchor: address(priceAnchor),
+            yieldAnchor: address(yieldAnchor),
+            owner: deployer
+        });
+        bytes memory init = abi.encodeCall(StrategyVault.initialize, (p));
         return address(new ERC1967Proxy(address(impl), init));
     }
 
@@ -176,6 +183,8 @@ contract RegisterPhase2StrategiesTest is Test {
             allocatorVault: address(allocatorVault),
             tradeVerifier: address(tav),
             swapRouter: address(swapRouter),
+            oraclePriceAnchor: address(priceAnchor),
+            oracleYieldAnchor: address(yieldAnchor),
             outLabel: _freshOutLabel(suffix)
         });
     }
