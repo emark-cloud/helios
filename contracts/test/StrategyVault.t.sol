@@ -885,4 +885,217 @@ contract StrategyVaultTest is Test {
         vm.expectRevert(StrategyVault.UnknownYieldOracleRoot.selector);
         vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
     }
+
+    // ── PR3: trade calldata bound to the proof ─────────────────────
+    //
+    // The proof attests intent (assetIn/assetOut/amountIn/minOut). Without
+    // these checks the operator could pass `assetIn.transfer(operator, ...)`
+    // as the executed call and drain the vault while still emitting a valid
+    // TradeAttested. phase2-review.md item 4.
+
+    bytes4 internal constant _EXACT_INPUT_SINGLE_SELECTOR = bytes4(
+        keccak256("exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))")
+    );
+
+    function _validSwapCalldata(uint256[] memory pi) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(usdc), // tokenIn (matches pi[5]=0 → universe[0])
+            address(eth), // tokenOut (matches pi[6]=1 → universe[1])
+            address(vault), // recipient
+            uint256(block.timestamp + 1), // deadline (operational, not bound)
+            pi[7], // amountIn
+            pi[8], // amountOutMinimum
+            uint160(0) // limitSqrtPrice (operational, not bound)
+        );
+    }
+
+    function test_ExecuteWithProof_AllowsValidSwap() public {
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](2);
+        // Step 1: approve assetIn -> router for amountIn
+        trades[0] = IStrategyVault.Call({
+            target: address(usdc),
+            value: 0,
+            data: abi.encodeWithSignature("approve(address,uint256)", allowedRouter, pi[7])
+        });
+        // Step 2: exactInputSingle on the router with proof-bound fields
+        trades[1] =
+            IStrategyVault.Call({ target: allowedRouter, value: 0, data: _validSwapCalldata(pi) });
+        // Allow the router call to succeed (it's an EOA in this test).
+        vm.mockCall(allowedRouter, trades[1].data, abi.encode(uint256(0)));
+        vm.prank(operator);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+        assertEq(usdc.allowance(address(vault), allowedRouter), pi[7]);
+    }
+
+    function test_ExecuteWithProof_RevertsOnApproveSpenderMismatch() public {
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({
+            target: address(usdc),
+            value: 0,
+            data: abi.encodeWithSignature("approve(address,uint256)", operator, pi[7])
+        });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ApproveSpenderMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnApproveAmountMismatch() public {
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({
+            target: address(usdc),
+            value: 0,
+            data: abi.encodeWithSignature("approve(address,uint256)", allowedRouter, pi[7] + 1)
+        });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.ApproveAmountMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnAssetTransferAttempt() public {
+        // Operator tries to drain the vault by smuggling a transfer() call
+        // on a universe asset. The selector whitelist rejects it.
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({
+            target: address(usdc),
+            value: 0,
+            data: abi.encodeWithSignature("transfer(address,uint256)", operator, 100e6)
+        });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.TradeCallSelectorNotAllowed.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnRouterUnknownSelector() public {
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({
+            target: allowedRouter,
+            value: 0,
+            data: abi.encodeWithSignature("multicall(bytes[])", new bytes[](0))
+        });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.TradeCallSelectorNotAllowed.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnSwapTokenInMismatch() public {
+        uint256[] memory pi = _validInputs();
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(eth), // wrong tokenIn (PI says assetIn = USDC)
+            address(eth),
+            address(vault),
+            uint256(block.timestamp + 1),
+            pi[7],
+            pi[8],
+            uint160(0)
+        );
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: data });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.SwapTokenInMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnSwapTokenOutMismatch() public {
+        uint256[] memory pi = _validInputs();
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(usdc),
+            address(usdc), // wrong tokenOut
+            address(vault),
+            uint256(block.timestamp + 1),
+            pi[7],
+            pi[8],
+            uint160(0)
+        );
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: data });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.SwapTokenOutMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnSwapRecipientMismatch() public {
+        uint256[] memory pi = _validInputs();
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(usdc),
+            address(eth),
+            operator, // recipient: operator instead of vault — would exfiltrate output
+            uint256(block.timestamp + 1),
+            pi[7],
+            pi[8],
+            uint160(0)
+        );
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: data });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.SwapRecipientMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnSwapAmountInMismatch() public {
+        uint256[] memory pi = _validInputs();
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(usdc),
+            address(eth),
+            address(vault),
+            uint256(block.timestamp + 1),
+            pi[7] + 1, // wrong amountIn
+            pi[8],
+            uint160(0)
+        );
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: data });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.SwapAmountInMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnSwapMinOutMismatch() public {
+        uint256[] memory pi = _validInputs();
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            address(usdc),
+            address(eth),
+            address(vault),
+            uint256(block.timestamp + 1),
+            pi[7],
+            pi[8] - 1, // operator weakens minOut → could accept a worse swap
+            uint160(0)
+        );
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: data });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.SwapMinOutMismatch.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnEmptyCalldata() public {
+        // c.data shorter than a 4-byte selector — fall-through guard.
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: hex"" });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.TradeCallSelectorNotAllowed.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnNonEmptyTrades() public {
+        // YR rotation calldata isn't yet bound by a circuit (Phase-5 bridge
+        // gadget). Until then, any non-empty trades[] is a binding gap.
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](1);
+        trades[0] = IStrategyVault.Call({ target: allowedRouter, value: 0, data: hex"deadbeef" });
+        vm.prank(operator);
+        vm.expectRevert(IStrategyVault.YRTradesNotSupported.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
 }

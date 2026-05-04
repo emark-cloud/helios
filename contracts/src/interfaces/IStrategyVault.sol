@@ -73,6 +73,34 @@ interface IStrategyVault {
     error VaultMismatch();
     error AllocatorMismatch();
     error ParamsHashMismatch();
+    /// @notice Thrown by the swap path when a `Call.data` selector isn't on
+    ///         the trade-call whitelist (`approve` for universe assets,
+    ///         `exactInputSingle` for the router). Without this, an operator
+    ///         could pass a proof attesting the intent to swap and then ship
+    ///         `assetIn.transfer(operator, balance)` as the executed call —
+    ///         the proof is theatre for execution. phase2-review.md item 4.
+    error TradeCallSelectorNotAllowed();
+    /// @notice The `approve` call's spender must equal `allowedRouter`. An
+    ///         operator could otherwise grant an allowance to themselves and
+    ///         drain the vault via `transferFrom` in a separate tx.
+    error ApproveSpenderMismatch();
+    /// @notice The `approve` call's amount must equal `publicInputs[PI_AMOUNT_IN]`.
+    error ApproveAmountMismatch();
+    /// @notice The decoded `exactInputSingle` field doesn't match the proof's
+    ///         corresponding public input (`tokenIn`, `tokenOut`, `recipient`,
+    ///         `amountIn`, or `amountOutMinimum`). The proof attests the
+    ///         intent — the binding ensures execution carries it out.
+    error SwapTokenInMismatch();
+    error SwapTokenOutMismatch();
+    error SwapRecipientMismatch();
+    error SwapAmountInMismatch();
+    error SwapMinOutMismatch();
+    /// @notice yield_rotation_v1 doesn't yet have a calldata-binding circuit
+    ///         for cross-chain bridge calls, so the YR entry point requires
+    ///         `trades.length == 0` until Phase 5 lands the bridge gadget.
+    ///         The proof's `m_from` / `m_to` indices commit the rotation
+    ///         intent; execution tracks via the off-chain rotation receipt.
+    error YRTradesNotSupported();
 
     function executeWithProof(
         bytes calldata proof,

@@ -128,6 +128,21 @@ contract StrategyVault is
     error UnknownYieldOracleRoot();
     error AllowlistRootMismatch();
 
+    /// @dev Selector for `IERC20.approve(address,uint256)`. Hardcoded so the
+    ///      whitelist is independent of compile-time IERC20 metadata changes.
+    bytes4 internal constant _APPROVE_SELECTOR = IERC20.approve.selector;
+
+    /// @dev Selector for the canonical Algebra-Integral exactInputSingle
+    ///      shape: `(address tokenIn, address tokenOut, address recipient,
+    ///      uint256 deadline, uint256 amountIn, uint256 amountOutMinimum,
+    ///      uint160 limitSqrtPrice)`. Phase-1's MockSwapRouter mirrors this
+    ///      tuple exactly so the binding here applies to both the mock and
+    ///      the real router on Kite mainnet (only the deployed address
+    ///      changes — see MockSwapRouter NatSpec).
+    bytes4 internal constant _EXACT_INPUT_SINGLE_SELECTOR = bytes4(
+        keccak256("exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))")
+    );
+
     /// @notice Bundled initializer params. Bundled because passing 10 distinct
     ///         arguments blows the no-optimizer build's 16-stack-slot ceiling
     ///         under `forge coverage` (Stack too deep).
@@ -245,7 +260,7 @@ contract StrategyVault is
         Call[] calldata trades
     ) external onlyOperator notHalted nonReentrant {
         _validateAndVerify(proof, publicInputs);
-        _runTrades(trades);
+        _runSwapTrades(publicInputs, trades);
         _emitTradeAttested(publicInputs);
     }
 
@@ -268,7 +283,11 @@ contract StrategyVault is
         Call[] calldata trades
     ) external onlyOperator notHalted nonReentrant {
         _validateAndVerifyYR(proof, publicInputs);
-        _runTrades(trades);
+        // YR rotation execution is a cross-chain bridge call — the binding
+        // circuit for that calldata is Phase-5 work. Until then, the proof's
+        // (m_from, m_to, amount) commitment is the rotation receipt and
+        // any non-empty trades[] would bypass it. phase2-review.md item 4.
+        if (trades.length != 0) revert YRTradesNotSupported();
         _emitYieldRotationAttested(publicInputs);
     }
 
@@ -378,14 +397,80 @@ contract StrategyVault is
         );
     }
 
-    function _runTrades(Call[] calldata trades) internal {
+    /// @dev Execute the swap-path trade calls. Each call is bound to the
+    ///      proof: the only accepted shapes are
+    ///        - `IERC20.approve(allowedRouter, publicInputs[PI_AMOUNT_IN])`
+    ///          on a universe-asset target, and
+    ///        - `exactInputSingle(...)` on `allowedRouter`, with each
+    ///          decoded field equal to its proof-committed counterpart.
+    ///      Without this binding the operator could ship arbitrary calldata
+    ///      (`assetIn.transfer(operator, balance)`) and the proof would
+    ///      attest only intent. phase2-review.md item 4.
+    function _runSwapTrades(uint256[] calldata publicInputs, Call[] calldata trades) internal {
+        address routerAddr = allowedRouter;
+        address assetIn = _manifest.assetUniverse[publicInputs[PI_ASSET_IN]];
+        address assetOut = _manifest.assetUniverse[publicInputs[PI_ASSET_OUT]];
+        uint256 amountIn = publicInputs[PI_AMOUNT_IN];
+        uint256 minAmountOut = publicInputs[PI_MIN_AMOUNT_OUT];
+
         for (uint256 i = 0; i < trades.length; i++) {
             Call calldata c = trades[i];
             if (c.value != 0) revert NonZeroValue();
-            if (c.target != allowedRouter && !_isUniverseAsset(c.target)) revert WrongTarget();
+            bool targetIsRouter = c.target == routerAddr;
+            bool targetIsAsset = !targetIsRouter && _isUniverseAsset(c.target);
+            if (!targetIsRouter && !targetIsAsset) revert WrongTarget();
+
+            if (c.data.length < 4) revert TradeCallSelectorNotAllowed();
+            bytes4 selector = bytes4(c.data[:4]);
+
+            if (targetIsAsset) {
+                if (selector != _APPROVE_SELECTOR) revert TradeCallSelectorNotAllowed();
+                _validateApproveCall(c.data, routerAddr, amountIn);
+            } else {
+                if (selector != _EXACT_INPUT_SINGLE_SELECTOR) {
+                    revert TradeCallSelectorNotAllowed();
+                }
+                _validateExactInputSingleCall(c.data, assetIn, assetOut, amountIn, minAmountOut);
+            }
+
             (bool success,) = c.target.call(c.data);
             if (!success) revert TradeCallFailed(i);
         }
+    }
+
+    function _validateApproveCall(
+        bytes calldata data,
+        address expectedSpender,
+        uint256 expectedAmount
+    ) internal pure {
+        (address spender, uint256 amount) = abi.decode(data[4:], (address, uint256));
+        if (spender != expectedSpender) revert ApproveSpenderMismatch();
+        if (amount != expectedAmount) revert ApproveAmountMismatch();
+    }
+
+    /// @dev Decode `exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))`
+    ///      and bind every proof-relevant field. `deadline` and
+    ///      `limitSqrtPrice` are operational — the operator picks them, so
+    ///      they're outside the proof and outside the binding.
+    function _validateExactInputSingleCall(
+        bytes calldata data,
+        address expectedTokenIn,
+        address expectedTokenOut,
+        uint256 expectedAmountIn,
+        uint256 expectedMinOut
+    ) internal view {
+        (
+            address tokenIn,
+            address tokenOut,
+            address recipient,,
+            uint256 amountIn,
+            uint256 amountOutMinimum,
+        ) = abi.decode(data[4:], (address, address, address, uint256, uint256, uint256, uint160));
+        if (tokenIn != expectedTokenIn) revert SwapTokenInMismatch();
+        if (tokenOut != expectedTokenOut) revert SwapTokenOutMismatch();
+        if (recipient != address(this)) revert SwapRecipientMismatch();
+        if (amountIn != expectedAmountIn) revert SwapAmountInMismatch();
+        if (amountOutMinimum != expectedMinOut) revert SwapMinOutMismatch();
     }
 
     function _emitTradeAttested(uint256[] calldata publicInputs) internal {
