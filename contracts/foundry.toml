@@ -12,6 +12,10 @@ via_ir = true
 bytecode_hash = "none"
 cbor_metadata = false
 verbosity = 2
+# Enabled so the ClassIds parity tests can shell out to the canonical
+# Python Poseidon helper (test/ClassIds.t.sol). Tests only invoke vm.ffi
+# when explicitly written to — Foundry doesn't auto-execute anything.
+ffi = true
 fs_permissions = [
     { access = "read-write", path = "./deployments" },
     { access = "read", path = "./out" },

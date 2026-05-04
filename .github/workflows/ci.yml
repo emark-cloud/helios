@@ -61,6 +61,19 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+      # uv + Python are needed for the ClassIds parity test (vm.ffi shells
+      # out to oracle.poseidon to verify the Solidity constants match the
+      # canonical Python Poseidon hash). Foundry tests can't auto-skip
+      # vm.ffi calls, so the deps must be present in this job.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: uv sync (oracle for ClassIds parity)
+        working-directory: .
+        run: uv sync --all-packages --all-extras
       - name: Check formatting
         run: forge fmt --check
       - name: Build
@@ -146,6 +159,16 @@ jobs:
           version: "latest"
       - name: uv sync
         run: uv sync --all-packages --all-extras
+      # The oracle.poseidon Python wrapper spawns
+      # services/oracle/scripts/poseidon_helper.js (circomlibjs). Tests
+      # under reference-strategies/yield_rotation_v1/ that exercise the
+      # Poseidon parity vectors fail without these node_modules.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install poseidon helper node deps
+        run: npm install --no-audit --no-fund
+        working-directory: services/oracle/scripts
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
