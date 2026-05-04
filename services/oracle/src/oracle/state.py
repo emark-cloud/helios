@@ -80,13 +80,29 @@ class SnapshotStore:
         witness will produce — Poseidon of any nonzero input has
         negligible probability of being 0).
         """
-        snaps = self.recent(asset, n)
-        if not snaps:
-            return 0
-        # Reverse to oldest-first for a deterministic chain that matches
-        # the circuit's left-fold over time-ordered observations.
-        ordered = snaps[::-1]
-        return poseidon_chain([s.price_e18 for s in ordered])
+        _, root = self.snapshot_window(asset, n)
+        return root
+
+    def snapshot_window(self, asset: str, n: int) -> tuple[list[Snapshot], int]:
+        """Atomic `(recent, chain_root)` over the same N snapshots.
+
+        `recent()` and `chain_root()` taken separately race with `append()`
+        — a poller insertion between the two locked calls produces a
+        committed Poseidon root that doesn't match the snapshots the caller
+        held. The on-chain commit cadence in `PriceAnchorScheduler` calls
+        this single method so the committed `(window, root)` pair is
+        always self-consistent.
+        """
+        if n < 1:
+            raise ValueError("n must be >= 1")
+        with self._lock:
+            ring = self._rings.get(asset)
+            if not ring:
+                return [], 0
+            snaps_newest_first = list(ring)[-n:][::-1]
+        ordered = snaps_newest_first[::-1]  # oldest-first for the circuit chain
+        root = poseidon_chain([s.price_e18 for s in ordered])
+        return snaps_newest_first, root
 
     def assets(self) -> list[str]:
         with self._lock:

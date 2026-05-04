@@ -20,6 +20,7 @@ test introspection and not submitted.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -169,6 +170,10 @@ class AnchorPoster:
         )
 
     def post(self, payload: CommitPayload) -> CommitRecord:
+        """Synchronous submit. Suitable for CLI callers and unit tests.
+        Production async paths (`Poller`, `FastAPI`) must use
+        `post_async` so the up-to-30s `wait_for_transaction_receipt` does
+        not block the event loop."""
         record = CommitRecord(
             kind=payload.kind,
             root_hex="0x" + payload.root.hex(),
@@ -203,6 +208,13 @@ class AnchorPoster:
             _log.error("oracle.anchor.submit_failed", kind=payload.kind, err=str(exc))
         self.pending.append(record)
         return record
+
+    async def post_async(self, payload: CommitPayload) -> CommitRecord:
+        """Async wrapper around `post` — runs the blocking Web3 path
+        (`build_transaction` + `wait_for_transaction_receipt`) in a
+        worker thread so async callers (oracle `Poller`, FastAPI app)
+        don't stall for up to `_RECEIPT_TIMEOUT_SEC` per commit."""
+        return await asyncio.to_thread(self.post, payload)
 
     def _submit(self, signed: SignedCommit) -> tuple[str, int]:
         self._ensure_live()
@@ -253,14 +265,28 @@ class PriceAnchorScheduler:
     _nonce: int = 0
 
     def on_bar(self, asset: str) -> CommitRecord | None:
-        """Call after each new snapshot append; commits when interval is met."""
+        """Sync entry point — convenient for tests + scenario replay."""
+        payload = self._prepare(asset)
+        return self.poster.post(payload) if payload is not None else None
+
+    async def on_bar_async(self, asset: str) -> CommitRecord | None:
+        """Async entry point. Used in production from `Poller._on_snapshot`
+        so the up-to-30s receipt wait runs on a worker thread, not the
+        event loop. Same payload-building semantics as `on_bar`."""
+        payload = self._prepare(asset)
+        return await self.poster.post_async(payload) if payload is not None else None
+
+    def _prepare(self, asset: str) -> CommitPayload | None:
         c = self._bar_counter.get(asset, 0) + 1
         self._bar_counter[asset] = c
         if c < self.interval_bars:
             return None
         self._bar_counter[asset] = 0
 
-        snaps = self.store.recent(asset, self.chain_depth)
+        # Atomic `(snaps, root)` — the previous shape called `recent` and
+        # `chain_root` as two locked operations and a poller append between
+        # them produced a committed root that didn't match the window.
+        snaps, root_int = self.store.snapshot_window(asset, self.chain_depth)
         if not snaps:
             return None
         oldest_ts = snaps[-1].timestamp_ms
@@ -274,7 +300,6 @@ class PriceAnchorScheduler:
         if window_end <= window_start:
             return None  # not enough fresh ticks yet
 
-        root_int = self.store.chain_root(asset, self.chain_depth)
         payload = CommitPayload(
             kind="price",
             root=root_int.to_bytes(32, "big"),
@@ -284,7 +309,7 @@ class PriceAnchorScheduler:
         )
         self._nonce += 1
         self._last_window_end[asset] = window_end
-        return self.poster.post(payload)
+        return payload
 
 
 @dataclass
@@ -301,13 +326,21 @@ class YieldAnchorScheduler:
     _nonce: int = 0
 
     def on_bar(self, market_id: str) -> CommitRecord | None:
+        payload = self._prepare(market_id)
+        return self.poster.post(payload) if payload is not None else None
+
+    async def on_bar_async(self, market_id: str) -> CommitRecord | None:
+        payload = self._prepare(market_id)
+        return await self.poster.post_async(payload) if payload is not None else None
+
+    def _prepare(self, market_id: str) -> CommitPayload | None:
         c = self._bar_counter.get(market_id, 0) + 1
         self._bar_counter[market_id] = c
         if c < self.interval_bars:
             return None
         self._bar_counter[market_id] = 0
 
-        snaps = self.store.recent(market_id, self.chain_depth)
+        snaps, root_int = self.store.snapshot_window(market_id, self.chain_depth)
         if not snaps:
             return None
         oldest_ts = snaps[-1].timestamp_ms
@@ -318,7 +351,6 @@ class YieldAnchorScheduler:
         if window_end <= window_start:
             return None
 
-        root_int = self.store.chain_root(market_id, self.chain_depth)
         payload = CommitPayload(
             kind="yield",
             root=root_int.to_bytes(32, "big"),
@@ -328,7 +360,7 @@ class YieldAnchorScheduler:
         )
         self._nonce += 1
         self._last_window_end[market_id] = window_end
-        return self.poster.post(payload)
+        return payload
 
 
 __all__ = [

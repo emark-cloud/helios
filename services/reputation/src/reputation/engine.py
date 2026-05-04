@@ -121,7 +121,7 @@ class ReputationEngine:
 
         updates: list[EngineUpdate] = []
         for s in states:
-            update = self._compute_update(
+            update = await self._compute_update(
                 state=s,
                 now_unix=ts,
                 sharpes=sharpes_by_strategy[s.strategy_id],
@@ -143,7 +143,7 @@ class ReputationEngine:
             except TimeoutError:
                 continue
 
-    def _compute_update(
+    async def _compute_update(
         self,
         state: StrategyState,
         now_unix: int,
@@ -203,7 +203,10 @@ class ReputationEngine:
             components_hash=outputs.components_hash,
         )
         signed = self._signer.sign_update(update)
-        posted = self._anchor.post(signed) if self._anchor is not None else None
+        # Off the event loop: `wait_for_transaction_receipt(timeout=30)`
+        # would otherwise stall every other strategy's score push + the
+        # WS subscriber fanout for up to 30s per receipt.
+        posted = await self._anchor.post_async(signed) if self._anchor is not None else None
         return EngineUpdate(
             state=state,
             inputs=inputs,

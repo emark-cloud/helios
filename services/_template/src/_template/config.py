@@ -45,3 +45,17 @@ class BaseServiceSettings(BaseSettings):
 
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     environment: str = Field(default="development", validation_alias="ENVIRONMENT")
+
+    # ── CORS ─────────────────────────────────────────────────
+    # Comma-separated list of allowed origins. In `development` we accept
+    # the local frontend by default; production deploys must set this to
+    # the public frontend host(s). `"*"` is rejected by FastAPI when paired
+    # with `allow_credentials=True`, so the list must be explicit.
+    cors_allowed_origins: str = Field(
+        default="http://localhost:3000",
+        validation_alias="CORS_ALLOWED_ORIGINS",
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]

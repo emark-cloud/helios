@@ -134,19 +134,23 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
     )
+    # Use the async hook variants in production: the underlying Web3
+    # `wait_for_transaction_receipt` blocks up to `_RECEIPT_TIMEOUT_SEC`,
+    # so a sync hook would freeze the event loop (Poller, FastAPI WS
+    # clients) every commit window.
     poller = Poller(
         store=store,
         sources=sources,
         assets=assets,
         interval_sec=cfg.bar_interval_sec,
-        on_snapshot=price_scheduler.on_bar,
+        on_snapshot=price_scheduler.on_bar_async,
     )
     yield_poller = YieldPoller(
         store=yield_store,
         sources=yield_sources,
         markets=yield_markets,
         interval_sec=cfg.yield_interval_sec,
-        on_snapshot=yield_scheduler.on_bar,
+        on_snapshot=yield_scheduler.on_bar_async,
     )
 
     @asynccontextmanager

@@ -14,6 +14,7 @@ Track B / production we set both to a dedicated `REPUTATION_SIGNER_PK`.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +64,8 @@ class AnchorPoster:
         return self._live
 
     def post(self, signed: SignedUpdate) -> PostedUpdate:
+        """Sync submit. Async callers should use `post_async` so the
+        up-to-30s `wait_for_transaction_receipt` runs on a worker thread."""
         result = PostedUpdate(actor=signed.update.actor, score_e4=signed.update.current_score)
         if not self._live:
             self.pending.append(result)
@@ -92,6 +95,12 @@ class AnchorPoster:
             )
         self.pending.append(result)
         return result
+
+    async def post_async(self, signed: SignedUpdate) -> PostedUpdate:
+        """Run the blocking submit on a worker thread. Used from the async
+        engine `tick_once` so the event loop keeps draining other strategies'
+        scoring + WS subscribers while a single tx waits for its receipt."""
+        return await asyncio.to_thread(self.post, signed)
 
     def _ensure_live(self) -> None:
         if self._w3 is not None:

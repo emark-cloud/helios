@@ -79,11 +79,21 @@ class YieldStore:
 
     def chain_root(self, market_id: str, n: int) -> int:
         """Poseidon chain over the last N APY observations (oldest → newest)."""
-        snaps = self.recent(market_id, n)
-        if not snaps:
-            return 0
-        ordered = snaps[::-1]
-        return poseidon_chain([s.apy_bps_e6 for s in ordered])
+        _, root = self.snapshot_window(market_id, n)
+        return root
+
+    def snapshot_window(self, market_id: str, n: int) -> tuple[list[YieldSnapshot], int]:
+        """Atomic `(recent, chain_root)` — see `SnapshotStore.snapshot_window`."""
+        if n < 1:
+            raise ValueError("n must be >= 1")
+        with self._lock:
+            ring = self._rings.get(market_id)
+            if not ring:
+                return [], 0
+            snaps_newest_first = list(ring)[-n:][::-1]
+        ordered = snaps_newest_first[::-1]
+        root = poseidon_chain([s.apy_bps_e6 for s in ordered])
+        return snaps_newest_first, root
 
     def markets(self) -> list[str]:
         with self._lock:

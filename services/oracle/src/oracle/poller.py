@@ -7,7 +7,8 @@ Owns no state of its own; pushes into `SnapshotStore`.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+import inspect
+from collections.abc import Awaitable, Callable, Sequence
 
 import structlog
 
@@ -18,6 +19,15 @@ from oracle.yield_state import YieldStore
 
 _log = structlog.get_logger(__name__)
 
+OnSnapshotHook = Callable[[str], object | Awaitable[object]]
+
+
+async def _maybe_await(value: object) -> None:
+    """Await a coroutine returned by an async hook; otherwise no-op.
+    Lets `_on_snapshot` accept both sync and async callables."""
+    if inspect.isawaitable(value):
+        await value
+
 
 class Poller:
     def __init__(
@@ -26,7 +36,7 @@ class Poller:
         sources: Sequence[PriceSource],
         assets: Sequence[str],
         interval_sec: int,
-        on_snapshot: Callable[[str], object] | None = None,
+        on_snapshot: OnSnapshotHook | None = None,
     ) -> None:
         if not sources:
             raise ValueError("at least one source required")
@@ -100,8 +110,10 @@ class Poller:
             if self._on_snapshot is not None:
                 # Hook errors must never kill the poll loop — the snapshot
                 # is already in the store; anchor commits are advisory.
+                # Async hooks (`AnchorPoster.post_async`) keep the up-to-30s
+                # `wait_for_transaction_receipt` off the event loop.
                 try:
-                    self._on_snapshot(asset)
+                    await _maybe_await(self._on_snapshot(asset))
                 except Exception as exc:
                     _log.warning("oracle.snapshot.hook_failed", asset=asset, err=str(exc))
             return
@@ -128,7 +140,7 @@ class YieldPoller:
         sources: Sequence[YieldSource],
         markets: Sequence[str],
         interval_sec: int,
-        on_snapshot: Callable[[str], object] | None = None,
+        on_snapshot: OnSnapshotHook | None = None,
     ) -> None:
         if not sources:
             raise ValueError("at least one yield source required")
@@ -209,7 +221,7 @@ class YieldPoller:
             )
             if self._on_snapshot is not None:
                 try:
-                    self._on_snapshot(market_id)
+                    await _maybe_await(self._on_snapshot(market_id))
                 except Exception as exc:
                     _log.warning("oracle.yield.hook_failed", market=market_id, err=str(exc))
             return
