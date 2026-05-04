@@ -66,6 +66,9 @@ extend-exclude = [
     "subgraph",
     # Auto-generated from Foundry artifacts; codegen owns the style.
     "packages/contracts-abi-py/src/helios_contracts_abi/abis.py",
+    # Vendored circomlibpy (MIT) — keep upstream code untouched so we
+    # can sync future bumps cleanly.
+    "packages/strategy-sdk/src/helios/_vendor/**",
 ]
 
 [tool.ruff.lint]
@@ -103,7 +106,13 @@ quote-style = "double"
 
 [tool.pyright]
 include = ["packages", "services", "reference-strategies"]
-exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules",
+    # Vendored circomlibpy (MIT) — see ruff `extend-exclude` for rationale.
+    "packages/strategy-sdk/src/helios/_vendor/**",
+]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 reportMissingImports = "error"

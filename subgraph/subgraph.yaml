@@ -36,6 +36,7 @@ dataSources:
       file: ./src/strategy-registry.ts
       entities:
         - Strategy
+        - ParamsRotation
       abis:
         - name: StrategyRegistry
           file: ./abis/StrategyRegistry.json
@@ -46,6 +47,8 @@ dataSources:
           handler: handleStrategyDeactivated
         - event: ReputationUpdated(indexed address,int256,int256)
           handler: handleStrategyReputationUpdated
+        - event: ParamsRotated(indexed address,bytes32,bytes32)
+          handler: handleParamsRotated
 
   - kind: ethereum
     name: AllocatorRegistry

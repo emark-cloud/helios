@@ -19,6 +19,11 @@ dependencies = [
     "structlog>=24.4",
     "web3>=7.4",
     "eth-account>=0.13",
+    # Note: BN254 Poseidon is shipped as `helios._vendor.circomlibpy`
+    # (MIT, see vendor LICENSE) rather than as a PyPI dep — upstream
+    # over-pins `requires-python>=3.12` and the rest of the workspace
+    # targets 3.11. The wrapper at `helios.poseidon` is the only
+    # supported entry point.
 ]
 
 [project.urls]

@@ -1,14 +1,18 @@
-"""Witness builder — shape, padding, slippage, direction selectors.
+"""Witness builder — shape, padding, slippage, direction selectors, and
+computed Poseidon completions.
 
-Real Poseidon hashes are computed on the prover side (`circomlibjs`);
-the builder leaves `oracle_root`, `params_hash`, and `trade_hash` as
-placeholder zeros. These tests verify everything *else* lines up with
-`mean_reversion_v1.circom` + `StrategyVault.PI_*` indexing.
+Bit-exact Poseidon parity against the on-chain fixture is exercised in
+`packages/strategy-sdk/tests/test_poseidon.py`. These tests assert the
+builder wires those Poseidon outputs into the witness payload at the
+correct keys and that the surrounding shape matches
+`mean_reversion_v1.circom` + `StrategyVault.PI_*` indexing (same 14-PI
+layout as momentum).
 """
 
 from __future__ import annotations
 
 import pytest
+from helios.poseidon import poseidon_chain, poseidon_hash
 from helios.types import Direction, TradeIntent
 from mean_reversion_v1.witness import PRICE_OBSERVATIONS, build_mean_reversion_witness
 
@@ -153,14 +157,38 @@ def test_signal_threshold_is_n_sigma_x100() -> None:
     assert req.inputs["signal_threshold"] == "275"
 
 
-def test_oracle_root_params_hash_trade_hash_pending() -> None:
-    """The prover service computes Poseidon for all three. Each lands as
-    placeholder '0' in the request payload."""
+def test_params_hash_oracle_root_trade_hash_computed() -> None:
+    """Builder ships fully-populated Poseidon completions — no
+    placeholder zeros."""
     req = _build()
-    assert req.inputs["oracle_root"] == "0"
-    assert req.inputs["trade_hash"] == "0"
-    assert req.inputs["params_hash"] == "0"
-    assert req.pending_poseidon == ("oracle_root", "trade_hash", "params_hash")
+    inp = req.inputs
+
+    expected_params_hash = poseidon_hash(
+        [int(inp["max_position_size"]), 50, 200, int(inp["stop_loss_price"])]
+    )
+    assert int(inp["params_hash"]) == expected_params_hash
+    assert req.params_hash == expected_params_hash.to_bytes(32, "big")
+
+    expected_oracle_root = poseidon_chain([int(p) for p in inp["price_observations"]])
+    assert int(inp["oracle_root"]) == expected_oracle_root
+    assert req.oracle_root == expected_oracle_root.to_bytes(32, "big")
+
+    expected_trade_hash = poseidon_hash(
+        [
+            int(inp["strategy_vault"]),
+            int(inp["declared_class"]),
+            expected_params_hash,
+            int(inp["allocator_address"]),
+            int(inp["asset_in_idx"]),
+            int(inp["asset_out_idx"]),
+            int(inp["amount_in"]),
+            int(inp["min_amount_out"]),
+            int(inp["trade_direction"]),
+            int(inp["nonce"]),
+        ]
+    )
+    assert int(inp["trade_hash"]) == expected_trade_hash
+    assert req.trade_hash == expected_trade_hash.to_bytes(32, "big")
 
 
 def test_strategy_vault_addr_encoded_as_field() -> None:
@@ -188,3 +216,50 @@ def test_amount_in_asset_uses_last_price() -> None:
         price_observations_e18=[2000 * 10**18] * 16,
     )
     assert int(req.inputs["amount_in"]) == int(0.5 * 2000 * 10**18)
+
+
+def test_fixture_round_trip() -> None:
+    """Cross-check against the on-chain fixture
+    (`circuits/scripts/gen-fixture-mr.js` knobs):
+    strategy_vault=0xbeef00, allocator=0xa11ca7, declared_class=0x5678,
+    15 bars of 1000 then last bar 700, n_sigma_x100=200. The witness's
+    three Poseidon outputs must equal the fixture's publicSignals[0]
+    (trade_hash), publicSignals[3] (params_hash), publicSignals[13]
+    (oracle_root).
+    """
+    req = build_mean_reversion_witness(
+        intent=TradeIntent(
+            asset_in="USDC",
+            asset_out="WBTC",  # idx=3
+            direction=Direction.LONG,
+            amount_in_usd=1.0,
+            max_slippage_bps=50,
+        ),
+        asset_to_universe_idx=_ASSET_IDX,
+        asset_universe_addresses=_UNIVERSE_ADDRS,
+        price_observations_e18=[1000] * 15 + [700],
+        declared_class_field=0x5678,
+        strategy_vault_address="0xbeef00",
+        allocator_address="0xa11ca7",
+        nonce=42,
+        block_window_start=100,
+        block_window_end=150,
+        max_position_size_e18=5 * 10**18,
+        max_slippage_bps=50,
+        n_sigma_x100=200,
+        stop_loss_price_e18=0,
+        is_signal_flip=False,
+        is_stop_loss=False,
+    )
+    assert (
+        int(req.inputs["params_hash"])
+        == 12441673086156183748057805468196993645378568675500367430807514580524230758459
+    )
+    assert (
+        int(req.inputs["oracle_root"])
+        == 15960622218484124943527498354244336609744278190070709384187159996542471155407
+    )
+    assert (
+        int(req.inputs["trade_hash"])
+        == 17790372904353956429098291626594131965871939508489099441957090224480872231583
+    )

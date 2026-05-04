@@ -3,7 +3,9 @@ import {
   StrategyRegistered,
   StrategyDeactivated,
   ReputationUpdated,
+  ParamsRotated,
 } from "../generated/StrategyRegistry/StrategyRegistry";
+import { ParamsRotation } from "../generated/schema";
 import { getOrCreateStrategy, PHASE1_CHAIN_ID } from "./helpers";
 
 export function handleStrategyRegistered(event: StrategyRegistered): void {
@@ -34,4 +36,26 @@ export function handleStrategyReputationUpdated(event: ReputationUpdated): void 
   const strategy = getOrCreateStrategy(id, event.block.timestamp);
   strategy.currentReputation = event.params.newScore;
   strategy.save();
+}
+
+// Indexes the `ParamsRotated` event so the reputation engine
+// (`services/reputation/src/reputation/goldsky.py::_QUERY_STRATEGY_STATE`)
+// can read `Strategy.paramsRotations[0].timestamp` and reset the
+// AgeScore + PerformanceScore window per §8.7. Without this handler, the
+// engine's GraphQL query errors out and `tick_once` swallows it, so no
+// scores update against a live Goldsky.
+export function handleParamsRotated(event: ParamsRotated): void {
+  const strategyId = event.params.strategyId as Bytes;
+  // Touch the parent strategy so `paramsRotations` resolves cleanly.
+  getOrCreateStrategy(strategyId, event.block.timestamp).save();
+
+  const id = event.transaction.hash.concatI32(event.logIndex.toI32());
+  const rotation = new ParamsRotation(id);
+  rotation.strategy = strategyId;
+  rotation.oldHash = event.params.oldHash;
+  rotation.newHash = event.params.newHash;
+  rotation.timestamp = event.block.timestamp;
+  rotation.blockNumber = event.block.number;
+  rotation.txHash = event.transaction.hash;
+  rotation.save();
 }

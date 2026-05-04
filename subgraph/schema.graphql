@@ -54,6 +54,23 @@ type Strategy @entity {
   trades: [Trade!]! @derivedFrom(field: "strategy")
   navSnapshots: [NAVSnapshot!]! @derivedFrom(field: "strategy")
   allocations: [Allocation!]! @derivedFrom(field: "strategy")
+  paramsRotations: [ParamsRotation!]! @derivedFrom(field: "strategy")
+}
+
+# Emitted by `StrategyRegistry.completeParamsRotation` — the only path
+# that mutates a strategy's canonical paramsHash (Helios.md §6.5). The
+# reputation engine reads the most-recent timestamp via
+# `Strategy.paramsRotations` to reset AgeScore + PerformanceScore on the
+# new params slot (§8.7); allocators surface the rotation timeline in
+# the audit page so capital decisions can react to a clean break.
+type ParamsRotation @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  strategy: Strategy!
+  oldHash: Bytes!
+  newHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
 }
 
 type Allocation @entity {

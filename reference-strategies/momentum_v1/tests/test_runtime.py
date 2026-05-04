@@ -66,14 +66,24 @@ class _StubProver(ProverClient):
                 "protocol": "groth16",
             },
             public_signals=[
-                str(int(witness_inputs["asset_in"])),
-                str(int(witness_inputs["asset_out"])),
+                # 14 PIs in `momentum_v1.circom` order — mirrors the
+                # production prover output. Values come from the
+                # witness so test assertions on `executeWithProof`
+                # arguments stay deterministic.
+                str(int(witness_inputs["trade_hash"])),
+                str(int(witness_inputs["declared_class"])),
+                str(int(witness_inputs["strategy_vault"])),
+                str(int(witness_inputs["params_hash"])),
+                str(int(witness_inputs["allocator_address"])),
+                str(int(witness_inputs["asset_in_idx"])),
+                str(int(witness_inputs["asset_out_idx"])),
                 str(int(witness_inputs["amount_in"])),
                 str(int(witness_inputs["min_amount_out"])),
                 str(int(witness_inputs["trade_direction"])),
+                str(int(witness_inputs["nonce"])),
                 str(int(witness_inputs["block_window_start"])),
                 str(int(witness_inputs["block_window_end"])),
-                "1234",  # placeholder trade_hash
+                str(int(witness_inputs["oracle_root"])),
             ],
         )
 
@@ -172,7 +182,9 @@ async def test_dry_run_executor_records_pending() -> None:
     record = rt.records[0]
     assert not record.submitted  # address-gated dry run
     assert record.extras["asset"] == "WETH"
-    assert len(record.plan.public_inputs) == 8
+    # 14 PIs match `momentum_v1.circom`'s public-input layout (PR3
+    # promoted to the SDK builder; old shape was 8).
+    assert len(record.plan.public_inputs) == 14
 
 
 def test_nav_signing_round_trip() -> None:
