@@ -208,6 +208,7 @@ class MomentumRuntime:
                 asset_universe_addresses=self._universe,
                 price_observations_e18=prices_e18,
                 declared_class_field=self._cfg.declared_class_field,
+                strategy_vault_address=self._executor.vault or "0x" + "0" * 40,
                 allocator_address=self._allocator_address,
                 nonce=nonce,
                 block_window_start=block_start,

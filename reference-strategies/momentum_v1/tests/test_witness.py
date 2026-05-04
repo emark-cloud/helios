@@ -1,14 +1,17 @@
-"""Witness builder — shape, padding, slippage, direction selectors.
+"""Witness builder — shape, padding, slippage, direction selectors, and
+computed Poseidon completions.
 
-Real Poseidon hashes are computed on the prover side (`circomlibjs`);
-the builder leaves `oracle_root` + `trade_hash` as placeholder zeros.
-These tests verify everything *else* lines up with `momentum_v1.circom`
+Bit-exact Poseidon parity against the on-chain fixture is exercised in
+`packages/strategy-sdk/tests/test_poseidon.py`. These tests assert the
+builder wires those Poseidon outputs into the witness payload at the
+correct keys and that the surrounding shape matches `momentum_v1.circom`
 + `StrategyVault.PI_*` indexing.
 """
 
 from __future__ import annotations
 
 import pytest
+from helios.poseidon import poseidon_chain, poseidon_hash
 from helios.types import Direction, TradeIntent
 from momentum_v1.witness import PRICE_OBSERVATIONS, build_momentum_witness
 
@@ -36,6 +39,7 @@ def _build(**overrides: object):
         asset_universe_addresses=_UNIVERSE_ADDRS,
         price_observations_e18=[2000 * 10**18] * 16,
         declared_class_field=0xABCDEF,
+        strategy_vault_address="0x" + "ee" * 20,
         allocator_address="0x" + "11" * 20,
         nonce=42,
         block_window_start=100,
@@ -116,13 +120,50 @@ def test_price_observations_padded_to_16() -> None:
     assert obs[-1] == str(1510 * 10**18)
 
 
-def test_oracle_root_and_trade_hash_pending() -> None:
-    """The prover service computes Poseidon over the supplied
-    inputs. Both fields land as placeholder '0' in the request."""
+def test_params_hash_oracle_root_trade_hash_computed() -> None:
+    """Builder ships fully-populated Poseidon completions — no
+    placeholder zeros (the prover service does not do server-side
+    fixup; placeholders would land as a verifier reject)."""
     req = _build()
-    assert req.inputs["oracle_root"] == "0"
-    assert req.inputs["trade_hash"] == "0"
-    assert req.pending_poseidon == ("oracle_root", "trade_hash")
+    inp = req.inputs
+
+    expected_params_hash = poseidon_hash(
+        [int(inp["max_position_size"]), 50, 150, int(inp["stop_loss_price"])]
+    )
+    assert int(inp["params_hash"]) == expected_params_hash
+    assert req.params_hash == expected_params_hash.to_bytes(32, "big")
+
+    expected_oracle_root = poseidon_chain([int(p) for p in inp["price_observations"]])
+    assert int(inp["oracle_root"]) == expected_oracle_root
+    assert req.oracle_root == expected_oracle_root.to_bytes(32, "big")
+
+    expected_trade_hash = poseidon_hash(
+        [
+            int(inp["strategy_vault"]),
+            int(inp["declared_class"]),
+            expected_params_hash,
+            int(inp["allocator_address"]),
+            int(inp["asset_in_idx"]),
+            int(inp["asset_out_idx"]),
+            int(inp["amount_in"]),
+            int(inp["min_amount_out"]),
+            int(inp["trade_direction"]),
+            int(inp["nonce"]),
+        ]
+    )
+    assert int(inp["trade_hash"]) == expected_trade_hash
+    assert req.trade_hash == expected_trade_hash.to_bytes(32, "big")
+
+
+def test_strategy_vault_addr_encoded_as_field() -> None:
+    req = _build(strategy_vault_address="0x" + "ee" * 20)
+    assert int(req.inputs["strategy_vault"]) == int("ee" * 20, 16)
+
+
+def test_asset_indices_use_universe_position() -> None:
+    req = _build()
+    assert req.inputs["asset_in_idx"] == str(_ASSET_IDX["USDC"])
+    assert req.inputs["asset_out_idx"] == str(_ASSET_IDX["WETH"])
 
 
 def test_amount_in_asset_uses_last_price() -> None:
@@ -138,3 +179,51 @@ def test_amount_in_asset_uses_last_price() -> None:
         price_observations_e18=[2000 * 10**18] * 16,
     )
     assert int(req.inputs["amount_in"]) == int(0.5 * 2000 * 10**18)
+
+
+def test_fixture_round_trip() -> None:
+    """Cross-check against the on-chain fixture
+    (`circuits/scripts/gen-fixture.js` knobs):
+    strategy_vault=0xbeef00, allocator=0xa11ca7, declared_class=0x1234,
+    16 bars of 1000+i*5, signal_threshold=100bps, params bounds match
+    the fixture defaults. The witness's three Poseidon outputs must equal
+    the fixture's `publicSignals[0]` (trade_hash), `publicSignals[3]`
+    (params_hash), and `publicSignals[13]` (oracle_root).
+    """
+    req = build_momentum_witness(
+        intent=TradeIntent(
+            asset_in="USDC",
+            asset_out="WBTC",  # idx=3
+            direction=Direction.LONG,
+            amount_in_usd=1.0,  # → 1e18
+            max_slippage_bps=50,
+        ),
+        asset_to_universe_idx=_ASSET_IDX,
+        asset_universe_addresses=_UNIVERSE_ADDRS,
+        price_observations_e18=[1000 + i * 5 for i in range(16)],
+        declared_class_field=0x1234,
+        strategy_vault_address="0xbeef00",
+        allocator_address="0xa11ca7",
+        nonce=42,
+        block_window_start=100,
+        block_window_end=150,
+        max_position_size_e18=5 * 10**18,
+        max_slippage_bps=50,
+        signal_threshold_bps=100,
+        position_state_e18=0,
+        stop_loss_price_e18=0,
+        is_signal_flip=False,
+        is_stop_loss=False,
+    )
+    assert (
+        int(req.inputs["params_hash"])
+        == 15156193349259122427382123461171905084636555227186025438992819655662310206953
+    )
+    assert (
+        int(req.inputs["oracle_root"])
+        == 19227955533869764475997746616829700814890964403601080078384715274766485910570
+    )
+    assert (
+        int(req.inputs["trade_hash"])
+        == 3003122794127521053123681721578845572260160476947025219414413002822614285464
+    )

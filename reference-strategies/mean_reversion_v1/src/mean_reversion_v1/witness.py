@@ -1,7 +1,8 @@
-"""Build the witness payload mean_reversion_v1.circom expects.
+"""Build the witness payload `mean_reversion_v1.circom` expects.
 
-The circuit's public-input layout is identical to momentum_v1 (14 PIs)
-so `StrategyVault.PI_*` indices are reused unchanged. The witness shape
+The circuit's public-input layout is identical to `momentum_v1` (14 PIs)
+so `StrategyVault.PI_*` indices and the verifier adapter's
+`_PUBLIC_INPUT_COUNT = 14` are reused unchanged. The witness shape
 mirrors `circuits/scripts/gen-fixture-mr.js`:
 
   Public:
@@ -14,16 +15,18 @@ mirrors `circuits/scripts/gen-fixture-mr.js`:
     stop_loss_price, price_observations[16], is_long_entry, is_short_entry,
     is_exit, is_signal_flip, is_stop_loss.
 
-`oracle_root` and `trade_hash` are placeholder zeros — the prover service
-(circomlibjs) computes them from the full witness before
-`groth16.fullProve` runs. Same posture as momentum_v1's witness builder.
+`oracle_root`, `trade_hash`, and `params_hash` are computed locally
+through `helios.poseidon` (pure-Python BN254 Poseidon, bit-exact against
+circomlibjs) so the prover service receives a complete witness and does
+not need to do any server-side fixup.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
+from helios.poseidon import address_to_field, poseidon_chain, poseidon_hash
 from helios.types import Direction, TradeIntent
 
 UNIVERSE_SIZE = 8
@@ -32,12 +35,18 @@ PRICE_OBSERVATIONS = 16
 
 @dataclass(frozen=True, slots=True)
 class WitnessRequest:
-    """Raw payload sent to the prover. The prover completes
-    `oracle_root` + `trade_hash` via circomlibjs Poseidon."""
+    """Prover-ready payload. `inputs` is the JSON sent to
+    `services/prover` `POST /prove`; `params_hash` and `oracle_root` are
+    surfaced as bytes32 so the runtime can post the same values to
+    `StrategyRegistry.commitInitialParamsHash` and check
+    `OraclePriceAnchor.isKnownRoot` before submitting the trade.
+    """
 
     strategy_class: str
     inputs: dict[str, Any]
-    pending_poseidon: tuple[str, ...] = field(default=("oracle_root", "trade_hash"))
+    params_hash: bytes
+    oracle_root: bytes
+    trade_hash: bytes
 
 
 def build_mean_reversion_witness(
@@ -73,9 +82,6 @@ def build_mean_reversion_witness(
     if block_window_end - block_window_start > 100:
         raise ValueError("block window > 100 — circuit constraint 5")
 
-    # Pad observations on the left with the oldest bar repeating. The
-    # circuit treats every position as a real observation; the chain's
-    # stability matters more than a perfectly fresh history.
     padded = [price_observations_e18[0]] * (
         PRICE_OBSERVATIONS - len(price_observations_e18)
     ) + price_observations_e18
@@ -93,25 +99,51 @@ def build_mean_reversion_witness(
         # (so they are mutually exclusive when is_exit == 1).
         raise ValueError("signal_flip and stop_loss cannot both be set")
 
+    asset_in_idx = asset_to_universe_idx[intent.asset_in]
+    asset_out_idx = asset_to_universe_idx[intent.asset_out]
     amount_in_e18 = _resolve_amount_in_e18(intent, padded[-1])
     min_amount_out_e18 = _min_amount_out_e18(amount_in_e18, intent.max_slippage_bps)
 
+    strategy_vault_field = address_to_field(strategy_vault_address)
+    allocator_field = address_to_field(allocator_address)
+
+    # `signal_threshold` is the params slot we're storing n_sigma_x100 in
+    # — the `params_hash` Poseidon position is shared with momentum's
+    # signal_threshold_bps so the circuit indexing stays uniform.
+    params_hash_field = poseidon_hash(
+        [max_position_size_e18, max_slippage_bps, n_sigma_x100, stop_loss_price_e18]
+    )
+    oracle_root_field = poseidon_chain(padded)
+    trade_hash_field = poseidon_hash(
+        [
+            strategy_vault_field,
+            declared_class_field,
+            params_hash_field,
+            allocator_field,
+            asset_in_idx,
+            asset_out_idx,
+            amount_in_e18,
+            min_amount_out_e18,
+            direction,
+            nonce,
+        ]
+    )
+
     inputs: dict[str, Any] = {
-        # Public — circuit + verifier
-        "trade_hash": "0",  # filled by prover
+        "trade_hash": str(trade_hash_field),
         "declared_class": str(declared_class_field),
-        "strategy_vault": str(_address_to_field(strategy_vault_address)),
-        "params_hash": "0",  # filled by prover (Poseidon over witness params)
-        "allocator_address": str(_address_to_field(allocator_address)),
-        "asset_in_idx": str(asset_to_universe_idx[intent.asset_in]),
-        "asset_out_idx": str(asset_to_universe_idx[intent.asset_out]),
+        "strategy_vault": str(strategy_vault_field),
+        "params_hash": str(params_hash_field),
+        "allocator_address": str(allocator_field),
+        "asset_in_idx": str(asset_in_idx),
+        "asset_out_idx": str(asset_out_idx),
         "amount_in": str(amount_in_e18),
         "min_amount_out": str(min_amount_out_e18),
         "trade_direction": str(direction),
         "nonce": str(nonce),
         "block_window_start": str(block_window_start),
         "block_window_end": str(block_window_end),
-        "oracle_root": "0",  # filled by prover
+        "oracle_root": str(oracle_root_field),
         # Witness — operator-private
         "max_position_size": str(max_position_size_e18),
         "max_slippage_bps": str(max_slippage_bps),
@@ -127,7 +159,9 @@ def build_mean_reversion_witness(
     return WitnessRequest(
         strategy_class="mean_reversion_v1",
         inputs=inputs,
-        pending_poseidon=("oracle_root", "trade_hash", "params_hash"),
+        params_hash=params_hash_field.to_bytes(32, "big"),
+        oracle_root=oracle_root_field.to_bytes(32, "big"),
+        trade_hash=trade_hash_field.to_bytes(32, "big"),
     )
 
 
@@ -148,14 +182,3 @@ def _resolve_amount_in_e18(intent: TradeIntent, last_price_e18: int) -> int:
 
 def _min_amount_out_e18(amount_in_e18: int, max_slippage_bps: int) -> int:
     return amount_in_e18 * (10_000 - max_slippage_bps) // 10_000
-
-
-def _address_to_field(addr_or_symbol: str) -> int:
-    """Either a hex address or a short symbol. Hex addresses → uint160 int.
-    Short symbols → big-endian latin-1 bytes (deterministic, BN254-safe
-    for any string up to ~30 bytes)."""
-    s = addr_or_symbol
-    if s.startswith("0x") or s.startswith("0X"):
-        return int(s, 16)
-    raw = s.encode("latin-1")
-    return int.from_bytes(raw, "big")
