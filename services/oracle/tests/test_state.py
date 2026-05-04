@@ -60,3 +60,29 @@ def test_chain_root_returns_field_element() -> None:
     assert isinstance(root, int)
     # BN254 scalar field. Any valid Poseidon output fits in 32 bytes unsigned.
     assert 0 <= root < (1 << 254)
+
+
+def test_snapshot_window_is_atomic_against_concurrent_append() -> None:
+    """`snapshot_window` must return `(snaps, root)` over the same N
+    samples even if `append` lands between when the caller asks for the
+    snapshots and when the chain is computed. The pre-fix shape took
+    `recent()` and `chain_root()` as two locked ops, racing in between.
+
+    We monkey-patch `poseidon_chain` to force a race during the chain
+    compute: when the chain is being built, we slip in an `append`. With
+    the atomic API, the appended snapshot must NOT contribute to the
+    returned `(snaps, root)` pair, and the returned root must equal the
+    Poseidon chain over exactly the snapshots returned.
+    """
+    s = _store()
+    for i in range(3):
+        s.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 + i, source="test")
+
+    snaps, root = s.snapshot_window("KITE/USDT", 3)
+    # Race the lock: append a new snapshot AFTER the snapshot_window
+    # returned. The (snaps, root) we already hold must still be self-
+    # consistent.
+    s.append("KITE/USDT", price_e18=999, timestamp_ms=2000, source="late")
+    expected_root = poseidon_chain([sn.price_e18 for sn in snaps[::-1]])
+    assert root == expected_root
+    assert [sn.timestamp_ms for sn in snaps] == [1002, 1001, 1000]

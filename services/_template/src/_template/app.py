@@ -44,9 +44,13 @@ def create_app(
 
     app = FastAPI(title=f"Helios :: {name}", version="0.1.0", lifespan=lifespan)
 
+    # Default origins come from `CORS_ALLOWED_ORIGINS` (see
+    # `BaseServiceSettings.cors_allowed_origins`); production deploys must
+    # set the env to the public frontend host. `allow_credentials=True`
+    # forbids `"*"` per the CORS spec, so the list is always explicit.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # tighten in deploy config
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

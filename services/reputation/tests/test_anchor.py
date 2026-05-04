@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 from eth_utils.crypto import keccak
 from reputation.anchor import AnchorPoster
@@ -81,6 +84,35 @@ def _expected_selector() -> str:
         "(int256,uint256,uint256,uint256,uint256,uint256,uint8,bytes32),bytes)"
     )
     return "0x" + keccak(sig.encode())[:4].hex()
+
+
+async def test_async_post_does_not_block_event_loop() -> None:
+    """`AnchorPoster.post_async` must offload `wait_for_transaction_receipt`
+    so the engine's `tick_once` keeps draining other strategies' updates
+    while a single tx is in flight."""
+    poster = AnchorPoster(
+        rpc_url="http://stub", signer_pk=_PK, anchor_address=_ANCHOR, chain_id=2368
+    )
+    poster._live = True
+
+    def slow_submit(_signed):  # type: ignore[no-untyped-def]
+        time.sleep(0.4)
+        return ("0x" + "ab" * 32, 1)
+
+    poster._submit = slow_submit  # type: ignore[assignment]
+
+    counter = {"ticks": 0}
+
+    async def background_ticker() -> None:
+        for _ in range(8):
+            await asyncio.sleep(0.05)
+            counter["ticks"] += 1
+
+    ticker = asyncio.create_task(background_ticker())
+    result = await poster.post_async(_signed_update())  # type: ignore[arg-type]
+    await ticker
+    assert result.submitted is True
+    assert counter["ticks"] >= 4  # loop drained while submit was running
 
 
 if __name__ == "__main__":

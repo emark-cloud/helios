@@ -28,6 +28,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from sentinel.allocator import SentinelAllocator
+from sentinel.auth import MetaStrategySignatureError, verify_meta_strategy_signature
 from sentinel.goldsky import SentinelGoldsky
 from sentinel.loop import LoopConfig, SentinelLoop
 from sentinel.onchain import OnChainRunner
@@ -132,6 +133,13 @@ def _make_router(
     async def set_meta_strategy(user: str, payload: MetaStrategyPayload) -> dict[str, object]:
         if user.lower() != payload.user_address.lower():
             raise HTTPException(status_code=400, detail="path/body user mismatch")
+        # [PASSPORT-STUB] Verify the EOA personal_sign signature server-side.
+        # Phase 4 swaps this for AA userOp verification at the EntryPoint —
+        # see docs/kite-passport-notes.md §"Migration plan".
+        try:
+            verify_meta_strategy_signature(payload)
+        except MetaStrategySignatureError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from None
         meta = payload.to_sdk_meta()
         store.upsert_user(meta)
         # Append an operational event so the activity rail (live and on

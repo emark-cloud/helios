@@ -6,12 +6,43 @@ HTTP shape, payload validation, and WS event delivery.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from fastapi.testclient import TestClient
 from helios_allocator.types import StrategyCandidate
+from sentinel.auth import canonical_digest
 from sentinel.goldsky import StrategyDirectoryRow
+from sentinel.schemas import MetaStrategyPayload
 from sentinel.service import Settings, build_app
 from sentinel.state import AllocationState, SentinelEvent
+
+_TEST_PK = "0x" + "11" * 32
+_TEST_USER = Account.from_key(_TEST_PK).address
+
+
+def _signed_payload(**overrides: Any) -> dict[str, Any]:
+    """Build a meta-strategy POST body signed by `_TEST_PK`."""
+    base: dict[str, Any] = {
+        "user_address": _TEST_USER,
+        "allowed_strategy_classes": ["momentum_v1"],
+        "allowed_assets": ["USDC", "WKITE"],
+        "allowed_chains": [2368],
+        "max_capital_usd": 10_000,
+        "max_per_strategy_bps": 5_000,
+        "max_strategies_count": 2,
+        "drawdown_threshold_bps": 1_500,
+        "max_fee_rate_bps": 2_500,
+        "rebalance_cadence_sec": 900,
+        "valid_until": 2_000_000_000,
+    }
+    base.update(overrides)
+    payload = MetaStrategyPayload.model_validate(base)
+    digest = canonical_digest(payload)
+    sig = Account.sign_message(encode_defunct(text=digest), _TEST_PK).signature.hex()
+    return {**base, "signature": sig}
 
 
 @pytest.fixture()
@@ -36,47 +67,75 @@ def test_root_endpoint(app_client: tuple[object, TestClient]) -> None:
         assert body["live_chain_io"] is False  # no SENTINEL_ALLOCATOR_VAULT_ADDRESS set
 
 
+def test_cors_blocks_unknown_origin(app_client: tuple[object, TestClient]) -> None:
+    """Default `CORS_ALLOWED_ORIGINS` is the local frontend only; an
+    unknown browser origin must NOT receive an Access-Control-Allow-Origin
+    header on a preflight."""
+    _app, client = app_client
+    r = client.options(
+        "/v1/",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in {k.lower() for k in r.headers}
+
+
+def test_cors_allows_known_origin(app_client: tuple[object, TestClient]) -> None:
+    _app, client = app_client
+    r = client.options(
+        "/v1/",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
 def test_post_meta_strategy_creates_user(app_client: tuple[object, TestClient]) -> None:
     app, client = app_client
-    user = "0x" + "ab" * 20
-    payload = {
-        "user_address": user,
-        "allowed_strategy_classes": ["momentum_v1"],
-        "allowed_assets": ["USDC", "WKITE"],
-        "allowed_chains": [2368],
-        "max_capital_usd": 10_000,
-        "max_per_strategy_bps": 5_000,
-        "max_strategies_count": 2,
-        "drawdown_threshold_bps": 1_500,
-        "max_fee_rate_bps": 2_500,
-        "rebalance_cadence_sec": 900,
-        "valid_until": 2_000_000_000,
-    }
+    payload = _signed_payload()
     with client:
-        r = client.post(f"/v1/users/{user}/meta-strategy", json=payload)
+        r = client.post(f"/v1/users/{_TEST_USER}/meta-strategy", json=payload)
         assert r.status_code == 200, r.text
-        assert r.json()["user"].lower() == user.lower()
+        assert r.json()["user"].lower() == _TEST_USER.lower()
         store = app.state.store  # type: ignore[attr-defined]
-        assert store.get_user(user) is not None
+        assert store.get_user(_TEST_USER) is not None
+
+
+def test_post_meta_strategy_rejects_unsigned_stub(
+    app_client: tuple[object, TestClient],
+) -> None:
+    """[PASSPORT-STUB] hardening — server must verify, not just store."""
+    _app, client = app_client
+    payload = _signed_payload()
+    payload["signature"] = "0x"
+    with client:
+        r = client.post(f"/v1/users/{_TEST_USER}/meta-strategy", json=payload)
+        assert r.status_code == 401
+        assert "missing" in r.json()["detail"]
+
+
+def test_post_meta_strategy_rejects_tampered_body(
+    app_client: tuple[object, TestClient],
+) -> None:
+    _app, client = app_client
+    payload = _signed_payload()
+    payload["max_capital_usd"] = 999_999  # bumped after signing
+    with client:
+        r = client.post(f"/v1/users/{_TEST_USER}/meta-strategy", json=payload)
+        assert r.status_code == 401
+        assert "does not match" in r.json()["detail"]
 
 
 def test_post_meta_strategy_rejects_path_body_mismatch(
     app_client: tuple[object, TestClient],
 ) -> None:
     _app, client = app_client
-    payload = {
-        "user_address": "0x" + "ab" * 20,
-        "allowed_strategy_classes": ["momentum_v1"],
-        "allowed_assets": ["USDC"],
-        "allowed_chains": [2368],
-        "max_capital_usd": 10_000,
-        "max_per_strategy_bps": 5_000,
-        "max_strategies_count": 2,
-        "drawdown_threshold_bps": 1_500,
-        "max_fee_rate_bps": 2_500,
-        "rebalance_cadence_sec": 900,
-        "valid_until": 2_000_000_000,
-    }
+    # Signature is irrelevant — path/body mismatch is a 400 *before* we verify.
+    payload = _signed_payload()
     with client:
         r = client.post(f"/v1/users/{'0x' + 'cd' * 20}/meta-strategy", json=payload)
         assert r.status_code == 400
@@ -91,23 +150,11 @@ def test_dashboard_404_for_unknown_user(app_client: tuple[object, TestClient]) -
 
 def test_dashboard_returns_allocations(app_client: tuple[object, TestClient]) -> None:
     app, client = app_client
-    user_addr = "0x" + "ab" * 20
+    user_addr = _TEST_USER
     with client:
         client.post(
             f"/v1/users/{user_addr}/meta-strategy",
-            json={
-                "user_address": user_addr,
-                "allowed_strategy_classes": ["momentum_v1"],
-                "allowed_assets": ["USDC"],
-                "allowed_chains": [2368],
-                "max_capital_usd": 10_000,
-                "max_per_strategy_bps": 5_000,
-                "max_strategies_count": 2,
-                "drawdown_threshold_bps": 1_500,
-                "max_fee_rate_bps": 2_500,
-                "rebalance_cadence_sec": 900,
-                "valid_until": 2_000_000_000,
-            },
+            json=_signed_payload(allowed_assets=["USDC"]),
         )
         store = app.state.store  # type: ignore[attr-defined]
         store.update_allocation(
@@ -174,24 +221,12 @@ def test_strategies_directory_filters_by_class(app_client: tuple[object, TestCli
 
 def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None:
     app, client = app_client
-    user_addr = "0x" + "ab" * 20
+    user_addr = _TEST_USER
     with client:
         # Create user first so events route by address.
         client.post(
             f"/v1/users/{user_addr}/meta-strategy",
-            json={
-                "user_address": user_addr,
-                "allowed_strategy_classes": ["momentum_v1"],
-                "allowed_assets": ["USDC"],
-                "allowed_chains": [2368],
-                "max_capital_usd": 10_000,
-                "max_per_strategy_bps": 5_000,
-                "max_strategies_count": 2,
-                "drawdown_threshold_bps": 1_500,
-                "max_fee_rate_bps": 2_500,
-                "rebalance_cadence_sec": 900,
-                "valid_until": 2_000_000_000,
-            },
+            json=_signed_payload(allowed_assets=["USDC"]),
         )
         store = app.state.store  # type: ignore[attr-defined]
         # Pre-emit a historical event so the replay path is exercised.

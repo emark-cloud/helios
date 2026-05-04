@@ -95,6 +95,26 @@ def test_deploy_dry_run_prints_plan(tiny_strategy_file: Path) -> None:
     assert "docker build" in result.output
 
 
+def test_deploy_rejects_dash_prefixed_vps(tiny_strategy_file: Path) -> None:
+    """`--vps -oProxyCommand=...` would be parsed as an OpenSSH option,
+    yielding arbitrary command execution. Fail closed."""
+    result = runner.invoke(
+        strategy_cmd.app,
+        [
+            "deploy",
+            "--strategy",
+            str(tiny_strategy_file),
+            "--vps",
+            "-oProxyCommand=/tmp/x",
+        ],
+    )
+    assert result.exit_code != 0
+    # Click renders BadParameter through Rich; assert we never reached the
+    # "Dry-run" branch nor printed the docker plan.
+    assert "Dry-run" not in result.output
+    assert "docker build" not in result.output
+
+
 # ── helios stake ───────────────────────────────────────────────────
 
 
@@ -133,6 +153,71 @@ def test_stake_topup_requires_amount(deployments_dir: Path) -> None:
         ["stake", "top-up", "--strategy-id", "0x" + "11" * 20, "--amount", "0"],
     )
     assert result.exit_code != 0
+
+
+def test_stake_live_aborts_without_confirmation(
+    deployments_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live mode must confirm before broadcasting. Sending a 'no' answer
+    must abort the run cleanly without ever instantiating `StakeClient`."""
+    monkeypatch.setenv("KITE_RPC_URL", "http://stub")
+    monkeypatch.setenv("OPERATOR_PK", "0x" + "11" * 32)
+    # Fail loudly if confirmation is bypassed and we reach the client.
+    monkeypatch.setattr(
+        strategy_cmd,
+        "StakeClient",
+        lambda **_: pytest.fail("StakeClient must not be constructed without confirmation"),
+    )
+    result = runner.invoke(
+        strategy_cmd.app,
+        [
+            "stake",
+            "top-up",
+            "--strategy-id",
+            "0x" + "11" * 20,
+            "--amount",
+            "100",
+        ],
+        input="n\n",
+    )
+    assert result.exit_code != 0
+    assert "Aborted" in result.output or result.exit_code == 1
+
+
+def test_stake_live_yes_skips_confirmation(
+    deployments_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--yes` must bypass the confirm prompt for CI / scripted usage."""
+    monkeypatch.setenv("KITE_RPC_URL", "http://stub")
+    monkeypatch.setenv("OPERATOR_PK", "0x" + "11" * 32)
+    calls: dict[str, Any] = {}
+
+    class _StubClient:
+        def __init__(self, **kwargs: Any) -> None:
+            calls["init"] = kwargs
+
+        def approve(self, _amount: int) -> str:
+            return "0xapprove"
+
+        def top_up(self, _strategy_id: str, _amount: int) -> str:
+            return "0xtopup"
+
+    monkeypatch.setattr(strategy_cmd, "StakeClient", _StubClient)
+    result = runner.invoke(
+        strategy_cmd.app,
+        [
+            "stake",
+            "top-up",
+            "--strategy-id",
+            "0x" + "11" * 20,
+            "--amount",
+            "100",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "0xtopup" in result.output
+    assert calls["init"]["rpc_url"] == "http://stub"
 
 
 def test_stake_live_requires_keys(deployments_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

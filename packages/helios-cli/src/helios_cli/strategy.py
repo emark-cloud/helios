@@ -216,6 +216,7 @@ def deploy(
     can review the plan before any bytes leave the workstation."""
     if not strategy.exists():
         raise typer.BadParameter(f"strategy file not found: {strategy}")
+    _validate_ssh_target(vps)
     _ = _load(strategy)  # validates the file before any network I/O
     if not _DOCKERFILE_TEMPLATE.exists():
         raise typer.BadParameter(
@@ -288,13 +289,29 @@ def _execute_deploy(
     )
 
 
+def _validate_ssh_target(target: str) -> None:
+    """Reject targets that begin with `-`, which OpenSSH would parse as
+    a flag (`-oProxyCommand=...`). `--` after `ssh` makes the option
+    parser stop, but we also fail-fast with a clearer error."""
+    if target.startswith("-"):
+        raise typer.BadParameter(
+            f"--vps target {target!r} starts with '-'; refusing to invoke ssh "
+            "(would be parsed as an OpenSSH flag, not a hostname)."
+        )
+
+
 def _ssh(target: str, cmd: str) -> None:
-    subprocess.run(["ssh", target, cmd], check=True)
+    _validate_ssh_target(target)
+    # `--` separates options from positional args; combined with the
+    # leading-dash check above, this neutralizes option-injection via
+    # the user-supplied `--vps` value.
+    subprocess.run(["ssh", "--", target, cmd], check=True)
 
 
 def _scp(payload: bytes, target: str, remote_path: str) -> None:
+    _validate_ssh_target(target)
     proc = subprocess.run(
-        ["ssh", target, f"cat > {shlex.quote(remote_path)}"],
+        ["ssh", "--", target, f"cat > {shlex.quote(remote_path)}"],
         input=payload,
         check=True,
     )
@@ -329,6 +346,12 @@ def stake(
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Print the planned tx without submitting."
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip the interactive confirmation prompt (use in CI / scripts).",
     ),
 ) -> None:
     """Manage strategy stake on the StrategyRegistry.
@@ -365,6 +388,14 @@ def stake(
     if not rpc_url or not operator_pk:
         raise typer.BadParameter(
             "live mode requires --rpc-url + --operator-pk (or KITE_RPC_URL + OPERATOR_PK)"
+        )
+    # Confirm before broadcasting. A typo in --strategy-id or --amount is
+    # an irrevocable on-chain tx with operator-key authority; opt-in for
+    # the kind of automation that doesn't have a TTY (CI, scripts).
+    if not yes:
+        typer.confirm(
+            f"Submit {action} on-chain to {registry_addr} on {chain}?",
+            abort=True,
         )
 
     client = StakeClient(

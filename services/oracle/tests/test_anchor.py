@@ -18,6 +18,9 @@ in isolation:
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from oracle.anchor import (
@@ -154,6 +157,43 @@ def test_price_scheduler_advances_window_monotonically() -> None:
     # Contract invariant: ws >= prev.we. Scheduler must enforce.
     assert rec2.window_start >= rec1.window_end
     assert rec2.nonce == 1
+
+
+async def test_async_post_does_not_block_event_loop() -> None:
+    """`AnchorPoster.post_async` must run the blocking submit on a worker
+    thread. Patch `_submit` to sleep 0.5s; assert that another awaitable
+    (a no-op `asyncio.sleep`) finishes during that window — proving the
+    event loop is still draining other tasks rather than frozen on the
+    receipt wait."""
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    poster._live = True  # type: ignore[attr-defined]
+
+    def slow_submit(_signed):  # type: ignore[no-untyped-def]
+        time.sleep(0.4)
+        return ("0x" + "ab" * 32, 1)
+
+    poster._submit = slow_submit  # type: ignore[assignment]
+
+    counter = {"ticks": 0}
+
+    async def background_ticker() -> None:
+        # Tick every 50ms — if the loop is blocked, we get 0 or 1 ticks;
+        # if to_thread is working, we expect ≥4 in the 400ms window.
+        for _ in range(8):
+            await asyncio.sleep(0.05)
+            counter["ticks"] += 1
+
+    ticker = asyncio.create_task(background_ticker())
+    record = await poster.post_async(_payload())
+    await ticker
+    assert record.submitted is True
+    assert counter["ticks"] >= 4  # loop drained while submit was running
 
 
 def test_yield_scheduler_emits_for_market() -> None:
