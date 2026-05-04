@@ -140,6 +140,10 @@ def test_stake_live_requires_keys(deployments_dir: Path, monkeypatch: pytest.Mon
     # nor env var is set — protects against accidental no-op submissions.
     monkeypatch.delenv("KITE_RPC_URL", raising=False)
     monkeypatch.delenv("OPERATOR_PK", raising=False)
+    # Wide terminal so Rich doesn't wrap the BadParameter message off-screen
+    # under narrow CI runners (where 'rpc-url' would line-break and break the
+    # substring match below).
+    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(
         strategy_cmd.app,
         [
@@ -152,7 +156,8 @@ def test_stake_live_requires_keys(deployments_dir: Path, monkeypatch: pytest.Mon
         ],
     )
     assert result.exit_code != 0
-    assert "rpc-url" in result.output or "operator-pk" in result.output
+    combined = result.output + (str(result.exception) if result.exception else "")
+    assert "rpc-url" in combined or "operator-pk" in combined
 
 
 # ── helios test-proof ──────────────────────────────────────────────

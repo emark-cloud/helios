@@ -74,6 +74,16 @@ jobs:
       - name: uv sync (oracle for ClassIds parity)
         working-directory: .
         run: uv sync --all-packages --all-extras
+      # The Python Poseidon helper (oracle.poseidon) shells out to
+      # services/oracle/scripts/poseidon_helper.js (circomlibjs), which
+      # vm.ffi tests in test/ClassIds.t.sol invoke. Need node_modules
+      # in this job too, not just the python job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install poseidon helper node deps
+        working-directory: services/oracle/scripts
+        run: npm install --no-audit --no-fund
       - name: Check formatting
         run: forge fmt --check
       - name: Build
