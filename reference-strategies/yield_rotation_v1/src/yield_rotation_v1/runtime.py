@@ -27,7 +27,7 @@ from typing import Any
 
 import structlog
 from eth_account import Account
-from eth_utils.crypto import keccak
+from eth_account.messages import encode_typed_data
 
 from yield_rotation_v1.executor import ExecutionRecord, TradeExecutor
 from yield_rotation_v1.oracle_client import YieldOracleClient
@@ -37,6 +37,36 @@ from yield_rotation_v1.types import YieldTick
 from yield_rotation_v1.witness import build_yield_rotation_witness
 
 _log = structlog.get_logger(__name__)
+
+
+def _sign_nav_eip712(
+    *,
+    signer: Any,
+    chain_id: int,
+    vault_address: str,
+    total_nav: int,
+    timestamp: int,
+) -> bytes:
+    """65-byte EIP-712 signature over `NAVUpdate(totalNAV, timestamp)`
+    bound to the StrategyVault domain. Bit-exact match for
+    `_hashTypedDataV4(structHash)` inside `StrategyVault.reportNAV`."""
+    if not vault_address:
+        raise ValueError("vault_address required for NAV signing")
+    domain = {
+        "name": "HeliosStrategyVault",
+        "version": "1",
+        "chainId": chain_id,
+        "verifyingContract": vault_address,
+    }
+    types = {
+        "NAVUpdate": [
+            {"name": "totalNAV", "type": "uint256"},
+            {"name": "timestamp", "type": "uint64"},
+        ]
+    }
+    message = {"totalNAV": total_nav, "timestamp": timestamp}
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    return bytes(signer.sign_message(encoded).signature)
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,23 +259,21 @@ class YieldRotationRuntime:
 
     def tick_nav(self, total_nav_usd: float, *, timestamp: int | None = None) -> ExecutionRecord:
         """Sign + submit one NAV report. Mirrors momentum's runtime — the
-        StrategyVault digest is `keccak256(abi.encode(vault, totalNAV,
-        timestamp))` recovering to `navOracle`."""
+        StrategyVault verifies an EIP-712 typed-data signature with
+        domain `(name="HeliosStrategyVault", version="1", chainId,
+        verifyingContract=vault)` over `NAVUpdate(uint256 totalNAV,
+        uint64 timestamp)`, recovering to `navOracle`."""
         if self._nav_signer is None:
             raise RuntimeError("nav_oracle_pk required for tick_nav")
         ts = timestamp if timestamp is not None else int(time.time())
         total_nav_e18 = int(total_nav_usd * 10**18)
-        vault_word = (
-            bytes.fromhex(self._executor.vault[2:].rjust(40, "0"))
-            if self._executor.vault
-            else b"\x00" * 20
+        signature = _sign_nav_eip712(
+            signer=self._nav_signer,
+            chain_id=self._executor.chain_id,
+            vault_address=self._executor.vault,
+            total_nav=total_nav_e18,
+            timestamp=ts,
         )
-        body = (
-            b"\x00" * 12 + vault_word + total_nav_e18.to_bytes(32, "big") + ts.to_bytes(32, "big")
-        )
-        digest = keccak(body)
-        sig = self._nav_signer._key_obj.sign_msg_hash(digest)  # type: ignore[attr-defined]
-        signature = sig.to_bytes()
         self.stats.nav_reports += 1
         return self._executor.submit_nav(
             total_nav_e18=total_nav_e18, timestamp=ts, nav_signature=signature

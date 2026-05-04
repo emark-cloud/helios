@@ -83,6 +83,10 @@ class TradeExecutor:
     def vault(self) -> str:
         return self._vault
 
+    @property
+    def chain_id(self) -> int:
+        return self._chain_id
+
     # ── Plan builder ─────────────────────────────────────────
     def build_plan(
         self,

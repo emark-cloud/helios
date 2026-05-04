@@ -43,7 +43,6 @@ from typing import Any
 from eth_abi.abi import encode as abi_encode
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from eth_keys.datatypes import PrivateKey
 from eth_utils.crypto import keccak
 from helios_contracts_abi import (
     MEAN_REVERSION_V1 as CLASS_MR_BYTES32,
@@ -408,23 +407,24 @@ def step_report_nav(ctx: Ctx, strategy: Contract, total_nav: int, ts: int) -> di
     Matched against capitalDeployed / strategyHighWaterMark in the same
     base-asset units inside `AllocatorVault.defundStrategy`."""
     print(f"[6] navOracle reportNAV({total_nav / 10**6:.2f} USDC @ ts={ts})")
-    # Match StrategyVault.reportNAV exactly:
-    #   digest = keccak256(abi.encode(block.chainid, address(this),
-    #                                 totalNAV_, timestamp))
-    # where timestamp is uint64 — width-padded to 32 bytes by abi.encode.
-    # chainid was added to the digest in WS1 (cross-chain replay protection);
-    # the Phase 1 e2e script lagged behind until the WS6 fixup.
-    body = abi_encode(
-        ["uint256", "address", "uint256", "uint64"],
-        [ctx.chain_id, strategy.address, total_nav, ts],
-    )
-    digest = keccak(body)
-    pk_obj = PrivateKey(bytes.fromhex(_OPERATOR_PK[2:]))
-    sig_obj = pk_obj.sign_msg_hash(digest)
-    # OZ v5 ECDSA.tryRecover expects v ∈ {27,28} for 65-byte sigs;
-    # eth_keys returns v ∈ {0,1} — bump to 27/28.
-    sig_raw = sig_obj.to_bytes()
-    sig = sig_raw[:64] + bytes([sig_raw[64] + 27])
+    # Match StrategyVault.reportNAV — EIP-712 typed data over
+    # `NAVUpdate(uint256 totalNAV, uint64 timestamp)` under domain
+    # `(HeliosStrategyVault, "1", chainId, verifyingContract=vault)`.
+    domain = {
+        "name": "HeliosStrategyVault",
+        "version": "1",
+        "chainId": ctx.chain_id,
+        "verifyingContract": Web3.to_checksum_address(strategy.address),
+    }
+    types = {
+        "NAVUpdate": [
+            {"name": "totalNAV", "type": "uint256"},
+            {"name": "timestamp", "type": "uint64"},
+        ]
+    }
+    message = {"totalNAV": total_nav, "timestamp": ts}
+    encoded = encode_typed_data(domain_data=domain, message_types=types, message_data=message)
+    sig = bytes(Account.from_key(_OPERATOR_PK).sign_message(encoded).signature)
     signed_nav = abi_encode(["uint256", "uint64", "bytes"], [total_nav, ts, sig])
     return _send(ctx.w3, ctx.deployer, strategy.functions.reportNAV(signed_nav))
 
