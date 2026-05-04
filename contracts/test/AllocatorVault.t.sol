@@ -32,6 +32,8 @@ contract AllocatorVaultTest is Test {
     address internal navOracle;
     uint256 internal navOracleKey;
     address internal allowedRouter = makeAddr("router");
+    address internal priceAnchor = makeAddr("priceAnchor");
+    address internal yieldAnchor = makeAddr("yieldAnchor");
     address internal user = makeAddr("user");
     address internal randomCaller = makeAddr("rando");
 
@@ -144,6 +146,9 @@ contract AllocatorVaultTest is Test {
             stakeAmount: 5000e6,
             paramsHash: bytes32(0)
         });
+        // The strategy vault needs the AllocatorVault address as its allocator
+        // peer. We may not yet know that address before deployment in the real
+        // case (paired in DeployPhase1.s.sol), but in tests we already do.
         bytes memory initData = abi.encodeCall(
             StrategyVault.initialize,
             (
@@ -153,23 +158,9 @@ contract AllocatorVaultTest is Test {
                 address(verifier),
                 allowedRouter,
                 navOracle,
-                address(0),
-                owner
-            )
-        );
-        // The strategy vault needs the AllocatorVault address as its allocator
-        // peer. We may not yet know that address before deployment in the real
-        // case (paired in DeployPhase1.s.sol), but in tests we already do.
-        initData = abi.encodeCall(
-            StrategyVault.initialize,
-            (
-                m,
-                usdc,
-                address(registry),
-                address(verifier),
-                allowedRouter,
-                navOracle,
                 address(allocatorVault),
+                priceAnchor,
+                yieldAnchor,
                 owner
             )
         );

@@ -7,6 +7,8 @@ import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy
 import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { AllocatorRegistry } from "../src/AllocatorRegistry.sol";
 import { ReputationAnchor } from "../src/ReputationAnchor.sol";
+import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
+import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
@@ -53,6 +55,8 @@ contract DeployPhase1 is Script {
         address momentumVerifier;
         address meanReversionVerifier;
         address yieldRotationVerifier;
+        address oraclePriceAnchor;
+        address oracleYieldAnchor;
         address userVault;
         address allocatorVault;
         address strategyVaultMomentum;
@@ -68,6 +72,7 @@ contract DeployPhase1 is Script {
         _deployTokensAndRouter(a, deployer);
         _deployReputationAndRegistries(a, deployer);
         _deployVerifiers(a, deployer);
+        _deployOracleAnchors(a, deployer);
         _deployVaults(a, deployer);
         _registerStrategiesAndAllocator(a);
         vm.stopBroadcast();
@@ -109,6 +114,16 @@ contract DeployPhase1 is Script {
         v.registerVerifier(CLASS_MOM, a.momentumVerifier);
         v.registerVerifier(CLASS_MR, a.meanReversionVerifier);
         v.registerVerifier(CLASS_YR, a.yieldRotationVerifier);
+    }
+
+    /// @notice Deploy the price + yield anchors. Phase 2 makes these the
+    ///         canonical source-of-truth for `oracle_root` / `yield_oracle_root`
+    ///         public inputs (Helios.md §9.3); Phase 1 deploys them too so a
+    ///         clean local stack can run the WS3.A oracle-root binding without
+    ///         a separate `DeployPhase2` step.
+    function _deployOracleAnchors(Phase1Addresses memory a, address deployer) internal {
+        a.oraclePriceAnchor = address(new OraclePriceAnchor(deployer, deployer));
+        a.oracleYieldAnchor = address(new OracleYieldAnchor(deployer, deployer));
     }
 
     function _deployVaults(Phase1Addresses memory a, address deployer) internal {
@@ -191,6 +206,8 @@ contract DeployPhase1 is Script {
                 a.swapRouter,
                 deployer, // navOracle (deployer in Phase 1)
                 a.allocatorVault,
+                a.oraclePriceAnchor,
+                a.oracleYieldAnchor,
                 deployer
             )
         );
@@ -225,6 +242,8 @@ contract DeployPhase1 is Script {
         console2.log("StrategyRegistry:        ", a.strategyRegistry);
         console2.log("AllocatorRegistry:       ", a.allocatorRegistry);
         console2.log("TradeAttestationVerifier:", a.tradeVerifier);
+        console2.log("OraclePriceAnchor:       ", a.oraclePriceAnchor);
+        console2.log("OracleYieldAnchor:       ", a.oracleYieldAnchor);
         console2.log("UserVault:               ", a.userVault);
         console2.log("AllocatorVault:          ", a.allocatorVault);
         console2.log("StrategyVault[mom]:      ", a.strategyVaultMomentum);
@@ -244,6 +263,8 @@ contract DeployPhase1 is Script {
             _kv("strategyRegistry", a.strategyRegistry, true),
             _kv("allocatorRegistry", a.allocatorRegistry, true),
             _kv("tradeAttestationVerifier", a.tradeVerifier, true),
+            _kv("oraclePriceAnchor", a.oraclePriceAnchor, true),
+            _kv("oracleYieldAnchor", a.oracleYieldAnchor, true),
             _jsonVerifiers(a)
         );
     }

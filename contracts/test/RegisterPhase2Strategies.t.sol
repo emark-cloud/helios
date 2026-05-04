@@ -13,6 +13,8 @@ import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { AllocatorVault } from "../src/AllocatorVault.sol";
 import { AllocatorRegistry } from "../src/AllocatorRegistry.sol";
 import { ReputationAnchor } from "../src/ReputationAnchor.sol";
+import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
+import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 import { UserVault } from "../src/UserVault.sol";
 import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
@@ -52,6 +54,8 @@ contract RegisterPhase2StrategiesTest is Test {
     address internal mockVerifierMom;
     address internal mockVerifierMr;
     address internal mockVerifierYr;
+    OraclePriceAnchor internal priceAnchor;
+    OracleYieldAnchor internal yieldAnchor;
 
     address internal vaultMomV1;
     address internal vaultMrV1;
@@ -80,6 +84,9 @@ contract RegisterPhase2StrategiesTest is Test {
         tav.registerVerifier(CLASS_MOM, mockVerifierMom);
         tav.registerVerifier(CLASS_MR, mockVerifierMr);
         tav.registerVerifier(CLASS_YR, mockVerifierYr);
+
+        priceAnchor = new OraclePriceAnchor(deployer, deployer);
+        yieldAnchor = new OracleYieldAnchor(deployer, deployer);
 
         UserVault uvImpl = new UserVault();
         bytes memory uvInit =
@@ -137,6 +144,8 @@ contract RegisterPhase2StrategiesTest is Test {
                 address(swapRouter),
                 deployer,
                 address(allocatorVault),
+                address(priceAnchor),
+                address(yieldAnchor),
                 deployer
             )
         );
@@ -176,6 +185,8 @@ contract RegisterPhase2StrategiesTest is Test {
             allocatorVault: address(allocatorVault),
             tradeVerifier: address(tav),
             swapRouter: address(swapRouter),
+            oraclePriceAnchor: address(priceAnchor),
+            oracleYieldAnchor: address(yieldAnchor),
             outLabel: _freshOutLabel(suffix)
         });
     }

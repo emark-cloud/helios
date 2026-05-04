@@ -8,6 +8,7 @@ import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { ITradeAttestationVerifier } from "../src/interfaces/ITradeAttestationVerifier.sol";
 import { IStrategyRegistry } from "../src/interfaces/IStrategyRegistry.sol";
+import { IOracleAnchor } from "../src/interfaces/IOracleAnchor.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -26,6 +27,8 @@ contract StrategyVaultTest is Test {
     address internal allocatorVault = makeAddr("allocatorVault");
     address internal registry = makeAddr("registry");
     address internal allowedRouter = makeAddr("router");
+    address internal priceAnchor = makeAddr("priceAnchor");
+    address internal yieldAnchor = makeAddr("yieldAnchor");
     address internal navOracle;
     uint256 internal navOracleKey;
     address internal randomCaller = makeAddr("rando");
@@ -77,7 +80,18 @@ contract StrategyVaultTest is Test {
         impl = new StrategyVault();
         bytes memory initData = abi.encodeCall(
             StrategyVault.initialize,
-            (m, usdc, registry, address(verifier), allowedRouter, navOracle, allocatorVault, owner)
+            (
+                m,
+                usdc,
+                registry,
+                address(verifier),
+                allowedRouter,
+                navOracle,
+                allocatorVault,
+                priceAnchor,
+                yieldAnchor,
+                owner
+            )
         );
         vault = StrategyVault(address(new ERC1967Proxy(address(impl), initData)));
 
@@ -94,6 +108,20 @@ contract StrategyVaultTest is Test {
             registry,
             abi.encodeWithSelector(IStrategyRegistry.paramsHashOf.selector),
             abi.encode(bytes32(0))
+        );
+
+        // PR1a: vault now binds proofs to roots known to the price/yield
+        // anchors (Helios.md §9.3). Mock both anchors as accepting any root
+        // here; explicit "unknown root" tests below set the mock to false.
+        vm.mockCall(
+            priceAnchor,
+            abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
+            abi.encode(true)
+        );
+        vm.mockCall(
+            yieldAnchor,
+            abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
+            abi.encode(true)
         );
     }
 
@@ -114,7 +142,18 @@ contract StrategyVaultTest is Test {
         });
         bytes memory initData = abi.encodeCall(
             StrategyVault.initialize,
-            (m, usdc, registry, address(verifier), allowedRouter, navOracle, allocatorVault, owner)
+            (
+                m,
+                usdc,
+                registry,
+                address(verifier),
+                allowedRouter,
+                navOracle,
+                allocatorVault,
+                priceAnchor,
+                yieldAnchor,
+                owner
+            )
         );
         vm.expectRevert();
         new ERC1967Proxy(address(freshImpl), initData);
@@ -134,7 +173,16 @@ contract StrategyVaultTest is Test {
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
-            m, usdc, registry, address(verifier), allowedRouter, navOracle, allocatorVault, owner
+            m,
+            usdc,
+            registry,
+            address(verifier),
+            allowedRouter,
+            navOracle,
+            allocatorVault,
+            priceAnchor,
+            yieldAnchor,
+            owner
         );
     }
 
@@ -152,7 +200,16 @@ contract StrategyVaultTest is Test {
         });
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(
-            m, usdc, registry, address(verifier), allowedRouter, navOracle, allocatorVault, owner
+            m,
+            usdc,
+            registry,
+            address(verifier),
+            allowedRouter,
+            navOracle,
+            allocatorVault,
+            priceAnchor,
+            yieldAnchor,
+            owner
         );
     }
 
@@ -393,6 +450,34 @@ contract StrategyVaultTest is Test {
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(IStrategyVault.InvalidProof.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_RevertsOnUnknownOracleRoot() public {
+        // Anchor disowns the proof's oracle root → revert before verifier call.
+        // PR1a hardening — without the binding the prover can mint a Poseidon
+        // root over fictitious prices and pass the on-chain verifier.
+        vm.mockCall(
+            priceAnchor,
+            abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
+            abi.encode(false)
+        );
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.UnknownOracleRoot.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteWithProof_QueriesAnchorWithProvenRoot() public {
+        // The vault must call isKnownRoot with the exact bytes32 from
+        // publicInputs[PI_ORACLE_ROOT], not some derived value.
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.expectCall(
+            priceAnchor, abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector, bytes32(pi[13]))
+        );
+        vm.prank(operator);
         vault.executeWithProof(_proofBytes(), pi, trades);
     }
 
@@ -656,6 +741,21 @@ contract StrategyVaultTest is Test {
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(randomCaller);
         vm.expectRevert(IStrategyVault.NotOperator.selector);
+        vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_ExecuteYieldRotationWithProof_RevertsOnUnknownYieldRoot() public {
+        // Yield-anchor disowns the proof's yield_oracle_root → revert before
+        // the verifier is consulted. Mirror of the price-side anchor binding.
+        vm.mockCall(
+            yieldAnchor,
+            abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
+            abi.encode(false)
+        );
+        uint256[] memory pi = _yrInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.UnknownYieldOracleRoot.selector);
         vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
     }
 }

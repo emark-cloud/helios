@@ -18,6 +18,7 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { ITradeAttestationVerifier } from "./interfaces/ITradeAttestationVerifier.sol";
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
+import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 
 /// @title StrategyVault
 /// @notice Per-strategy capital + ZK-gated trade execution + NAV tracking.
@@ -81,9 +82,17 @@ contract StrategyVault is
     mapping(address => uint256) internal _allocationOf;
     mapping(bytes32 => bool) internal _seenTradeHash;
 
+    /// @notice Anchors that authenticate `oracle_root` / `yield_oracle_root`
+    ///         public inputs. Without these the prover can mint a Poseidon
+    ///         root over fictitious prices and pass the verifier — Helios.md
+    ///         §9.3 requires the trade's oracle root be one the off-chain
+    ///         oracle has actually attested.
+    address public priceAnchor;
+    address public yieldAnchor;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[50] private __gap;
+    uint256[48] private __gap;
 
     error ZeroAddress();
     error NotAllocatorVault();
@@ -101,6 +110,8 @@ contract StrategyVault is
     error StaleNav();
     error NavSignatureInvalid();
     error TradeCallFailed(uint256 index);
+    error UnknownOracleRoot();
+    error UnknownYieldOracleRoot();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -115,13 +126,16 @@ contract StrategyVault is
         address allowedRouter_,
         address navOracle_,
         address allocatorVault_,
+        address priceAnchor_,
+        address yieldAnchor_,
         address owner_
     ) external initializer {
         if (
             manifest_.operator == address(0) || address(baseAsset_) == address(0)
                 || registry_ == address(0) || verifier_ == address(0)
                 || allowedRouter_ == address(0) || navOracle_ == address(0)
-                || allocatorVault_ == address(0) || owner_ == address(0)
+                || allocatorVault_ == address(0) || priceAnchor_ == address(0)
+                || yieldAnchor_ == address(0) || owner_ == address(0)
         ) revert ZeroAddress();
 
         __Ownable_init(owner_);
@@ -133,6 +147,8 @@ contract StrategyVault is
         allowedRouter = allowedRouter_;
         navOracle = navOracle_;
         allocatorVault = allocatorVault_;
+        priceAnchor = priceAnchor_;
+        yieldAnchor = yieldAnchor_;
     }
 
     modifier onlyOperator() {
@@ -265,6 +281,15 @@ contract StrategyVault is
         if (block.number < publicInputs[PI_BLOCK_WINDOW_START]) revert WindowNotStarted();
         if (block.number > publicInputs[PI_BLOCK_WINDOW_END]) revert WindowExpired();
 
+        // Bind the proof's `oracle_root` to a root the off-chain oracle has
+        // actually committed via OraclePriceAnchor. Without this an operator
+        // can fabricate price observations, hash them into a Poseidon root,
+        // and pass the verifier — the proof is valid for *some* market state
+        // but not for one the protocol has signed off on.
+        if (!IOracleAnchor(priceAnchor).isKnownRoot(bytes32(publicInputs[PI_ORACLE_ROOT]))) {
+            revert UnknownOracleRoot();
+        }
+
         bytes32 tradeHash = bytes32(publicInputs[PI_TRADE_HASH]);
         if (_seenTradeHash[tradeHash]) revert TradeAlreadySettled();
         _seenTradeHash[tradeHash] = true;
@@ -283,6 +308,14 @@ contract StrategyVault is
             revert AllocatorMismatch();
         }
         if (block.number > publicInputs[PI_YR_BLOCK_WINDOW_END]) revert WindowExpired();
+
+        // Same binding as above, against the yield-anchor's domain. The
+        // anchors enforce signature-domain separation (different EIP-712
+        // type-hashes) so a price-domain commit cannot be replayed here.
+        if (!IOracleAnchor(yieldAnchor).isKnownRoot(bytes32(publicInputs[PI_YR_YIELD_ORACLE_ROOT])))
+        {
+            revert UnknownYieldOracleRoot();
+        }
 
         bytes32 tradeHash = bytes32(publicInputs[PI_YR_TRADE_HASH]);
         if (_seenTradeHash[tradeHash]) revert TradeAlreadySettled();

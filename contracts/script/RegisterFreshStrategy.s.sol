@@ -42,6 +42,8 @@ contract RegisterFreshStrategy is Script {
         address allocatorVault;
         address tradeVerifier;
         address swapRouter;
+        address oraclePriceAnchor;
+        address oracleYieldAnchor;
         string outLabel;
     }
 
@@ -54,6 +56,8 @@ contract RegisterFreshStrategy is Script {
             allocatorVault: vm.envAddress("ALLOCATOR_VAULT"),
             tradeVerifier: vm.envAddress("TRADE_VERIFIER"),
             swapRouter: vm.envAddress("SWAP_ROUTER"),
+            oraclePriceAnchor: vm.envAddress("ORACLE_PRICE_ANCHOR"),
+            oracleYieldAnchor: vm.envAddress("ORACLE_YIELD_ANCHOR"),
             outLabel: vm.envOr("OUT_LABEL", _chainName())
         });
         return runWith(i);
@@ -99,6 +103,8 @@ contract RegisterFreshStrategy is Script {
                 i.swapRouter,
                 deployer,
                 i.allocatorVault,
+                i.oraclePriceAnchor,
+                i.oracleYieldAnchor,
                 deployer
             )
         );
