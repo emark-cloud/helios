@@ -154,7 +154,11 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
             weight={data.weights.proof}
             value={data.components.proof}
             highlighted={dominant === "proof"}
-            hint="ValidProofs / TotalAttempts"
+            hint={
+              data.proof_score_is_binary
+                ? "ValidProofs / TotalAttempts (binary in v1 — only successful attestations are indexed, so 1.0 = no rejections seen, not 100% verified)"
+                : "ValidProofs / TotalAttempts"
+            }
           />
           <ComponentBreakdown
             label="Stake"

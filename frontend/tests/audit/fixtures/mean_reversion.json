@@ -37,5 +37,6 @@
     "max_drawdown_bps_90d": 320,
     "valid_proofs": 154,
     "total_proof_attempts": 156
-  }
+  },
+  "proof_score_is_binary": true
 }

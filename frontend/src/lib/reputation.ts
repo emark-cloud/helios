@@ -68,6 +68,15 @@ export type AuditPayload = {
   cohort: CohortContext;
   weights: ComponentWeights;
   inputs: AuditInputs;
+  /**
+   * v1 soundness caveat — `proof` is computed as
+   * `valid_proofs / total_proof_attempts`, but rejected proofs aren't
+   * yet observable from the subgraph (only successful TradeAttested
+   * events surface). A `1.0` proof value therefore means "no rejections
+   * seen", not "100% proof correctness". The audit page renders this
+   * caveat next to the proof-component cell.
+   */
+  proof_score_is_binary: boolean;
 };
 
 export class ReputationError extends Error {
