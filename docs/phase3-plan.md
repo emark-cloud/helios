@@ -426,8 +426,8 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 | 4 | `[x]` | **WS1.B — SDK helpers** (`detect_regime`, `helix_fee_factor`, correlation, BTC vol). | `pytest packages/allocator-sdk` green. (PR #39, merged 2026-05-05) |
 | 5 | `[x]` | **WS5.A — Allocator reputation engine branch** + `docs/reputation-math.md` §"Allocator reputation v1". | `pytest services/reputation` green. (PR #40, merged 2026-05-05) |
 | 6 | `[x]` | **WS5.B — Subgraph allocator entities** + handlers. | `pnpm --filter subgraph build` green. (PR #41, merged 2026-05-05) |
-| 7 | `[~]` | **WS3.A — Helix service** (allocator + service + `__main__` + PM2 entry). Divergence assertion is the gate. | `pytest services/helix` green; divergence-vs-Sentinel test passes. |
-| 8 | `[ ]` | **WS3.B — `DeployPhase3.s.sol`** + `AllocatorRegistry.t.sol` extension + write addresses to `kite-testnet.json`. | `forge test -vv` green. |
+| 7 | `[x]` | **WS3.A — Helix service** (allocator + service + `__main__` + PM2 entry). Divergence assertion is the gate. | `pytest services/helix` green; divergence-vs-Sentinel test passes. (PR #42, merged 2026-05-05) |
+| 8 | `[~]` | **WS3.B — `DeployPhase3.s.sol`** + `AllocatorRegistry.t.sol` extension + write addresses to `kite-testnet.json`. | `forge test -vv` green. |
 | 9 | `[ ]` | **WS6.A — `/allocators` directory + detail.** | Playwright `allocators.spec` green. |
 | 10 | `[ ]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. | Playwright `onboard.spec` green; localStorage choice round-trips. |
 | 11 | `[ ]` | **WS6.C — Dashboard allocator leaderboard.** | Playwright dashboard spec green; Sentinel + Helix both render. |
