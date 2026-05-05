@@ -26,7 +26,7 @@ from web3 import Web3
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "services" / "oracle" / "src"))
 
-from oracle.anchor import CommitPayload, sign_commit  # noqa: E402
+from oracle.anchor import CommitPayload, sign_commit
 
 CHAIN_ID = 2368
 
@@ -100,8 +100,8 @@ def _commit(
 
 def _poll(endpoint: str, entity: str, root_hex: str, timeout_sec: int = 90) -> dict | None:
     query = (
-        '{ %s(where: { root: "0x%s" }) { id index root windowStart windowEnd signer committedAt } }'
-        % (entity, root_hex)
+        f'{{ {entity}(where: {{ root: "0x{root_hex}" }}) '
+        "{ id index root windowStart windowEnd signer committedAt } }"
     )
     deadline = time.time() + timeout_sec
     last = None
