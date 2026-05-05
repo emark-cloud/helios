@@ -198,3 +198,196 @@ export async function fetchRecentTrades(
   );
   return data.trades;
 }
+
+// ── Allocators directory (`/allocators`) ────────────────────────────
+
+export type AllocatorDirectoryRow = {
+  id: string;
+  name: string;
+  operator: string;
+  feeRateBps: number;
+  stakeAmount: string;
+  isReferenceBrand: boolean;
+  active: boolean;
+  registeredAt: string;
+  totalUsers: number;
+  totalCapitalManaged: string;
+  currentReputation: string;
+};
+
+const ALLOCATORS_QUERY = /* GraphQL */ `
+  query Allocators($first: Int!) {
+    allocators(first: $first, orderBy: currentReputation, orderDirection: desc) {
+      id
+      name
+      operator
+      feeRateBps
+      stakeAmount
+      isReferenceBrand
+      active
+      registeredAt
+      totalUsers
+      totalCapitalManaged
+      currentReputation
+    }
+  }
+`;
+
+export async function fetchAllocators(
+  first: number = 50,
+  signal?: AbortSignal,
+): Promise<AllocatorDirectoryRow[]> {
+  const data = await gqlRequest<{ allocators: AllocatorDirectoryRow[] }>(
+    ALLOCATORS_QUERY,
+    { first },
+    signal,
+  );
+  return data.allocators;
+}
+
+// ── Allocator detail (`/allocators/[name]`) ──────────────────────────
+
+export type AllocatorDecisionRow = {
+  id: string;
+  kind: string;
+  amount: string;
+  reason: string | null;
+  timestamp: string;
+  txHash: string;
+  user: { id: string } | null;
+  strategy: { id: string; declaredClass: string; chainId: number } | null;
+};
+
+export type UserDelegationRow = {
+  id: string;
+  capital: string;
+  since: string;
+  defundedAt: string | null;
+  user: { id: string };
+};
+
+export type AllocatorReputationUpdateRow = {
+  id: string;
+  delta: string;
+  newScore: string;
+  timestamp: string;
+  txHash: string;
+};
+
+export type AllocatorDetail = AllocatorDirectoryRow & {
+  decisions: AllocatorDecisionRow[];
+  delegations: UserDelegationRow[];
+  reputationUpdates: AllocatorReputationUpdateRow[];
+};
+
+const ALLOCATOR_DETAIL_QUERY = /* GraphQL */ `
+  query AllocatorDetail($id: Bytes!) {
+    allocator(id: $id) {
+      id
+      name
+      operator
+      feeRateBps
+      stakeAmount
+      isReferenceBrand
+      active
+      registeredAt
+      totalUsers
+      totalCapitalManaged
+      currentReputation
+      decisions(first: 50, orderBy: timestamp, orderDirection: desc) {
+        id
+        kind
+        amount
+        reason
+        timestamp
+        txHash
+        user { id }
+        strategy { id declaredClass chainId }
+      }
+      delegations(first: 50, where: { defundedAt: null }, orderBy: since, orderDirection: desc) {
+        id
+        capital
+        since
+        defundedAt
+        user { id }
+      }
+      reputationUpdates(first: 25, orderBy: timestamp, orderDirection: desc) {
+        id
+        delta
+        newScore
+        timestamp
+        txHash
+      }
+    }
+  }
+`;
+
+export async function fetchAllocatorDetail(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AllocatorDetail | null> {
+  const data = await gqlRequest<{ allocator: AllocatorDetail | null }>(
+    ALLOCATOR_DETAIL_QUERY,
+    { id: id.toLowerCase() },
+    signal,
+  );
+  return data.allocator;
+}
+
+/// `name` here is the URL-decoded allocator display name. Goldsky's
+/// generated indexed-string filter is `where: { name: $name }`; we
+/// pull the full row + nested fields in one query so the detail page
+/// renders without a roundtrip.
+const ALLOCATOR_BY_NAME_QUERY = /* GraphQL */ `
+  query AllocatorByName($name: String!) {
+    allocators(first: 1, where: { name: $name }) {
+      id
+      name
+      operator
+      feeRateBps
+      stakeAmount
+      isReferenceBrand
+      active
+      registeredAt
+      totalUsers
+      totalCapitalManaged
+      currentReputation
+      decisions(first: 50, orderBy: timestamp, orderDirection: desc) {
+        id
+        kind
+        amount
+        reason
+        timestamp
+        txHash
+        user { id }
+        strategy { id declaredClass chainId }
+      }
+      delegations(first: 50, where: { defundedAt: null }, orderBy: since, orderDirection: desc) {
+        id
+        capital
+        since
+        defundedAt
+        user { id }
+      }
+      reputationUpdates(first: 25, orderBy: timestamp, orderDirection: desc) {
+        id
+        delta
+        newScore
+        timestamp
+        txHash
+      }
+    }
+  }
+`;
+
+export async function fetchAllocatorByName(
+  name: string,
+  signal?: AbortSignal,
+): Promise<AllocatorDetail | null> {
+  const data = await gqlRequest<{ allocators: AllocatorDetail[] }>(
+    ALLOCATOR_BY_NAME_QUERY,
+    { name },
+    signal,
+  );
+  return data.allocators[0] ?? null;
+}
