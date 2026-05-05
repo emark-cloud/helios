@@ -29,6 +29,7 @@ interface IUserVaultForAllocator {
         external
         view
         returns (MetaStrategyLib.MetaStrategy memory);
+    function isClassAllowedFor(address user, bytes32 classId) external view returns (bool);
     function allocatorOf(address user) external view returns (address);
 }
 
@@ -393,16 +394,14 @@ contract AllocatorVault is
         uint256 prospective = rec.capitalDeployed + newAmount;
         if (prospective > perStratCap) revert MetaPerStrategyExceeded();
 
-        // Class-allowed check
+        // Class-allowed check — O(1) via UserVault's denormalized mapping
+        // (populated at setMetaStrategy). The struct field is kept so
+        // `metaStrategyOf` callers see the full set without a separate
+        // call into the mapping.
         bytes32 declared = IStrategyVault(strategy).manifest().declaredClass;
-        bool classOK;
-        for (uint256 i = 0; i < meta.allowedStrategyClasses.length; i++) {
-            if (meta.allowedStrategyClasses[i] == declared) {
-                classOK = true;
-                break;
-            }
+        if (!IUserVaultForAllocator(userVault).isClassAllowedFor(user, declared)) {
+            revert MetaClassNotAllowed();
         }
-        if (!classOK) revert MetaClassNotAllowed();
     }
 
     function _maxU256(uint256 a, uint256 b) internal pure returns (uint256) {

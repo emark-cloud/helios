@@ -63,7 +63,6 @@ async function buildInput(poseidon) {
     asset_universe: universe,
     max_position_size: "5000000000000000000",
     max_slippage_bps: "50",
-    position_state: "0",
     signal_threshold: "100",
     price_observations,
     oracle_root: chained(price_observations),

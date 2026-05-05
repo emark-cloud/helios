@@ -31,6 +31,7 @@ interface IOracleAnchor {
         uint64 windowEnd,
         address indexed signer
     );
+    event RootRevoked(bytes32 indexed root);
 
     error ZeroAddress();
     error ZeroRoot();
@@ -38,6 +39,7 @@ interface IOracleAnchor {
     error EmptyWindow();
     error NonMonotonicWindow();
     error UnknownIndex();
+    error UnknownRoot();
 
     /// @notice Latest commit.
     /// @dev Reverts with `UnknownIndex` if no commits exist yet.
@@ -63,6 +65,15 @@ interface IOracleAnchor {
 
     /// @notice Rotate the authorized signer. Owner-gated.
     function setSigner(address signer_) external;
+
+    /// @notice Mark a previously-committed root as no longer valid.
+    /// @dev Owner-gated. Used when a signer rotation under suspicion of
+    ///      compromise leaves attested roots that should not back future
+    ///      proofs. The commit ledger is preserved (append-only) — only
+    ///      the `isKnownRoot` lookup flips to `false`. Reverts with
+    ///      `UnknownRoot` if the root was never committed (or already
+    ///      revoked) so callers can detect typos.
+    function revokeRoot(bytes32 root) external;
 
     /// @notice Address authorized to sign commits.
     function oracleSigner() external view returns (address);

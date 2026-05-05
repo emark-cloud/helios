@@ -15,12 +15,22 @@ contract MockUserVault {
     mapping(address => uint256) public balanceOf;
     mapping(address => MetaStrategyLib.MetaStrategy) internal _meta;
     mapping(address => address) internal _allocator;
+    mapping(address => mapping(bytes32 => bool)) internal _classAllowed;
 
     constructor(IERC20 baseAsset_) {
         baseAsset = baseAsset_;
     }
 
     function setMeta(address user, MetaStrategyLib.MetaStrategy calldata meta) external {
+        // Refresh denormalized class-allowlist mapping so the real
+        // `isClassAllowedFor` view sees the same set of classes.
+        bytes32[] storage prev = _meta[user].allowedStrategyClasses;
+        for (uint256 i = 0; i < prev.length; i++) {
+            _classAllowed[user][prev[i]] = false;
+        }
+        for (uint256 i = 0; i < meta.allowedStrategyClasses.length; i++) {
+            _classAllowed[user][meta.allowedStrategyClasses[i]] = true;
+        }
         _meta[user] = meta;
     }
 
@@ -52,6 +62,10 @@ contract MockUserVault {
         returns (MetaStrategyLib.MetaStrategy memory)
     {
         return _meta[user];
+    }
+
+    function isClassAllowedFor(address user, bytes32 classId) external view returns (bool) {
+        return _classAllowed[user][classId];
     }
 
     function allocatorOf(address user) external view returns (address) {

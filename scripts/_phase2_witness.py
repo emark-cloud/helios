@@ -104,7 +104,6 @@ def build_momentum_witness(
         max_position_size_e18=max_position_size,
         max_slippage_bps=max_slippage_bps,
         signal_threshold_bps=signal_threshold_bps,
-        position_state_e18=0,
         stop_loss_price_e18=stop_loss_price,
         is_signal_flip=False,
         is_stop_loss=False,

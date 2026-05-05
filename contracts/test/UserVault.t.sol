@@ -108,6 +108,37 @@ contract UserVaultTest is Test {
         assertEq(stored.defundConfirmBlocks, 50);
     }
 
+    /// Denormalized class-allowlist mapping powers `isClassAllowedFor`.
+    /// Asserts the mapping is in lockstep with the meta's `allowedStrategyClasses`
+    /// list across both first-set and replacement flows.
+    function test_SetMetaStrategy_PopulatesClassAllowedMapping() public {
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        // Seed with two classes.
+        bytes32[] memory classes = new bytes32[](2);
+        classes[0] = ClassIds.MOMENTUM_V1;
+        classes[1] = ClassIds.MEAN_REVERSION_V1;
+        m.allowedStrategyClasses = classes;
+
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+
+        assertTrue(vault.isClassAllowedFor(user, ClassIds.MOMENTUM_V1));
+        assertTrue(vault.isClassAllowedFor(user, ClassIds.MEAN_REVERSION_V1));
+        assertFalse(vault.isClassAllowedFor(user, ClassIds.YIELD_ROTATION_V1));
+
+        // Replace meta with a different class set; the mapping must
+        // forget the old entries and pick up the new ones.
+        bytes32[] memory next = new bytes32[](1);
+        next[0] = ClassIds.YIELD_ROTATION_V1;
+        m.allowedStrategyClasses = next;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+
+        assertFalse(vault.isClassAllowedFor(user, ClassIds.MOMENTUM_V1));
+        assertFalse(vault.isClassAllowedFor(user, ClassIds.MEAN_REVERSION_V1));
+        assertTrue(vault.isClassAllowedFor(user, ClassIds.YIELD_ROTATION_V1));
+    }
+
     /// WS7.C — zero defund inputs are replaced by the spec defaults so that
     /// onboarding payloads built before the field existed keep working.
     function test_SetMetaStrategy_AppliesDefundDefaultsWhenZero() public {

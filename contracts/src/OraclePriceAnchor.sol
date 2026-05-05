@@ -59,6 +59,13 @@ contract OraclePriceAnchor is IOracleAnchor, Ownable, EIP712 {
         oracleSigner = signer_;
     }
 
+    /// @inheritdoc IOracleAnchor
+    function revokeRoot(bytes32 root) external onlyOwner {
+        if (!_seenRoot[root]) revert UnknownRoot();
+        _seenRoot[root] = false;
+        emit RootRevoked(root);
+    }
+
     // ── Mutating ───────────────────────────────────────────────────
 
     /// @notice Commit a Poseidon root for one window.

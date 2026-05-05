@@ -216,7 +216,6 @@ class MomentumRuntime:
                 max_position_size_e18=self._strategy.max_position_size_usd * 10**18,
                 max_slippage_bps=intent.max_slippage_bps,
                 signal_threshold_bps=int(self._strategy.signal_threshold * 10_000),
-                position_state_e18=int(self._strategy.position_for(asset) * 10**18),
                 stop_loss_price_e18=0,
                 # Forward the intent's exit-reason flags. Symmetric with the
                 # MR runtime; momentum never raises a stop-loss in practice
