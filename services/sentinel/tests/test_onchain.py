@@ -1,4 +1,4 @@
-"""OnChainRunner unit tests.
+"""AllocatorOnChain unit tests.
 
 Two layers:
 
@@ -21,7 +21,7 @@ import asyncio
 import time
 
 import pytest
-from sentinel.onchain import OnChainCall, OnChainRunner
+from helios_allocator.runtime import AllocatorOnChain, OnChainCall
 
 _ZERO_ADDR = "0x" + "00" * 20
 _USER = "0x" + "11" * 20
@@ -31,8 +31,8 @@ _REGISTRY = "0x" + "44" * 20
 _OPERATOR_PK = "0x" + "ab" * 32  # any valid 32-byte key
 
 
-def _dry_runner() -> OnChainRunner:
-    return OnChainRunner(
+def _dry_runner() -> AllocatorOnChain:
+    return AllocatorOnChain(
         rpc_url="",
         operator_pk="",
         allocator_vault_address="",
@@ -41,13 +41,13 @@ def _dry_runner() -> OnChainRunner:
     )
 
 
-def _live_runner() -> OnChainRunner:
+def _live_runner() -> AllocatorOnChain:
     # `rpc_url` is a real-looking string but the runner only opens a
     # connection on first submit — calldata encoding goes through the
     # contract object's ABI, not RPC. _ensure_live() is called eagerly
     # on first encode attempt; it will succeed because Web3 doesn't
     # ping the endpoint at construction time.
-    return OnChainRunner(
+    return AllocatorOnChain(
         rpc_url="http://127.0.0.1:1",  # never dialled in this test
         operator_pk=_OPERATOR_PK,
         allocator_vault_address=_VAULT,

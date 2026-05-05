@@ -9,11 +9,6 @@ Two fanout queues exist:
   * `events` — append-only operational log streamed over
     `WS /v1/users/{user}/events`
   * `_event_subscribers` — set of asyncio.Queue per WS connection
-
-`AllocatorEvent` is the canonical type. `SentinelEvent` is a
-backwards-compat alias preserved so `services/sentinel` can re-export
-without touching its consumers (FE WS payload shape, scenario fixtures,
-existing tests).
 """
 
 from __future__ import annotations
@@ -56,12 +51,6 @@ class AllocatorEvent:
             "reason": self.reason,
             "timestamp": self.timestamp,
         }
-
-
-# Back-compat alias — Sentinel imports `SentinelEvent` today; PR 2/3 will
-# flip the import path, but the name is preserved indefinitely so the
-# WS payload schema and FE event-rail consumers don't churn.
-SentinelEvent = AllocatorEvent
 
 
 @dataclass
@@ -177,10 +166,6 @@ class AllocatorStore:
             subs = self._subscribers.get(address)
             if subs is not None:
                 subs.discard(q)
-
-
-# Back-compat alias.
-SentinelStore = AllocatorStore
 
 
 def now_ts() -> int:

@@ -24,21 +24,25 @@ from contextlib import asynccontextmanager
 import httpx
 from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from helios_allocator.runtime import (
+    AllocatorEvent,
+    AllocatorGoldsky,
+    AllocatorLoop,
+    AllocatorOnChain,
+    AllocatorStore,
+    LoopConfig,
+)
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from sentinel.allocator import SentinelAllocator
 from sentinel.auth import MetaStrategySignatureError, verify_meta_strategy_signature
-from sentinel.goldsky import SentinelGoldsky
-from sentinel.loop import LoopConfig, SentinelLoop
-from sentinel.onchain import OnChainRunner
 from sentinel.schemas import (
     AllocationView,
     DashboardPayload,
     MetaStrategyPayload,
     StrategyDirectoryRow,
 )
-from sentinel.state import SentinelEvent, SentinelStore
 
 
 class Settings(BaseServiceSettings):
@@ -63,19 +67,19 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings()  # type: ignore[call-arg]
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-sentinel/0.1"})
-    store = SentinelStore()
+    store = AllocatorStore()
     allocator = SentinelAllocator()
-    goldsky = SentinelGoldsky(
+    goldsky = AllocatorGoldsky(
         endpoint=cfg.goldsky_endpoint, chain_id=cfg.kite_chain_id, client=http_client
     )
-    onchain = OnChainRunner(
+    onchain = AllocatorOnChain(
         rpc_url=cfg.kite_rpc_url,
         operator_pk=cfg.operator_pk,
         allocator_vault_address=cfg.allocator_vault_address,
         allocator_registry_address=cfg.allocator_registry_address,
         chain_id=cfg.kite_chain_id,
     )
-    loop = SentinelLoop(
+    loop = AllocatorLoop(
         store=store,
         allocator=allocator,
         goldsky=goldsky,
@@ -110,10 +114,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
 def _make_router(
     cfg: Settings,
-    store: SentinelStore,
-    loop: SentinelLoop,
-    onchain: OnChainRunner,
-    goldsky: SentinelGoldsky,
+    store: AllocatorStore,
+    loop: AllocatorLoop,
+    onchain: AllocatorOnChain,
+    goldsky: AllocatorGoldsky,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -146,7 +150,7 @@ def _make_router(
         # reconnect-replay) reflects that the user is delegated. Without
         # this the rail stays blank until the first allocation lands.
         store.emit_event(
-            SentinelEvent(
+            AllocatorEvent(
                 user_address=meta.user_address,
                 kind="META_STRATEGY_SET",
                 strategy_id=None,

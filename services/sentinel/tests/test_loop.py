@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import pytest
+from helios_allocator.runtime import (
+    AllocationState,
+    AllocatorGoldsky,
+    AllocatorLoop,
+    AllocatorOnChain,
+    AllocatorStore,
+    LoopConfig,
+    StrategyDirectoryRow,
+)
 from helios_allocator.types import MetaStrategy, StrategyCandidate
 from sentinel.allocator import SentinelAllocator
-from sentinel.goldsky import SentinelGoldsky, StrategyDirectoryRow
-from sentinel.loop import LoopConfig, SentinelLoop
-from sentinel.onchain import OnChainRunner
-from sentinel.state import AllocationState, SentinelStore
 
 
 def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
@@ -29,7 +34,7 @@ def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
     )
 
 
-class _StubGoldsky(SentinelGoldsky):
+class _StubGoldsky(AllocatorGoldsky):
     """Returns canned candidates without HTTP."""
 
     def __init__(self, candidates: list[StrategyCandidate]) -> None:
@@ -89,11 +94,11 @@ def _candidate(
 
 def _build(
     candidates: list[StrategyCandidate], **cfg_overrides: int
-) -> tuple[SentinelLoop, SentinelStore, OnChainRunner]:
-    store = SentinelStore()
+) -> tuple[AllocatorLoop, AllocatorStore, AllocatorOnChain]:
+    store = AllocatorStore()
     allocator = SentinelAllocator()
     goldsky = _StubGoldsky(candidates)
-    onchain = OnChainRunner(
+    onchain = AllocatorOnChain(
         rpc_url="",
         operator_pk="",
         allocator_vault_address="",
@@ -101,7 +106,7 @@ def _build(
         chain_id=2368,
     )
     cfg = LoopConfig(**cfg_overrides) if cfg_overrides else LoopConfig()
-    loop = SentinelLoop(store, allocator, goldsky, onchain, config=cfg)
+    loop = AllocatorLoop(store, allocator, goldsky, onchain, config=cfg)
     return loop, store, onchain
 
 
@@ -247,9 +252,9 @@ async def test_full_scenario_allocate_drawdown_reallocate() -> None:
     s1 = _candidate("0x" + "11" * 20, rep=0.9)
     s2 = _candidate("0x" + "22" * 20, rep=0.5)
 
-    store = SentinelStore()
+    store = AllocatorStore()
     allocator = SentinelAllocator()
-    onchain = OnChainRunner(
+    onchain = AllocatorOnChain(
         rpc_url="",
         operator_pk="",
         allocator_vault_address="",
@@ -257,7 +262,7 @@ async def test_full_scenario_allocate_drawdown_reallocate() -> None:
         chain_id=2368,
     )
 
-    class _DynamicGoldsky(SentinelGoldsky):
+    class _DynamicGoldsky(AllocatorGoldsky):
         def __init__(self) -> None:
             self.calls = 0
 
@@ -272,7 +277,7 @@ async def test_full_scenario_allocate_drawdown_reallocate() -> None:
             return None
 
     goldsky = _DynamicGoldsky()
-    loop = SentinelLoop(
+    loop = AllocatorLoop(
         store, allocator, goldsky, onchain, config=LoopConfig(rank_update_interval_sec=300)
     )
 

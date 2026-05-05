@@ -1,10 +1,4 @@
-"""Smoke tests for the SDK's in-memory store + event types.
-
-WS1.A PR 1/3 — these mirror the equivalent sentinel-side coverage so the
-PR 2/3 cutover (sentinel switching to the SDK paths) is a no-op for
-downstream behavior. The full parity replay against `services/sentinel`
-fixtures lives in PR 2/3's test suite.
-"""
+"""Smoke tests for the SDK's in-memory store + event types."""
 
 from __future__ import annotations
 
@@ -15,8 +9,6 @@ from helios_allocator.runtime.state import (
     AllocationState,
     AllocatorEvent,
     AllocatorStore,
-    SentinelEvent,
-    SentinelStore,
     UserState,
     now_ts,
 )
@@ -37,12 +29,6 @@ def _meta(addr: str = "0x" + "ab" * 20) -> MetaStrategy:
         rebalance_cadence_sec=900,
         valid_until=2_000_000_000,
     )
-
-
-def test_event_aliases_match() -> None:
-    """`SentinelEvent` is preserved as a back-compat alias for `AllocatorEvent`."""
-    assert SentinelEvent is AllocatorEvent
-    assert SentinelStore is AllocatorStore
 
 
 def test_drawdown_bps_computation() -> None:
