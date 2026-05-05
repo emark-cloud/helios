@@ -22,12 +22,16 @@ schema:
 # the WASM handlers are structurally identical and dispatch on
 # `event.params.strategy`.
 #
-# Phase 2's second-variant + fresh-momentum vaults, OraclePriceAnchor /
-# OracleYieldAnchor, and ReputationAnchorV2 are *not* bound here yet —
-# they only exist on local anvil (see `anvil-kite-phase2.json`). When
-# `RegisterPhase2Strategies.s.sol` runs against Kite testnet (TODO.md
-# row 231), drop those addresses into kite-testnet.json and add the
-# datasources in a follow-up PR.
+# Phase 2 datasources land 2026-05-05 against the testnet broadcasts
+# in `contracts/broadcast/{DeployPhase2,RegisterPhase2Strategies,
+# RegisterPhase2StrategiesVariant3}.s.sol/2368/run-latest.json`. Phase-2
+# startBlock = 21201220 (DeployPhase2 first block 0x1438144). The
+# additions: `ReputationAnchorV2`, `OraclePriceAnchor`,
+# `OracleYieldAnchor`, plus six second-/third-variant StrategyVaults
+# (two per Poseidon class) so §8.2 cohort math sees ≥2 strategies per
+# class. Phase-1 vaults under keccak class IDs remain bound for
+# historical NAV/trade reads but are stranded by the Phase-2 verifier
+# rotation (no entry in `TradeAttestationVerifier` for keccak classes).
 #
 # Phase 5 will add `kite-mainnet`, `base-sepolia`, `arbitrum-sepolia`
 # copies of each datasource plus the cross-chain `HeliosOApp` entry.
@@ -286,3 +290,255 @@ dataSources:
       eventHandlers:
         - event: VerifierRegistered(indexed bytes32,address)
           handler: handleVerifierRegistered
+
+  # ── Phase-2 datasources (startBlock 21201220 = 0x1438144) ──────
+
+  # Momentum variant2 vault — same ABI, same handlers as Phase-1 momentum.
+  - kind: ethereum
+    name: StrategyVaultMomentumV2
+    network: kite-ai-testnet
+    source:
+      address: "0xc1b19df0003eadf29313826dc874c769ebb09109"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  # Mean-reversion variant2 vault.
+  - kind: ethereum
+    name: StrategyVaultMeanReversionV2
+    network: kite-ai-testnet
+    source:
+      address: "0xd4898262bb6ffbaf5f0c016663a2c59767ddb65f"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  # Yield-rotation variant2 vault — adds the YR-specific handler.
+  - kind: ethereum
+    name: StrategyVaultYieldRotationV2
+    network: kite-ai-testnet
+    source:
+      address: "0x5605b2e1883428680266fd25cb7429f2001c0c17"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+          handler: handleYieldRotationAttested
+
+  # Momentum variant3 vault.
+  - kind: ethereum
+    name: StrategyVaultMomentumV3
+    network: kite-ai-testnet
+    source:
+      address: "0x4e19e5eec25fc15fbc30a9446d283f4ebed6462c"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  # Mean-reversion variant3 vault.
+  - kind: ethereum
+    name: StrategyVaultMeanReversionV3
+    network: kite-ai-testnet
+    source:
+      address: "0x50c1dcc21e571c106eee21f42f22fb6ea0d4a708"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  # Yield-rotation variant3 vault.
+  - kind: ethereum
+    name: StrategyVaultYieldRotationV3
+    network: kite-ai-testnet
+    source:
+      address: "0x3863f44fe693764562c0d239e05c5f194544b0b4"
+      abi: StrategyVault
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+          handler: handleYieldRotationAttested
+
+  # ReputationAnchorV2 — typehash-v2 EIP-712 with `componentsHash`.
+  # Reuses the V1 mapping for the shared `ReputationPosted` /
+  # `CrossChainReputationPosted` events; new `ComponentsAnchored`
+  # handler writes the per-update componentsHash row.
+  - kind: ethereum
+    name: ReputationAnchorV2
+    network: kite-ai-testnet
+    source:
+      address: "0x735680a32a0e5d9d23d7e8e8302f434e7f30428e"
+      abi: ReputationAnchorV2
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/reputation-anchor-v2.ts
+      entities:
+        - ReputationSnapshot
+        - ComponentsAnchor
+        - Strategy
+        - Allocator
+      abis:
+        - name: ReputationAnchorV2
+          file: ./abis/ReputationAnchorV2.json
+      eventHandlers:
+        - event: ReputationPosted(indexed address,indexed uint8,int256,uint256)
+          handler: handleReputationPostedV2
+        - event: CrossChainReputationPosted(indexed address,indexed uint8,uint32,int256)
+          handler: handleCrossChainReputationPostedV2
+        - event: ComponentsAnchored(indexed address,bytes32)
+          handler: handleComponentsAnchored
+
+  # OraclePriceAnchor — Phase-2 WS1.A. EIP-712-signed Poseidon roots.
+  - kind: ethereum
+    name: OraclePriceAnchor
+    network: kite-ai-testnet
+    source:
+      address: "0x90e7a456404e73466e71a190dbb5a5a3490776a8"
+      abi: OraclePriceAnchor
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/oracle-price-anchor.ts
+      entities:
+        - OraclePriceCommit
+      abis:
+        - name: OraclePriceAnchor
+          file: ./abis/OraclePriceAnchor.json
+      eventHandlers:
+        - event: Committed(indexed uint256,indexed bytes32,uint64,uint64,indexed address)
+          handler: handlePriceCommitted
+
+  # OracleYieldAnchor — Phase-2 WS1.A. Same Committed event shape.
+  - kind: ethereum
+    name: OracleYieldAnchor
+    network: kite-ai-testnet
+    source:
+      address: "0x1e458d57f9fe0cf50f82366c258b05a254d8fa6f"
+      abi: OracleYieldAnchor
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/oracle-yield-anchor.ts
+      entities:
+        - OracleYieldCommit
+      abis:
+        - name: OracleYieldAnchor
+          file: ./abis/OracleYieldAnchor.json
+      eventHandlers:
+        - event: Committed(indexed uint256,indexed bytes32,uint64,uint64,indexed address)
+          handler: handleYieldCommitted
