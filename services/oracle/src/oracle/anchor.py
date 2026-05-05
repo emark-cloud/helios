@@ -21,7 +21,7 @@ test introspection and not submitted.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import structlog
@@ -173,7 +173,15 @@ class AnchorPoster:
         """Synchronous submit. Suitable for CLI callers and unit tests.
         Production async paths (`Poller`, `FastAPI`) must use
         `post_async` so the up-to-30s `wait_for_transaction_receipt` does
-        not block the event loop."""
+        not block the event loop.
+
+        Live mode reads the anchor's on-chain `nonce()` and overrides
+        `payload.nonce` before signing. The scheduler-tracked nonce is
+        only used in dry-run mode (where there is nothing on chain to
+        read). Without this override, a process restart or a dropped tx
+        permanently desynchronizes the off-chain signing stream from the
+        contract's monotonic counter — every subsequent commit then
+        reverts with `InvalidSigner`."""
         record = CommitRecord(
             kind=payload.kind,
             root_hex="0x" + payload.root.hex(),
@@ -192,7 +200,11 @@ class AnchorPoster:
             )
             return record
         try:
-            signed = sign_commit(payload, self.signer_pk, self.chain_id, self.anchor_address)
+            self._ensure_live()
+            live_nonce = self._read_onchain_nonce()
+            record.nonce = live_nonce
+            live_payload = replace(payload, nonce=live_nonce)
+            signed = sign_commit(live_payload, self.signer_pk, self.chain_id, self.anchor_address)
             tx_hash, block = self._submit(signed)
             record.tx_hash = tx_hash
             record.submitted = True
@@ -202,12 +214,23 @@ class AnchorPoster:
                 root=record.root_hex,
                 tx=tx_hash,
                 block=block,
+                nonce=live_nonce,
             )
         except Exception as exc:
             record.error = str(exc)
             _log.error("oracle.anchor.submit_failed", kind=payload.kind, err=str(exc))
         self.pending.append(record)
         return record
+
+    def _read_onchain_nonce(self) -> int:
+        """Fetch the anchor's on-chain monotonic nonce. The contract
+        verifies the signed payload against `nonce()` *before*
+        incrementing (`OraclePriceAnchor.commit` /
+        `OracleYieldAnchor.commit`), so the off-chain signer must always
+        sign with the currently-stored value. Read per-commit so a
+        restart or a failed tx can't desync the off-chain stream."""
+        assert self._contract is not None
+        return int(self._contract.functions.nonce().call())
 
     async def post_async(self, payload: CommitPayload) -> CommitRecord:
         """Async wrapper around `post` — runs the blocking Web3 path

@@ -159,6 +159,74 @@ def test_price_scheduler_advances_window_monotonically() -> None:
     assert rec2.nonce == 1
 
 
+def test_live_post_uses_onchain_nonce_overriding_payload() -> None:
+    """In live mode, the poster MUST read `nonce()` from the anchor
+    instead of trusting the scheduler-tracked nonce. Without this,
+    a process restart (off-chain `_nonce` reset to 0, on-chain still
+    at N) would sign with stale nonce and revert with `InvalidSigner`
+    forever."""
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    poster._live = True  # type: ignore[attr-defined]
+
+    poster._read_onchain_nonce = lambda: 42  # type: ignore[assignment]
+    captured: list[int] = []
+
+    def fake_submit(signed):  # type: ignore[no-untyped-def]
+        captured.append(signed.payload.nonce)
+        return ("0x" + "ab" * 32, 1)
+
+    poster._submit = fake_submit  # type: ignore[assignment]
+
+    # Off-chain says nonce=0 (e.g. fresh scheduler after restart); on-chain
+    # is at 42. Signature must be over 42, not 0.
+    record = poster.post(_payload(nonce=0))
+    assert record.submitted is True
+    assert record.nonce == 42
+    assert captured == [42]
+
+
+def test_live_post_resyncs_nonce_after_failed_submit() -> None:
+    """If a submit fails (RPC error / tx revert), the next call must
+    re-read on-chain nonce — which is unchanged because the failed tx
+    didn't increment it. The scheduler's pre-incremented `_nonce`
+    would otherwise drift permanently."""
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    poster._live = True  # type: ignore[attr-defined]
+
+    nonce_holder = {"value": 7}
+    poster._read_onchain_nonce = lambda: nonce_holder["value"]  # type: ignore[assignment]
+
+    calls = {"n": 0}
+
+    def flaky_submit(signed):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("rpc connection reset")
+        nonce_holder["value"] += 1  # on-chain increments only on success
+        return ("0x" + "cd" * 32, calls["n"])
+
+    poster._submit = flaky_submit  # type: ignore[assignment]
+
+    # Scheduler-tracked nonce on the payload is irrelevant in live mode.
+    fail = poster.post(_payload(nonce=99))
+    assert fail.submitted is False and fail.nonce == 7
+    ok = poster.post(_payload(nonce=99))
+    assert ok.submitted is True
+    assert ok.nonce == 7  # same on-chain nonce — failure didn't bump it
+
+
 async def test_async_post_does_not_block_event_loop() -> None:
     """`AnchorPoster.post_async` must run the blocking submit on a worker
     thread. Patch `_submit` to sleep 0.5s; assert that another awaitable
@@ -173,6 +241,8 @@ async def test_async_post_does_not_block_event_loop() -> None:
         chain_id=_CHAIN_ID,
     )
     poster._live = True  # type: ignore[attr-defined]
+    poster._ensure_live = lambda: None  # type: ignore[assignment]
+    poster._read_onchain_nonce = lambda: 0  # type: ignore[assignment]
 
     def slow_submit(_signed):  # type: ignore[no-untyped-def]
         time.sleep(0.4)
