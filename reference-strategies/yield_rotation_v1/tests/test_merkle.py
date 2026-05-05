@@ -11,7 +11,7 @@ too — Poseidon over those 11 fields fixes both roots.
 
 from __future__ import annotations
 
-from oracle.poseidon import poseidon_hash
+from helios.poseidon import poseidon_hash
 from yield_rotation_v1.merkle import (
     build_allowlist_tree,
     build_yield_tree,

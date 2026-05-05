@@ -6,13 +6,6 @@ requires-python = ">=3.11"
 dependencies = [
     "helios-service-template",
     "helios-strategy-sdk",
-    # Reuses the oracle's Poseidon helper for client-side Merkle-tree
-    # building — yield-rotation operators must construct allowlist proofs
-    # with circomlibjs-bit-exact hashes. Phase 3 will lift this into a
-    # shared `helios-poseidon` package; for Phase 2 the workspace dep is
-    # the cleanest path that keeps the YR strategy self-consistent with
-    # the on-chain oracle root.
-    "helios-oracle",
     "eth-account>=0.13",
     "eth-utils>=4.1",
     "httpx>=0.27",

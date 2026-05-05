@@ -1,14 +1,19 @@
 """Build the witness payload yield_rotation_v1.circom expects.
 
-YR ships 12 public inputs (PR2 promoted strategy_vault, params_hash,
-markets_allowlist_root from private witnesses to PIs so the on-chain
-side can enforce them). The witness still ships full Merkle inclusion
+YR ships 13 public inputs (post-PR2 + Priority-2 #5 added
+`block_window_start`). The witness still ships full Merkle inclusion
 proofs (yield depth 6, allowlist depth 4) which the strategy operator
 builds client-side using `merkle.py`. `trade_hash` and `params_hash`
 are computed client-side here (Poseidon over the relevant tuples);
 unlike momentum/MR, the YR fixture script computes both before
 calling `groth16.fullProve`, so the witness is fully populated by the
 time it reaches the prover service.
+
+Poseidon comes from `helios.poseidon` (pure-Python via the vendored
+`circomlibpy` table) so the wheel installs from PyPI without pulling
+the workspace-only `helios-oracle` package — see
+`project_strategy_sdk_distribution`. `address_to_field` is also reused
+from the SDK so momentum/MR/YR agree on hex-address encoding.
 
 Mirrors `circuits/scripts/gen-fixture-yr.js` line for line — vector
 parity is asserted in `tests/test_witness.py`.
@@ -19,11 +24,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from oracle.poseidon import poseidon_hash
+from helios.poseidon import address_to_field, poseidon_hash
 
 from yield_rotation_v1.merkle import (
     MerkleTree,
-    allow_leaf,
     build_allowlist_tree,
     build_yield_tree,
     inclusion_proof,
@@ -108,8 +112,8 @@ def build_yield_rotation_witness(
         raise ValueError("APY differential below threshold + bridging cost")
 
     amount_rotating_e18 = int(intent.amount_in_usd * 10**18)
-    allocator_field = _address_to_field(allocator_address)
-    strategy_vault_field = _address_to_field(strategy_vault)
+    allocator_field = address_to_field(allocator_address)
+    strategy_vault_field = address_to_field(strategy_vault)
     yield_root = yield_tree.root
     allowlist_root = allowlist_tree.root
 
@@ -190,20 +194,8 @@ def reconstruct_allowlist_root(market_ids: list[int]) -> int:
     return build_allowlist_tree(list(market_ids), depth=ALLOW_TREE_DEPTH).root
 
 
-def _allow_leaf_for(market_id: int) -> int:
-    return allow_leaf(market_id)
-
-
 def _e6_to_bps(apy_bps_e6: int) -> int:
     return apy_bps_e6 // 1_000_000
-
-
-def _address_to_field(addr_or_symbol: str) -> int:
-    s = addr_or_symbol
-    if s.startswith("0x") or s.startswith("0X"):
-        return int(s, 16)
-    raw = s.encode("latin-1")
-    return int.from_bytes(raw, "big")
 
 
 # Re-export tree handle for tests.

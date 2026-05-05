@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from oracle.poseidon import poseidon_hash
+from helios.poseidon import poseidon_hash
 
 
 @dataclass(frozen=True, slots=True)
