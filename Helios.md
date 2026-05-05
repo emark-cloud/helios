@@ -56,7 +56,7 @@ Existing AI trading products are either fully custodial or fully self-hosted. Ne
 
 A user approves **one** meta-strategy. For example:
 
-> *"Allocate up to $10,000 across momentum strategies trading BTC/ETH/SOL/BNB. Maximum 30% in any single strategy, max 5 strategies total. Only consider strategies with a 30-day Sharpe > 1.5 and stake at risk > $5,000. Rebalance weekly. If any strategy hits 15% drawdown from its high-water mark on my capital, defund immediately. Maximum performance fee: 25%."*
+> *"Allocate up to $10,000 across momentum strategies trading BTC/ETH/SOL/BNB. Maximum 30% in any single strategy, max 5 strategies total. Only consider strategies with a 30-day Sharpe > 1.5 and stake at risk > $5,000, with 10% reserved as a bootstrap exploration pool for new strategies under 50 attested trades. Rebalance weekly. If any strategy hits 15% drawdown from its high-water mark on my capital, defund immediately. Maximum performance fee: 25%."*
 
 From that single passkey approval — a Kite Passport login that funds and configures the user's vault — a cascade unfolds autonomously:
 
@@ -344,9 +344,11 @@ Helios's on-chain surface is intentionally minimal. The novelty is in the autono
 | `AllocatorRegistry` | Kite | Allocator manifests, allocator stake, allocator reputation anchor, reserved-name registry (protects the Sentinel brand) | ~250 |
 | `TradeAttestationVerifier` | Kite, Base, Arbitrum | Verifies Groth16 proofs for trade attestations; per strategy class | ~150 (+ generated verifier) |
 | `ReputationAnchor` | Kite | Receives reputation deltas from off-chain engine and from cross-chain LayerZero messages; canonical source of both strategy and allocator scores | ~280 |
+| `OraclePriceAnchor` | Kite, Base, Arbitrum | Receives EIP-712 signed price snapshots from the Helios oracle; publishes the canonical Poseidon `oracle_root` consumed by ZK proofs and the TWAP feed used by the auto-defund drawdown trigger (§6.3, §6.4) | ~220 |
+| `OracleYieldAnchor` | Arbitrum | Receives EIP-712 signed APY snapshots; publishes the Poseidon `yield_oracle_root` consumed by `yield_rotation_v1` proofs (§9.4) | ~180 |
 | `HeliosOApp` | Kite, Base, Arbitrum | LayerZero OApp for cross-chain reputation messages and capital bridging hooks | ~200 |
 
-Total Solidity surface area: roughly 2,430 LoC, plus generated Groth16 verifiers (one per strategy class). Tight enough to be auditable in a hackathon timeframe.
+Total Solidity surface area: roughly 2,830 LoC, plus generated Groth16 verifiers (one per strategy class). Tight enough to be auditable in a hackathon timeframe.
 
 ### 6.2 `UserVault`
 
@@ -429,7 +431,7 @@ function withdrawAllocatorFees() external;
 
 - Only the allocator EOA (or its session keys) can call `allocateToStrategy`, `defundStrategy`, `rebalance`.
 - All allocation amounts are checked against the user's meta-strategy.
-- `defundStrategy` is callable by anyone (permissionless trigger), but only when the drawdown breach is **persistent** — held across at least 3 consecutive 5-minute oracle TWAP snapshots — and the caller posts a small forfeit bond. The bond is refunded with a small reward if the breach is confirmed at execution; slashed to the user's vault if NAV recovers above threshold within `defundConfirmBlocks` of the trigger. This preserves the safety property (anyone can fire if the allocator goes offline) while closing a griefing surface where a competitor times a transient mark-to-market dip to lock in losses that would have mean-reverted. The TWAP-persistence depth, bond size, and confirmation window are configurable per-user in the meta-strategy (`defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`).
+- `defundStrategy` is callable by anyone (permissionless trigger), but only when the drawdown breach is **persistent** — held across at least 3 consecutive 5-minute oracle TWAP snapshots — and the caller posts a forfeit bond. The bond is refunded plus a reward of **50 bps of the defunded notional, capped at $500 USDC** if the breach is confirmed at execution; slashed to the user's vault if NAV recovers above threshold within `defundConfirmBlocks` of the trigger. The reward is paid from the strategy's stake (not the user's principal), so the user is held harmless by the trigger mechanism. This preserves the safety property (anyone can fire if the allocator goes offline) while closing a griefing surface where a competitor times a transient mark-to-market dip to lock in losses that would have mean-reverted. The TWAP-persistence depth, bond size, confirmation window, and reward cap are configurable per-user in the meta-strategy (`defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`, `defundRewardCapUsd`).
 - `reason` is logged on-chain (e.g., `"DRAWDOWN_BREACH"`, `"RANK_DROP"`, `"USER_REBALANCE"`).
 
 ### 6.4 `StrategyVault`
@@ -474,7 +476,7 @@ function slash(string calldata reason) external onlyRegistry;
 **Trust constraints.**
 
 - `executeWithProof` requires a valid Groth16 proof binding the trade calldata to the strategy's declared class. The verifier contract is set at deploy time and cannot be changed (immutable on the manifest). If the proof is invalid, execution reverts and the trade does not happen.
-- `reportNAV` is signed by the **strategy operator** and is used only for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers). It is **not** the source of truth for the auto-defund drawdown trigger. Drawdown is computed by the auto-defund path (§6.3) from on-chain vault balance + oracle-priced asset universe (TWAP per `OraclePriceAnchor`), so a malicious operator cannot suppress defund by signing a flattering NAV. A signed NAV that diverges materially from the on-chain marked value is itself slashable evidence under `slash`.
+- `reportNAV` is signed by the **strategy operator** and is used only for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers). It is **not** the source of truth for the auto-defund drawdown trigger. Drawdown is computed by the auto-defund path (§6.3) from on-chain vault balance + oracle-priced asset universe (TWAP per `OraclePriceAnchor`), so a malicious operator cannot suppress defund by signing a flattering NAV. A signed NAV that diverges from the on-chain marked value by more than **`NAV_DIVERGENCE_THRESHOLD_BPS = 500` (5%)** for two consecutive snapshots is slashable evidence under `slash`. The 5% threshold is calibrated to be wider than typical legitimate sources of divergence (intra-bar price moves, in-flight swaps, pending oracle updates) but tight enough that sustained operator dishonesty is unambiguous; the parameter is owner-controlled in v1 (Helios multi-sig) with a clear v2 path to per-class governance — see §15.1 for the centralization callout.
 - `slash` can only be called by `StrategyRegistry` (e.g., on detected misbehavior — invalid NAV reports, repeated proof failures, manifest-divergent trades).
 - All capital flows are tracked per-allocator so multiple allocators can co-invest in the same strategy.
 
@@ -687,6 +689,37 @@ function quote(
 ```
 
 Strategy vaults on Base/Arbitrum push their NAV updates and trade attestations through HeliosOApp to the Kite-side ReputationAnchor.
+
+### 6.10 `OraclePriceAnchor` and `OracleYieldAnchor`
+
+The two oracle-anchor contracts publish the canonical commitments that the rest of the system reads from. Both are immutable (no UUPS proxy), permissioned to a single registered Helios oracle signer (rotation requires owner-multi-sig), and emit one event per snapshot so Goldsky and the dashboard can stream them.
+
+**`OraclePriceAnchor`** is load-bearing in two places: (a) every Groth16 proof's `oracle_root` public input must equal the most-recent root anchored here within a freshness window enforced by `StrategyVault.executeWithProof`, and (b) the auto-defund TWAP feed (§6.3, §6.4) reads its rolling per-asset price series from this contract. A compromised price oracle therefore falsifies *both* proof validation *and* the defund trigger — see §15.2.
+
+```solidity
+struct PriceSnapshot {
+    uint64 blockTimestamp;
+    bytes32 poseidonRoot;       // Poseidon root of the per-asset price array for this minute bar
+    uint256 nonce;              // monotonically increasing
+}
+
+mapping(uint256 => PriceSnapshot) public snapshots;       // nonce -> snapshot
+mapping(address => uint256[]) public twapHistory;         // asset -> recent prices, ring-buffer
+
+function postSnapshot(PriceSnapshot calldata snap, bytes calldata sig) external onlySigner;
+function rootAt(uint256 nonce) external view returns (bytes32);
+function twapBars(address asset, uint16 bars) external view returns (uint256[]);
+function freshness() external view returns (uint64 secsSinceLastSnapshot);
+```
+
+**`OracleYieldAnchor`** mirrors the shape but commits per-market APYs as a Poseidon-Merkle root over up to 64 lending markets (depth 6). Read by `yield_rotation_v1` proofs (§9.4); not used by the auto-defund path.
+
+**Trust constraints.**
+
+- Only the registered oracle EOA can `postSnapshot`. Rotation goes through the Helios multi-sig (same model as the reputation signer in §15.1).
+- `OraclePriceAnchor.freshness()` gates `executeWithProof` and the defund TWAP read — if no snapshot has landed within `MAX_STALENESS_SEC` (default 180s), proofs revert and the defund path falls back to a conservative "skip" (no false positives during oracle outage).
+- `OracleYieldAnchor` snapshots are posted on a 5-minute cadence; yield-rotation proofs include the snapshot nonce in their public inputs and the contract validates monotonicity.
+- Both anchors are listed as v1 trust assumptions in §15.1 and as threat-model entries in §15.2. Post-hackathon roadmap (§17) replaces the Helios-operated oracles with Pyth/Chainlink adapters.
 
 ---
 
@@ -1095,7 +1128,7 @@ The two-phase rotation API (`initiateParamsRotation` → cooldown → `completeP
 
 The circuit does **not** reveal the operator's specific `signal_threshold` value (that stays in the witness), but Constraint 0 plus the on-chain `params_hash == manifest.paramsHash` check together prove that the threshold *exists, was committed in the manifest before any of these trades were observed, and is identical across every trade under that manifest*. This forecloses the "pick a threshold that fits the trade" attack: an operator who wants to retune their threshold must publicly call `StrategyRegistry.rotateParams` (cooldown-gated, emits `ParamsRotated`), creating an observable break in the track record that the reputation engine and allocators see before the next trade. Same construction applies to `mean_reversion_v1`; `yield_rotation_v1` binds `signal_threshold` and `bridging_cost` directly through `trade_hash` checked against the manifest's stored hash on-chain (§9.4).
 
-**Estimated complexity:** ~15k constraints (current build: ~5.4k for momentum, ~5.7k for mean-reversion). Proof generation ~1.5s on commodity VPS. Verifier gas cost ~250k.
+**Complexity (built, not estimated).** Per-class budget: ≤20k constraints for directional classes (momentum, mean-reversion), ≤15k for yield-rotation. Current builds: **5.4k constraints (momentum)**, **5.7k (mean-reversion)**, **6.6k (yield-rotation)** — well inside both budgets and safely under the PTAU 16 ceiling (65k) per §9.5. Proof generation ~1.5s on commodity VPS. Verifier gas cost ~250k.
 
 ### 9.4 Other strategy classes
 
@@ -1264,19 +1297,35 @@ async def sentinel_loop(user_id):
             reverse=True,
         )
 
-        # Step 2: Compute target allocation
-        target = compute_target_allocation(
-            ranked,
-            total_capital=user.allocated_capital,
+        # Step 2: Carve out the cold-start bootstrap pool (§8.7) before main ranking
+        bootstrap_capital = (user.allocated_capital * user.bootstrap_share_bps) // 10_000
+        main_capital = user.allocated_capital - bootstrap_capital
+
+        bootstrap_candidates = [
+            s for s in candidates
+            if s.trades_attested < user.min_attested_trades
+        ]
+        main_candidates = [s for s in ranked if s not in bootstrap_candidates]
+
+        # Step 3: Compute target allocation — main pool by rank, bootstrap pool stake-weighted
+        target_main = compute_target_allocation(
+            main_candidates,
+            total_capital=main_capital,
             max_per_strategy_bps=user.max_per_strategy_bps,
             max_strategies=user.max_strategies_count,
         )
+        target_bootstrap = stake_weighted_allocation(
+            bootstrap_candidates,
+            total_capital=bootstrap_capital,
+            max_per_strategy_bps=user.max_per_strategy_bps,
+        )
+        target = merge_targets(target_main, target_bootstrap)
 
-        # Step 3: Diff against current
+        # Step 4: Diff against current
         current = load_current_allocations(user_id)
         diff_ops = diff_allocations(current, target)
 
-        # Step 4: Drawdown check (highest priority)
+        # Step 5: Drawdown check (highest priority)
         for alloc in current:
             nav = load_nav(alloc.strategy)
             dd = (alloc.hwm - nav) / alloc.hwm
@@ -1284,7 +1333,7 @@ async def sentinel_loop(user_id):
                 emit_defund(user_id, alloc.strategy, reason="DRAWDOWN_BREACH")
                 continue
 
-        # Step 5: Apply diffs (skip during drawdown enforcement)
+        # Step 6: Apply diffs (skip during drawdown enforcement)
         for op in diff_ops:
             if op.kind == "ADD":
                 emit_allocate(user_id, op.strategy, op.amount)
@@ -1295,13 +1344,13 @@ async def sentinel_loop(user_id):
             elif op.kind == "REMOVE":
                 emit_defund(user_id, op.strategy, reason="RANK_DROP")
 
-        # Step 6: Fee crystallization
+        # Step 7: Fee crystallization
         for alloc in current:
             nav = load_nav(alloc.strategy)
             if nav > alloc.hwm * (1 + FEE_THRESHOLD):
                 emit_settle_fee(user_id, alloc.strategy)
 
-        # Step 7: Sleep
+        # Step 8: Sleep
         await sleep_until_next_cycle(user)
 ```
 
@@ -1699,7 +1748,9 @@ A protocol that handles capital must articulate its trust model honestly. This s
 | Strategy operator | **Limited trust** — they can't violate class invariants (ZK-enforced) but they can run a strategy that loses money | The economic model handles this: bad strategies lose reputation and capital |
 | Allocator operator | **Limited trust** — they can't violate user's meta-strategy (on-chain enforced) but they can rank suboptimally | Multiple allocators allow market competition |
 | Reputation Engine signer | **Trusted** in v1 (single signer); **trust-minimized** in v2 (multi-sig); **trustless** in v3 (ZK-attested computation) | Documented limitation with clear roadmap |
-| Price oracle | **Trusted** in v1 (Helios-operated); **trust-minimized** in v2 (Chainlink/Pyth) | Documented limitation |
+| Price oracle | **Trusted** in v1 (Helios-operated); **trust-minimized** in v2 (Chainlink/Pyth). Load-bearing for both ZK proof validation (`oracle_root`) and the auto-defund TWAP trigger — see threat-model entry in §15.2. | Documented limitation |
+| Yield-market allowlist | **Trusted** in v1 — `StrategyRegistry.setMarketAllowlistRoot` is owner-only (Helios multi-sig); v2 path is per-class governance | A malicious allowlist could whitelist an unaudited Aave fork; honest framing is "Helios curates the lending venues for `yield_rotation_v1` in v1" |
+| NAV divergence threshold | **Trusted** in v1 — the 5% slashable-divergence threshold is owner-set; the `slash` call itself is `onlyRegistry` and routes through the Helios multi-sig | Threshold change requires a multi-sig action; v2 considers per-class governance |
 | LayerZero DVN set | Trust LayerZero's default DVN configuration | Standard for LayerZero apps |
 | Helios trusted setup | **Trusted ceremony** in v1 (local PTAU); production needs a real ceremony | Documented limitation |
 
@@ -1719,6 +1770,9 @@ Defense: `defundStrategy` is permissionless when drawdown threshold is breached.
 
 **Threat: Reputation Engine is bribed to inflate a strategy's score.**
 Defense: v1 limitation. Mitigated by: (a) the engine code is open-source and the inputs are public on-chain, so any inflation is detectable by re-running the math; (b) the v2 multi-sig model; (c) the v3 ZK computation.
+
+**Threat: Helios price oracle is compromised.**
+Defense: A compromised oracle is the single most impactful trust failure in v1 because it falsifies *both* paths the system depends on it for: (a) `OraclePriceAnchor.rootAt()` is the canonical `oracle_root` bound into every ZK proof, so a bad root could validate fraudulent trades, and (b) `OraclePriceAnchor.twapBars()` is the source for the auto-defund drawdown trigger, so a bad TWAP could either suppress a legitimate defund or fire a griefing one. v1 mitigations: (i) the oracle key is documented in §15.1 as a centralization point, (ii) `OraclePriceAnchor.freshness()` enforces a 180s max-staleness window — stale oracle = proofs revert + defund path falls back to "skip" rather than false-trigger, (iii) every snapshot is a single signed event indexed by Goldsky so any manipulation is publicly observable in real time. v2 replaces the Helios oracle with a Pyth/Chainlink adapter with native staleness and circuit-breaker guarantees (§17 Phase 1).
 
 **Threat: User's Passport credentials are compromised.**
 Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw. This is the same threat model as any custodial-MPC product (Particle, Privy, Magic). Mitigation: Particle's email + passkey 2FA, plus the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time. v2 considers an "external owner" flow that lets a power user point the AA wallet at a hardware-held EOA.
