@@ -428,8 +428,8 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 | 6 | `[x]` | **WS5.B — Subgraph allocator entities** + handlers. | `pnpm --filter subgraph build` green. (PR #41, merged 2026-05-05) |
 | 7 | `[x]` | **WS3.A — Helix service** (allocator + service + `__main__` + PM2 entry). Divergence assertion is the gate. | `pytest services/helix` green; divergence-vs-Sentinel test passes. (PR #42, merged 2026-05-05) |
 | 8 | `[x]` | **WS3.B — `DeployPhase3.s.sol`** + `AllocatorRegistry.t.sol` extension + write addresses to `kite-testnet.json`. | `forge test -vv` green. (PR #43, merged 2026-05-05) |
-| 9 | `[~]` | **WS6.A — `/allocators` directory + detail.** | Playwright `allocators.spec` green. |
-| 10 | `[ ]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. | Playwright `onboard.spec` green; localStorage choice round-trips. |
+| 9 | `[x]` | **WS6.A — `/allocators` directory + detail.** | Playwright `allocators.spec` green. (PR #44, merged 2026-05-05) |
+| 10 | `[~]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. | Playwright `onboard.spec` green; localStorage choice round-trips. |
 | 11 | `[ ]` | **WS6.C — Dashboard allocator leaderboard.** | Playwright dashboard spec green; Sentinel + Helix both render. |
 | 12 | `[ ]` | **WS2.A — `helios-allocator init` scaffold + template + SDK README "Build with Claude Code".** | `pytest packages/helios-cli/tests/test_allocator_init.py` green. |
 | 13 | `[ ]` | **WS1.C — Backtest harness** in the SDK. | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |

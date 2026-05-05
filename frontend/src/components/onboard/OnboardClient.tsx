@@ -13,13 +13,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 
+import { AllocatorPicker } from "@/components/onboard/AllocatorPicker";
 import { CommitmentSummary } from "@/components/onboard/CommitmentSummary";
 import { CustomizationPanel } from "@/components/onboard/CustomizationPanel";
 import { TemplatePicker } from "@/components/onboard/TemplatePicker";
-import { postMetaStrategy, type MetaStrategyPayload } from "@/lib/sentinel";
+import { readAllocatorChoice, writeAllocatorChoice } from "@/lib/onboard-storage";
+import { postMetaStrategyTo, type AllocatorChoice, type MetaStrategyPayload } from "@/lib/sentinel";
 import { TEMPLATES, type TemplateForm, type TemplateKey } from "@/lib/templates";
 
 const VALID_FOR_DAYS = 90;
@@ -31,6 +33,21 @@ export function OnboardClient(): JSX.Element {
 
   const [templateKey, setTemplateKey] = useState<TemplateKey>("balanced");
   const [form, setForm] = useState<TemplateForm>(TEMPLATES.balanced.form);
+  const [allocatorChoice, setAllocatorChoiceState] = useState<AllocatorChoice>("sentinel");
+
+  // Hydrate from localStorage after mount — `useState` initialiser
+  // can't read `window` during SSR, and reading inside a `useEffect`
+  // keeps server + initial-client markup identical (no hydration
+  // mismatch).
+  useEffect(() => {
+    setAllocatorChoiceState(readAllocatorChoice());
+  }, []);
+
+  function setAllocatorChoice(next: AllocatorChoice): void {
+    setAllocatorChoiceState(next);
+    writeAllocatorChoice(next);
+  }
+
   const [submitState, setSubmitState] = useState<
     | { kind: "idle" }
     | { kind: "submitting" }
@@ -65,7 +82,11 @@ export function OnboardClient(): JSX.Element {
       // unblocks per docs/kite-passport-notes.md.
       const signature = await signMessageAsync({ message: digest });
       const signed = { ...payload, signature };
-      await postMetaStrategy(signed);
+      // Route the POST to the chosen allocator's REST surface — Sentinel
+      // (`:8001`) and Helix (`:8006`) expose the same shape but live
+      // independently. WS6.B persists `allocatorChoice` in localStorage
+      // so re-onboarding remembers.
+      await postMetaStrategyTo(allocatorChoice, signed);
       setSubmitState({ kind: "ok", user: address });
       // DESIGN.md §10.1 — the cascade unfolds on the dashboard. Hand off.
       router.push("/dashboard");
@@ -88,7 +109,11 @@ export function OnboardClient(): JSX.Element {
         <CustomizationPanel value={form} onChange={setForm} />
       </Section>
 
-      <Section step="3" title="Sign">
+      <Section step="3" title="Allocator">
+        <AllocatorPicker value={allocatorChoice} onChange={setAllocatorChoice} />
+      </Section>
+
+      <Section step="4" title="Sign">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
           <CommitmentSummary form={form} />
           <SignPanel
