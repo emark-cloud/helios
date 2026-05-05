@@ -179,6 +179,78 @@ export const IStrategyVaultAbi = [
   },
   {
     "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "navOf",
     "inputs": [
       {
@@ -192,6 +264,45 @@ export const IStrategyVaultAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -252,6 +363,19 @@ export const IStrategyVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "yieldAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -485,6 +609,12 @@ export const IStrategyVaultAbi = [
         "internalType": "bytes32"
       },
       {
+        "name": "blockWindowStart",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
         "name": "blockWindowEnd",
         "type": "uint64",
         "indexed": false,
@@ -500,7 +630,12 @@ export const IStrategyVaultAbi = [
   },
   {
     "type": "error",
-    "name": "AssetNotInUniverse",
+    "name": "ApproveAmountMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ApproveSpenderMismatch",
     "inputs": []
   },
   {
@@ -535,7 +670,42 @@ export const IStrategyVaultAbi = [
   },
   {
     "type": "error",
+    "name": "SwapAmountInMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapMinOutMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapRecipientMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapTokenInMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapTokenOutMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TradeCallSelectorNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "VaultMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "YRTradesNotSupported",
     "inputs": []
   }
 ] as const;

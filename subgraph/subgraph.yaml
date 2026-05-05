@@ -213,7 +213,7 @@ dataSources:
           handler: handleNAVReported
         - event: Slashed(indexed address,uint256,string)
           handler: handleSlashed
-        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
           handler: handleYieldRotationAttested
 
   - kind: ethereum
@@ -377,7 +377,7 @@ dataSources:
           handler: handleNAVReported
         - event: Slashed(indexed address,uint256,string)
           handler: handleSlashed
-        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
           handler: handleYieldRotationAttested
 
   # Momentum variant3 vault.
@@ -464,7 +464,7 @@ dataSources:
           handler: handleNAVReported
         - event: Slashed(indexed address,uint256,string)
           handler: handleSlashed
-        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
           handler: handleYieldRotationAttested
 
   # ReputationAnchorV2 — typehash-v2 EIP-712 with `componentsHash`.

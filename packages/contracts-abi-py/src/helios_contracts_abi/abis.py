@@ -258,19 +258,6 @@ IUserVault_ABI = [
   },
   {
     "type": "function",
-    "name": "settleAllocatorFee",
-    "inputs": [
-      {
-        "name": "allocator",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "withdraw",
     "inputs": [
       {
@@ -351,37 +338,6 @@ IUserVault_ABI = [
         "type": "bytes32",
         "indexed": False,
         "internalType": "bytes32"
-      }
-    ],
-    "anonymous": False
-  },
-  {
-    "type": "event",
-    "name": "AllocatorFeeSettled",
-    "inputs": [
-      {
-        "name": "user",
-        "type": "address",
-        "indexed": True,
-        "internalType": "address"
-      },
-      {
-        "name": "allocator",
-        "type": "address",
-        "indexed": True,
-        "internalType": "address"
-      },
-      {
-        "name": "feeAmount",
-        "type": "uint256",
-        "indexed": False,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newHighWaterMark",
-        "type": "uint256",
-        "indexed": False,
-        "internalType": "uint256"
       }
     ],
     "anonymous": False
@@ -969,20 +925,6 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
-    "name": "priceAnchor",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "address", "internalType": "address"}],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "yieldAnchor",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "address", "internalType": "address"}],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "manifest",
     "inputs": [],
     "outputs": [
@@ -1033,6 +975,78 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "navDigest",
+    "inputs": [
+      {
+        "name": "totalNAV_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "navOf",
     "inputs": [
       {
@@ -1046,6 +1060,45 @@ IStrategyVault_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1106,6 +1159,19 @@ IStrategyVault_ABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "yieldAnchor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -1339,6 +1405,12 @@ IStrategyVault_ABI = [
         "internalType": "bytes32"
       },
       {
+        "name": "blockWindowStart",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      },
+      {
         "name": "blockWindowEnd",
         "type": "uint64",
         "indexed": False,
@@ -1354,7 +1426,12 @@ IStrategyVault_ABI = [
   },
   {
     "type": "error",
-    "name": "AssetNotInUniverse",
+    "name": "ApproveAmountMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ApproveSpenderMismatch",
     "inputs": []
   },
   {
@@ -1389,7 +1466,42 @@ IStrategyVault_ABI = [
   },
   {
     "type": "error",
+    "name": "SwapAmountInMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapMinOutMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapRecipientMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapTokenInMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapTokenOutMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TradeCallSelectorNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "VaultMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "YRTradesNotSupported",
     "inputs": []
   }
 ]
@@ -1796,6 +1908,63 @@ IStrategyRegistry_ABI = [
   },
   {
     "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "ParamsRotationInitiated",
     "inputs": [
       {
@@ -2026,6 +2195,11 @@ IStrategyRegistry_ABI = [
   {
     "type": "error",
     "name": "StakeCooldownActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroParamsHash",
     "inputs": []
   }
 ]

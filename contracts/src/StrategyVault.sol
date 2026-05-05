@@ -79,7 +79,8 @@ contract StrategyVault is
     uint256 internal constant PI_YR_ALLOCATOR = 9;
     uint256 internal constant PI_YR_NONCE = 10;
     uint256 internal constant PI_YR_BLOCK_WINDOW_END = 11;
-    uint256 internal constant PI_YR_LENGTH = 12;
+    uint256 internal constant PI_YR_BLOCK_WINDOW_START = 12;
+    uint256 internal constant PI_YR_LENGTH = 13;
 
     StrategyManifest internal _manifest;
     IERC20 public baseAsset;
@@ -280,13 +281,14 @@ contract StrategyVault is
         _emitTradeAttested(publicInputs);
     }
 
-    /// @notice yield_rotation_v1 entry path. The 12-PI layout omits asset
-    ///         indices and an explicit window-start (rotation is
-    ///         whole-position; the allocator picks the destination
-    ///         market) but binds the same hardening fields as the swap
-    ///         path: vault address, params hash, and the registry's
-    ///         markets allowlist root. Private witnesses bound by the
-    ///         circuit but not visible on chain:
+    /// @notice yield_rotation_v1 entry path. The 13-PI layout omits asset
+    ///         indices (rotation is whole-position; the allocator picks
+    ///         the destination market) but binds the same hardening
+    ///         fields as the swap path: vault address, params hash, the
+    ///         registry's markets allowlist root, and now the
+    ///         block-window [start, end] interval (review followup #5).
+    ///         Private witnesses bound by the circuit but not visible
+    ///         on chain:
     ///           - signal_threshold (operator-declared APY-diff gate;
     ///             commitment lives in publicInputs[PI_YR_PARAMS_HASH]
     ///             and is checked against `_activeParamsHash()`)
@@ -381,6 +383,7 @@ contract StrategyVault is
         if (address(uint160(publicInputs[PI_YR_ALLOCATOR])) != allocatorVault) {
             revert AllocatorMismatch();
         }
+        if (block.number < publicInputs[PI_YR_BLOCK_WINDOW_START]) revert WindowNotStarted();
         if (block.number > publicInputs[PI_YR_BLOCK_WINDOW_END]) revert WindowExpired();
 
         // Same binding as above, against the yield-anchor's domain. The
@@ -409,6 +412,7 @@ contract StrategyVault is
             publicInputs[PI_YR_M_TO],
             publicInputs[PI_YR_AMOUNT],
             bytes32(publicInputs[PI_YR_YIELD_ORACLE_ROOT]),
+            uint64(publicInputs[PI_YR_BLOCK_WINDOW_START]),
             uint64(publicInputs[PI_YR_BLOCK_WINDOW_END])
         );
     }

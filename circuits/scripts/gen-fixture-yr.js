@@ -105,6 +105,7 @@ function asField(n) {
   const allocator_address = asField("0xa11ca7");
   const nonce = "7";
   const block_window_end = "200";
+  const block_window_start = "150";
   const signal_threshold = "80";
   const bridging_cost = "30";
   const markets_allowlist_root = allowTree.root;
@@ -123,6 +124,7 @@ function asField(n) {
     allocator_address,
     nonce,
     block_window_end,
+    block_window_start,
   ]);
 
   const input = {
@@ -138,6 +140,7 @@ function asField(n) {
     allocator_address,
     nonce,
     block_window_end,
+    block_window_start,
 
     apy_from: "420",
     apy_to: "550",

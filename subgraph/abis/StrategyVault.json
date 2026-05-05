@@ -933,6 +933,12 @@
         "internalType": "bytes32"
       },
       {
+        "name": "blockWindowStart",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
         "name": "blockWindowEnd",
         "type": "uint64",
         "indexed": false,
@@ -1053,6 +1059,11 @@
   {
     "type": "error",
     "name": "InvalidProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NavExceedsCap",
     "inputs": []
   },
   {

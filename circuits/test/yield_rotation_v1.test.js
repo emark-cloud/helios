@@ -125,6 +125,7 @@ function tradeHashOf(input) {
     input.allocator_address,
     input.nonce,
     input.block_window_end,
+    input.block_window_start,
   ]);
 }
 
@@ -164,6 +165,7 @@ function buildValidInput() {
     allocator_address: asField("0xa11ca7"),
     nonce: "7",
     block_window_end: "200",
+    block_window_start: "150",
 
     apy_from: "420",
     apy_to: "550",
@@ -266,7 +268,7 @@ test("yield_rotation_v1: amount_rotating = 0 rejected", async () => {
 
 test("yield_rotation_v1: trade_hash mismatch rejected", async () => {
   const input = buildValidInput();
-  input.trade_hash = poseidonHash([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  input.trade_hash = poseidonHash([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
 });
 

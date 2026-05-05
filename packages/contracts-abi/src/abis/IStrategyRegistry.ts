@@ -403,6 +403,63 @@ export const IStrategyRegistryAbi = [
   },
   {
     "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ParamsRotationCancelled",
+    "inputs": [
+      {
+        "name": "strategyId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledNewHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ParamsRotationInitiated",
     "inputs": [
       {
@@ -633,6 +690,11 @@ export const IStrategyRegistryAbi = [
   {
     "type": "error",
     "name": "StakeCooldownActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroParamsHash",
     "inputs": []
   }
 ] as const;

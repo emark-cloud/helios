@@ -346,6 +346,7 @@ def build_yield_rotation_witness(
     allocator_vault: str,
     nonce: int,
     block_window_end: int,
+    block_window_start: int,
     from_market: str = "AAVE_USDC",
     to_market: str = "COMPOUND_USDC",
     amount_rotating: int = 1 * 10**18,
@@ -394,7 +395,7 @@ def build_yield_rotation_witness(
     # public input — the vault checks it against `_activeParamsHash()`.
     params_hash_int = poseidon_hash([signal_threshold_bps, bridging_cost_bps])
 
-    # 11-element trade_hash. Field order MUST match
+    # 12-element trade_hash. Field order MUST match
     # circuits/yield_rotation_v1.circom Constraint 9.
     trade_hash = poseidon_hash(
         [
@@ -409,6 +410,7 @@ def build_yield_rotation_witness(
             allocator_field,
             nonce,
             block_window_end,
+            block_window_start,
         ]
     )
 
@@ -426,6 +428,7 @@ def build_yield_rotation_witness(
         "allocator_address": str(allocator_field),
         "nonce": str(nonce),
         "block_window_end": str(block_window_end),
+        "block_window_start": str(block_window_start),
         # Private witness.
         "apy_from": str(_APY_BPS[from_market]),
         "apy_to": str(_APY_BPS[to_market]),

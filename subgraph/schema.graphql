@@ -225,6 +225,7 @@ type YieldRotation @entity(immutable: true) {
   mTo: BigInt!                    # destination market id (uint256)
   amountRotating: BigInt!
   yieldOracleRoot: Bytes!
+  blockWindowStart: BigInt!
   blockWindowEnd: BigInt!
   timestamp: BigInt!
   txHash: Bytes!

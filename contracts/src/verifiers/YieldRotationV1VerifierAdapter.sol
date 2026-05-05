@@ -6,7 +6,7 @@ import { IGroth16Verifier } from "../interfaces/ITradeAttestationVerifier.sol";
 /// @notice Bridges snarkjs's fixed-size verifier signature
 ///         (`verifyProof(uint[2], uint[2][2], uint[2], uint[12])`) for
 ///         yield_rotation_v1 onto the dynamic-array `IGroth16Verifier` shape
-///         that `TradeAttestationVerifier` calls. YR uses a distinct 12-PI
+///         that `TradeAttestationVerifier` calls. YR uses a distinct 13-PI
 ///         layout (rotation rather than swap), so it ships a dedicated
 ///         entry path in `StrategyVault`. The trade_hash binds
 ///         `strategy_vault`, `params_hash`, and `markets_allowlist_root`
@@ -20,12 +20,12 @@ interface ISnarkjsYieldRotationV1Verifier {
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[12] calldata publicSignals
+        uint256[13] calldata publicSignals
     ) external view returns (bool);
 }
 
 contract YieldRotationV1VerifierAdapter is IGroth16Verifier {
-    uint256 private constant _PUBLIC_INPUT_COUNT = 12;
+    uint256 private constant _PUBLIC_INPUT_COUNT = 13;
 
     ISnarkjsYieldRotationV1Verifier public immutable inner;
 
@@ -44,7 +44,7 @@ contract YieldRotationV1VerifierAdapter is IGroth16Verifier {
         if (publicInputs.length != _PUBLIC_INPUT_COUNT) {
             revert WrongPublicInputCount(publicInputs.length, _PUBLIC_INPUT_COUNT);
         }
-        uint256[12] memory fixedInputs;
+        uint256[13] memory fixedInputs;
         for (uint256 i = 0; i < _PUBLIC_INPUT_COUNT; i++) {
             fixedInputs[i] = publicInputs[i];
         }
