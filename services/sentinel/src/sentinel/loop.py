@@ -131,12 +131,12 @@ class SentinelLoop:
             target = self._compute_target(user)
             ops = self._diff(user, target)
             if ops:
-                self._apply_diffs(user, target, ops, ts)
+                await self._apply_diffs(user, target, ops, ts)
                 user.last_rebalance_ts = ts
 
         # Step 6: fee crystallization, opportunistic.
         if ts - self._last_fee_ts >= self._cfg.fee_check_interval_sec:
-            self._maybe_settle_fees(user, ts)
+            await self._maybe_settle_fees(user, ts)
             self._last_fee_ts = ts
 
     # ── Step 4: drawdown ───────────────────────────────────────
@@ -146,7 +146,13 @@ class SentinelLoop:
             if alloc.defunded or alloc.capital_deployed_usd == 0:
                 continue
             if alloc.drawdown_bps >= threshold > 0:
-                self._onchain.defund(user.meta.user_address, alloc.strategy_id, "DRAWDOWN_BREACH")
+                # Async wrapper keeps the event loop draining while
+                # `wait_for_transaction_receipt(timeout=30)` blocks the
+                # underlying Web3 call — otherwise every WS subscriber
+                # and the drawdown poll itself stall for up to 30s.
+                await self._onchain.defund_async(
+                    user.meta.user_address, alloc.strategy_id, "DRAWDOWN_BREACH"
+                )
                 alloc.defunded = True
                 self._store.emit_event(
                     SentinelEvent(
@@ -189,7 +195,7 @@ class SentinelLoop:
         return diff_allocations(current, target)
 
     # ── Step 5: apply diffs ───────────────────────────────────
-    def _apply_diffs(
+    async def _apply_diffs(
         self,
         user: UserState,
         target: list[AllocationTarget],
@@ -199,7 +205,7 @@ class SentinelLoop:
         target_by_id = {t.strategy_id: t for t in target}
         for strategy_id, delta in ops:
             if delta > 0:
-                self._onchain.allocate(user.meta.user_address, strategy_id, delta)
+                await self._onchain.allocate_async(user.meta.user_address, strategy_id, delta)
                 tgt = target_by_id.get(strategy_id)
                 chain_id = tgt.chain_id if tgt else 0
                 kind: str
@@ -233,7 +239,7 @@ class SentinelLoop:
                 # call when delta consumes the whole position; partial
                 # decreases land in WS3 once the rebalance() encoder is
                 # live and we can batch weight changes.
-                self._onchain.defund(user.meta.user_address, strategy_id, "RANK_DROP")
+                await self._onchain.defund_async(user.meta.user_address, strategy_id, "RANK_DROP")
                 if strategy_id in user.allocations:
                     user.allocations[strategy_id].defunded = True
                 self._store.emit_event(
@@ -258,13 +264,13 @@ class SentinelLoop:
         )
 
     # ── Step 6: fees ──────────────────────────────────────────
-    def _maybe_settle_fees(self, user: UserState, ts: int) -> None:
+    async def _maybe_settle_fees(self, user: UserState, ts: int) -> None:
         for alloc in user.allocations.values():
             if alloc.defunded or alloc.high_water_mark_usd == 0:
                 continue
             threshold = alloc.high_water_mark_usd * (10_000 + FEE_THRESHOLD_BPS) // 10_000
             if alloc.nav_usd >= threshold:
-                self._onchain.settle_fee(user.meta.user_address, alloc.strategy_id)
+                await self._onchain.settle_fee_async(user.meta.user_address, alloc.strategy_id)
                 alloc.high_water_mark_usd = alloc.nav_usd
                 self._store.emit_event(
                     SentinelEvent(
