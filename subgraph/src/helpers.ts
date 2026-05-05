@@ -1,7 +1,7 @@
 // Shared helpers for Helios mappings.
 
-import { BigInt, Bytes, ethereum, log } from "@graphprotocol/graph-ts";
-import { Strategy, Allocator, User } from "../generated/schema";
+import { BigInt, ByteArray, Bytes, crypto, ethereum, log } from "@graphprotocol/graph-ts";
+import { Allocator, Strategy, User, UserDelegation } from "../generated/schema";
 
 // Phase 1 ships Kite testnet only. Phase 5 adds Base/Arbitrum Sepolia and
 // will need to read chainId from the network context, not this constant.
@@ -65,6 +65,33 @@ export function getOrCreateUser(userId: Bytes, blockTimestamp: BigInt): User {
 // Stable hex digits → readable hex string.
 export function bytesToHex(b: Bytes): string {
   return b.toHexString();
+}
+
+// Phase 3 / WS5.B — `UserDelegation.id = keccak256(user || allocator)`.
+// One row per (user, allocator) pair; upserted on each allocation event.
+export function delegationId(user: Bytes, allocator: Bytes): Bytes {
+  const buf = new ByteArray(user.length + allocator.length);
+  for (let i = 0; i < user.length; i++) buf[i] = user[i];
+  for (let i = 0; i < allocator.length; i++) buf[user.length + i] = allocator[i];
+  return Bytes.fromByteArray(crypto.keccak256(buf));
+}
+
+export function getOrCreateDelegation(
+  user: Bytes,
+  allocator: Bytes,
+  blockTimestamp: BigInt,
+): UserDelegation {
+  const id = delegationId(user, allocator);
+  const existing = UserDelegation.load(id);
+  if (existing != null) {
+    return existing;
+  }
+  const d = new UserDelegation(id);
+  d.user = user;
+  d.allocator = allocator;
+  d.capital = BigInt.zero();
+  d.since = blockTimestamp;
+  return d;
 }
 
 // Suppress unused-export warnings when graph build's tree-shaker is overzealous.
