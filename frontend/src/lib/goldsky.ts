@@ -8,7 +8,15 @@
  * graphql-request or apollo. Cache via TanStack Query at the call site.
  */
 
-const ENDPOINT = process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT ?? "";
+// Build-time injection. In production / dev the env var is set;
+// in CI (Playwright e2e) it isn't, so fall back to a relative URL
+// that contains "subgraphs" so test route mocks (`**/subgraphs/**`)
+// can intercept. The page surface still surfaces the error state on
+// the resulting 404 — see callers' `isError` branch.
+const ENDPOINT =
+  process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT && process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT.length > 0
+    ? process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT
+    : "/__test/subgraphs/unset";
 
 export class GoldskyError extends Error {
   readonly status: number;
@@ -26,7 +34,6 @@ export async function gqlRequest<T>(
   variables?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  if (!ENDPOINT) throw new GoldskyError("NEXT_PUBLIC_GOLDSKY_ENDPOINT not set", 0);
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
