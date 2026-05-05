@@ -23,7 +23,7 @@ import structlog
 
 from reputation.anchor import AnchorPoster, PostedUpdate
 from reputation.cohort import cohort_stats, neutral
-from reputation.goldsky import NavEvent, StrategyState
+from reputation.goldsky import NavEvent, StrategyState, TradeEvent
 from reputation.score import (
     CohortContext,
     ScoreInputs,
@@ -76,6 +76,16 @@ class ReputationEngine:
         self._stop = asyncio.Event()
         self._latest: dict[str, EngineUpdate] = {}
         self._subscribers: set[asyncio.Queue[EngineUpdate]] = set()
+        # PR5 (phase2-review.md, perf list): per-strategy 90d rolling window
+        # kept in memory across ticks. The engine queries Goldsky with
+        # `since = max(now - 90d, min per-strategy hwm)` so a cold start
+        # still pulls the full window but a warm tick only pulls the delta.
+        # Each cached entry holds the last seen trade + nav timestamps so
+        # we de-dup events (same timestamp may reappear on overlap).
+        self._cache_trades: dict[str, list[TradeEvent]] = {}
+        self._cache_navs: dict[str, list[NavEvent]] = {}
+        self._cache_trade_hwm: dict[str, int] = {}
+        self._cache_nav_hwm: dict[str, int] = {}
 
     @property
     def latest(self) -> dict[str, EngineUpdate]:
@@ -104,23 +114,32 @@ class ReputationEngine:
 
     async def tick_once(self, now_unix: int | None = None) -> list[EngineUpdate]:
         ts = now_unix if now_unix is not None else int(time.time())
-        since = ts - _NINETY_DAYS_SEC
+        cutoff = ts - _NINETY_DAYS_SEC
+        # Pull only the delta since the laggard strategy's last seen event,
+        # bounded below by the 90d cutoff. Cold start (no cache) falls back
+        # to the full 90d, matching the previous behaviour.
+        all_hwms = list(self._cache_trade_hwm.values()) + list(self._cache_nav_hwm.values())
+        since = max(cutoff, min(all_hwms)) if all_hwms else cutoff
         try:
             states = await self._goldsky.fetch_strategy_states(since)
         except Exception as exc:
             _log.warning("reputation.goldsky.error", err=str(exc), exc_info=True)
             return []
 
+        # Merge the incremental events into the rolling window and rebuild
+        # the per-strategy state objects the rest of the pipeline expects.
+        merged_states = [self._merge_state(s, cutoff) for s in states]
+
         # WS7.A: when last_rotation_epoch > 0, perf+age windows reset to
         # the rotation epoch (track-record breaks visibly across
         # rotations). Risk + proof use the full 90d window so a rotation
         # cannot wipe drawdown / proof history.
-        sharpes_by_strategy = {s.strategy_id: _windowed_sharpes(s, ts) for s in states}
-        cohort_by_class = _build_cohorts(states, sharpes_by_strategy)
-        max_stake_by_class = _max_stake_by_class(states)
+        sharpes_by_strategy = {s.strategy_id: _windowed_sharpes(s, ts) for s in merged_states}
+        cohort_by_class = _build_cohorts(merged_states, sharpes_by_strategy)
+        max_stake_by_class = _max_stake_by_class(merged_states)
 
         updates: list[EngineUpdate] = []
-        for s in states:
+        for s in merged_states:
             update = await self._compute_update(
                 state=s,
                 now_unix=ts,
@@ -134,6 +153,49 @@ class ReputationEngine:
 
         _log.info("reputation.tick", count=len(updates))
         return updates
+
+    def _merge_state(self, fresh: StrategyState, cutoff: int) -> StrategyState:
+        """Merge a Goldsky-returned state's trades + nav window into the
+        engine cache, evict events older than the 90d cutoff, and return a
+        StrategyState whose `trades_90d` / `nav_snapshots_90d` are the
+        cached rolling window."""
+        sid = fresh.strategy_id
+        trade_hwm = self._cache_trade_hwm.get(sid, 0)
+        nav_hwm = self._cache_nav_hwm.get(sid, 0)
+
+        cached_trades = [t for t in self._cache_trades.get(sid, []) if t.timestamp >= cutoff]
+        cached_navs = [n for n in self._cache_navs.get(sid, []) if n.timestamp >= cutoff]
+
+        # Strict `>` so a timestamp at the boundary (already in cache) is
+        # not double-counted. Goldsky's `timestamp_gte: $since` uses the
+        # global minimum — every strategy at-or-past its own HWM is just
+        # an overlap window, not new data.
+        new_trades = [t for t in fresh.trades_90d if t.timestamp > trade_hwm]
+        new_navs = [n for n in fresh.nav_snapshots_90d if n.timestamp > nav_hwm]
+
+        merged_trades = cached_trades + new_trades
+        merged_navs = cached_navs + new_navs
+
+        if new_trades:
+            trade_hwm = max(trade_hwm, *(t.timestamp for t in new_trades))
+        if new_navs:
+            nav_hwm = max(nav_hwm, *(n.timestamp for n in new_navs))
+
+        self._cache_trades[sid] = merged_trades
+        self._cache_navs[sid] = merged_navs
+        self._cache_trade_hwm[sid] = trade_hwm
+        self._cache_nav_hwm[sid] = nav_hwm
+
+        return StrategyState(
+            strategy_id=fresh.strategy_id,
+            declared_class=fresh.declared_class,
+            stake_e18=fresh.stake_e18,
+            trades_attested=fresh.trades_attested,
+            capital_deployed_e18=fresh.capital_deployed_e18,
+            trades_90d=merged_trades,
+            nav_snapshots_90d=merged_navs,
+            last_rotation_epoch=fresh.last_rotation_epoch,
+        )
 
     async def _run(self) -> None:
         while not self._stop.is_set():

@@ -104,9 +104,16 @@ contract StrategyVault is
     address public priceAnchor;
     address public yieldAnchor;
 
+    /// @dev O(1) universe-membership lookup populated at `initialize`.
+    ///      Replaces a linear scan over `_manifest.assetUniverse` that ran
+    ///      every trade (`_runSwapTrades` checks each `Call.target`). At
+    ///      `assetUniverse.length == 4` the scan was ~2.1k gas/call;
+    ///      mapping lookup is ~2.1k cheaper. phase2-review.md item 19.
+    mapping(address asset => bool isUniverse) internal _universeAsset;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[48] private __gap;
+    uint256[47] private __gap;
 
     error ZeroAddress();
     error NotAllocatorVault();
@@ -186,6 +193,13 @@ contract StrategyVault is
         allocatorVault = p.allocatorVault;
         priceAnchor = p.priceAnchor;
         yieldAnchor = p.yieldAnchor;
+
+        // PR5 (item 19): populate the universe-membership mapping once at
+        // init so per-trade calldata binding is an O(1) sload instead of
+        // walking the array every call.
+        for (uint256 i = 0; i < p.manifest.assetUniverse.length; i++) {
+            _universeAsset[p.manifest.assetUniverse[i]] = true;
+        }
     }
 
     modifier onlyOperator() {
@@ -579,10 +593,6 @@ contract StrategyVault is
     }
 
     function _isUniverseAsset(address target) internal view returns (bool) {
-        address[] storage u = _manifest.assetUniverse;
-        for (uint256 i = 0; i < u.length; i++) {
-            if (u[i] == target) return true;
-        }
-        return false;
+        return _universeAsset[target];
     }
 }

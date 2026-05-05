@@ -29,6 +29,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 
 from eth_abi.abi import encode as abi_encode
 from eth_utils.crypto import keccak
@@ -246,12 +247,24 @@ def hash_components(components: ScoreComponents) -> bytes:
 
     `performance` is the only component that can be negative (mapped to int256);
     risk/proof/stake/age are all in [0, 1] and stored as uint256.
+
+    PR5 (phase2-review.md, perf list): the engine recomputes scores every tick
+    even when the underlying components haven't changed. Hashing on the e4
+    integer tuple gives us a hashable cache key with the same fidelity as the
+    on-chain payload, so identical components reuse the prior keccak.
     """
     perf_e4 = round(components.performance * 10_000)
     risk_e4 = round(components.risk * 10_000)
     proof_e4 = round(components.proof * 10_000)
     stake_e4 = round(components.stake * 10_000)
     age_e4 = round(components.age * 10_000)
+    return _hash_components_e4(perf_e4, risk_e4, proof_e4, stake_e4, age_e4)
+
+
+@lru_cache(maxsize=4096)
+def _hash_components_e4(
+    perf_e4: int, risk_e4: int, proof_e4: int, stake_e4: int, age_e4: int
+) -> bytes:
     payload = abi_encode(
         ["int256", "uint256", "uint256", "uint256", "uint256"],
         [perf_e4, risk_e4, proof_e4, stake_e4, age_e4],

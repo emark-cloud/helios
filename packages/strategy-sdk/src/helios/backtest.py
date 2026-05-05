@@ -11,6 +11,7 @@ supplies the price series."""
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -128,6 +129,16 @@ def run_backtest(
     strategy._set_nav(cash)
     counters = _Counters()
 
+    # PR5: per-asset rolling window maintained as a deque(maxlen=lookback_bars).
+    # The previous implementation re-sliced `prices[asset][window_lo:bar+1]`
+    # every bar — O(window) allocation per asset per bar. Append-only deque
+    # is O(1) per bar with implicit eviction at the front; we still convert
+    # to a list once at the boundary because `MarketSnapshot.prices` is
+    # typed `list[float]`.
+    windows: dict[str, deque[float]] = {
+        asset: deque(maxlen=lookback_bars) for asset in strategy.asset_universe if asset in prices
+    }
+
     for bar in range(n_bars):
         ts = start_time + timedelta(seconds=bar * bar_interval_sec)
         # PR4: refresh mark-to-market NAV before any asset's `on_bar` runs
@@ -145,16 +156,16 @@ def run_backtest(
         for asset in strategy.asset_universe:
             if asset not in prices:
                 continue
-            window_lo = max(0, bar - lookback_bars + 1)
-            window = list(prices[asset][window_lo : bar + 1])
-            if len(window) < 2:
+            window_dq = windows[asset]
+            window_dq.append(float(prices[asset][bar]))
+            if len(window_dq) < 2:
                 continue
             cash = _step_asset(
                 strategy=strategy,
                 bar=bar,
                 ts=ts,
                 asset=asset,
-                window=window,
+                window=list(window_dq),
                 bar_interval_sec=bar_interval_sec,
                 cash=cash,
                 holdings=holdings,

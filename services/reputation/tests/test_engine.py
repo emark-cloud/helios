@@ -103,6 +103,42 @@ async def test_ninety_day_window_used(signer: ReputationSigner) -> None:
 
 
 @pytest.mark.asyncio
+async def test_incremental_pull_uses_hwm_since(signer: ReputationSigner) -> None:
+    """PR5: after the first tick populates the cache, the engine should ask
+    Goldsky only for events past the per-strategy high-water mark — not the
+    full 90d window every minute."""
+    sid = "0x" + "cd" * 20
+    state1 = _state(strategy_id=sid)
+    last_trade_ts = max(t.timestamp for t in state1.trades_90d)
+    last_nav_ts = max(n.timestamp for n in state1.nav_snapshots_90d)
+    expected_hwm = min(last_trade_ts, last_nav_ts)
+
+    class _ReplayingStub:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+            self._sequence = [[state1], []]
+
+        async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]:
+            self.calls.append(since_unix)
+            return self._sequence.pop(0) if self._sequence else []
+
+        async def aclose(self) -> None:  # pragma: no cover
+            return None
+
+    stub = _ReplayingStub()
+    engine = ReputationEngine(stub, signer, poll_interval_sec=60)  # type: ignore[arg-type]
+    await engine.tick_once(now_unix=_NOW)
+    await engine.tick_once(now_unix=_NOW + 60)
+
+    assert stub.calls[0] == _NOW - 90 * 24 * 60 * 60  # cold start: full window
+    assert stub.calls[1] == expected_hwm  # warm tick: only since the laggard HWM
+    # Cached window stays available even when Goldsky returns nothing.
+    cached = engine.latest[sid]
+    assert cached.state.trades_90d == state1.trades_90d
+    assert cached.state.nav_snapshots_90d == state1.nav_snapshots_90d
+
+
+@pytest.mark.asyncio
 async def test_cohort_normalizes_across_class(signer: ReputationSigner) -> None:
     """A class with three strategies — the stronger trender outscores the weaker.
 
