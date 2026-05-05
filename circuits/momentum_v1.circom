@@ -88,6 +88,24 @@ template MomentumV1(UNIVERSE_SIZE) {
     slipBpsLte.in[1] <== 10000;
     slipBpsLte.out === 1;
 
+    // ── Range checks on private inputs ──────────────────────────────
+    // Without these, a malicious prover with witness control can pick
+    // values that wrap mod the BN254 field — `signal_threshold *
+    // price_first` (~constraint 4) and `(price_last - price_first) *
+    // 10000` would alias, and the downstream Num2Bits(192) only catches
+    // results that don't coincidentally fit in 192 bits. Pin the inputs
+    // to realistic ranges: prices fit in 64 bits, threshold (bps) in 32,
+    // stop-loss in 64.
+    component priceBits[16];
+    for (var pi = 0; pi < 16; pi++) {
+        priceBits[pi] = Num2Bits(64);
+        priceBits[pi].in <== price_observations[pi];
+    }
+    component thresholdBits = Num2Bits(32);
+    thresholdBits.in <== signal_threshold;
+    component stopLossBits = Num2Bits(64);
+    stopLossBits.in <== stop_loss_price;
+
     // ── Constraint B: asset indices in range ────────────────────────
     // UNIVERSE_SIZE=8 → indices fit in 3 bits. Range-check + strict <.
     component inIdxBits  = Num2Bits(8);
