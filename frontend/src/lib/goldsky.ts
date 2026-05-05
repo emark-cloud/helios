@@ -252,6 +252,54 @@ export async function fetchAllocators(
   return data.allocators;
 }
 
+// ── Allocator leaderboard (`/dashboard`) ────────────────────────────
+
+export type AllocatorLeaderboardRow = AllocatorDirectoryRow & {
+  reputationUpdates: { delta: string }[];
+};
+
+/// Top-N active allocators with the reputation deltas posted since
+/// `$since` (unix seconds). Callers sum the deltas for the 24h figure
+/// rather than burning a per-allocator round-trip.
+const ALLOCATORS_LEADERBOARD_QUERY = /* GraphQL */ `
+  query AllocatorsLeaderboard($first: Int!, $since: BigInt!) {
+    allocators(
+      first: $first
+      where: { active: true }
+      orderBy: currentReputation
+      orderDirection: desc
+    ) {
+      id
+      name
+      operator
+      feeRateBps
+      stakeAmount
+      isReferenceBrand
+      active
+      registeredAt
+      totalUsers
+      totalCapitalManaged
+      currentReputation
+      reputationUpdates(where: { timestamp_gte: $since }, first: 100) {
+        delta
+      }
+    }
+  }
+`;
+
+export async function fetchAllocatorLeaderboard(
+  opts: { first?: number; since?: number } = {},
+  signal?: AbortSignal,
+): Promise<AllocatorLeaderboardRow[]> {
+  const since = opts.since ?? Math.floor(Date.now() / 1000) - 24 * 3600;
+  const data = await gqlRequest<{ allocators: AllocatorLeaderboardRow[] }>(
+    ALLOCATORS_LEADERBOARD_QUERY,
+    { first: opts.first ?? 5, since: since.toString() },
+    signal,
+  );
+  return data.allocators;
+}
+
 // ── Allocator detail (`/allocators/[name]`) ──────────────────────────
 
 export type AllocatorDecisionRow = {
