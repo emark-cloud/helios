@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
 import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 import { IOracleAnchor } from "../src/interfaces/IOracleAnchor.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract OracleYieldAnchorTest is Test {
     OracleYieldAnchor internal anchor;
@@ -78,5 +79,37 @@ contract OracleYieldAnchorTest is Test {
         bytes memory sig = _signYield(r2, 150, 250, 1);
         vm.expectRevert(IOracleAnchor.NonMonotonicWindow.selector);
         anchor.commit(r2, 150, 250, sig);
+    }
+
+    // ── revokeRoot ─────────────────────────────────────────────────
+
+    function test_revokeRoot_flipsIsKnownRoot() public {
+        bytes32 root = keccak256("victim");
+        anchor.commit(root, 100, 200, _signYield(root, 100, 200, 0));
+        assertTrue(anchor.isKnownRoot(root));
+
+        vm.expectEmit(true, false, false, false);
+        emit IOracleAnchor.RootRevoked(root);
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+
+        assertFalse(anchor.isKnownRoot(root));
+        assertEq(anchor.commitCount(), 1);
+    }
+
+    function test_revokeRoot_onlyOwner() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _signYield(root, 100, 200, 0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        anchor.revokeRoot(root);
+    }
+
+    function test_revokeRoot_rejectsUnknown() public {
+        vm.prank(owner);
+        vm.expectRevert(IOracleAnchor.UnknownRoot.selector);
+        anchor.revokeRoot(keccak256("never-committed"));
     }
 }

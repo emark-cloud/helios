@@ -151,16 +151,25 @@ class ReputationEngine:
         # the rotation epoch (track-record breaks visibly across
         # rotations). Risk + proof use the full 90d window so a rotation
         # cannot wipe drawdown / proof history.
-        sharpes_by_strategy = {s.strategy_id: _windowed_sharpes(s, ts) for s in merged_states}
+        #
+        # The cohort context is built from the SAME post-rotation sharpes
+        # that each strategy's score normalizes against. Otherwise a
+        # rotated strategy's 7d sharpe would compare to a cohort median
+        # computed from full-window sharpes, mixing pre/post-rotation
+        # inputs across the comparison.
+        effective_by_strategy = {s.strategy_id: _effective_window(s, ts) for s in merged_states}
+        sharpes_by_strategy = {sid: ew.sharpes for sid, ew in effective_by_strategy.items()}
         cohort_by_class = _build_cohorts(merged_states, sharpes_by_strategy)
         max_stake_by_class = _max_stake_by_class(merged_states)
 
         updates: list[EngineUpdate] = []
         for s in merged_states:
+            ew = effective_by_strategy[s.strategy_id]
             update = await self._compute_update(
                 state=s,
                 now_unix=ts,
-                sharpes=sharpes_by_strategy[s.strategy_id],
+                sharpes=ew.sharpes,
+                age_trades_attested=ew.age_trades_attested,
                 cohort=cohort_by_class[s.declared_class],
                 max_stake_in_class_e18=max_stake_by_class.get(s.declared_class, 0),
             )
@@ -227,6 +236,7 @@ class ReputationEngine:
         state: StrategyState,
         now_unix: int,
         sharpes: WindowSharpe,
+        age_trades_attested: int,
         cohort: CohortContext,
         max_stake_in_class_e18: int,
     ) -> EngineUpdate:
@@ -240,24 +250,11 @@ class ReputationEngine:
         max_dd_bps_90d = _max_drawdown_bps(state.nav_snapshots_90d)
         realized_pnl_30d_e18 = _nav_delta(slice_windows(state.nav_snapshots_90d, now_unix).last_30d)
 
-        # WS7.A: post-rotation track record. When last_rotation_epoch > 0,
-        # AgeScore counts only post-rotation attestations and PerformanceScore
-        # uses Sharpes from post-rotation NAVs. The score input's
-        # `trades_attested` becomes the post-rotation count — when zero,
-        # `compute_score` takes the WS7.B cold-start path (stake-only floor)
-        # which is the correct rendering of "track record reset".
-        rotation_epoch = state.last_rotation_epoch
-        if rotation_epoch > 0:
-            # Strict `>` so events at the exact rotation timestamp count
-            # as pre-rotation (the rotation tx is the boundary, not the
-            # first post-rotation block). Matches "track record reset"
-            # semantics: the strategy starts fresh from the next bar.
-            post_navs = [n for n in state.nav_snapshots_90d if n.timestamp > rotation_epoch]
-            post_trades = [t for t in state.trades_90d if t.timestamp > rotation_epoch]
-            sharpes = _windowed_sharpes_from_navs(post_navs, now_unix)
-            age_trades_attested = len(post_trades)
-        else:
-            age_trades_attested = state.trades_attested
+        # WS7.A post-rotation slicing is done once in `tick_once` via
+        # `_effective_window` so cohort + per-strategy sharpes use the
+        # same input. The score's age component picks up the
+        # post-rotation trade count via the precomputed
+        # `age_trades_attested` argument.
 
         inputs = ScoreInputs(
             sharpes=sharpes,
@@ -304,6 +301,39 @@ class ReputationEngine:
                 dead.append(q)
         for q in dead:
             self._subscribers.discard(q)
+
+
+@dataclass(frozen=True, slots=True)
+class _EffectiveWindow:
+    """Per-strategy state slice used for the rep tick. Encapsulates the
+    WS7.A post-rotation logic so cohort + per-strategy normalization see
+    the same input."""
+
+    sharpes: WindowSharpe
+    age_trades_attested: int
+
+
+def _effective_window(state: StrategyState, now_unix: int) -> _EffectiveWindow:
+    """Return the (sharpes, age-trade-count) pair the rep tick should
+    feed into the cohort builder and `_compute_update`.
+
+    When `last_rotation_epoch > 0`, the perf+age inputs reset to the
+    post-rotation slice — strict `>` so events at the rotation
+    timestamp count as pre-rotation. Risk + proof keep the full 90d
+    window, handled by `_compute_update`.
+    """
+    rotation_epoch = state.last_rotation_epoch
+    if rotation_epoch > 0:
+        post_navs = [n for n in state.nav_snapshots_90d if n.timestamp > rotation_epoch]
+        post_trades = [t for t in state.trades_90d if t.timestamp > rotation_epoch]
+        return _EffectiveWindow(
+            sharpes=_windowed_sharpes_from_navs(post_navs, now_unix),
+            age_trades_attested=len(post_trades),
+        )
+    return _EffectiveWindow(
+        sharpes=_windowed_sharpes(state, now_unix),
+        age_trades_attested=state.trades_attested,
+    )
 
 
 def _windowed_sharpes(state: StrategyState, now_unix: int) -> WindowSharpe:

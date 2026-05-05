@@ -345,3 +345,56 @@ async def test_params_rotation_only_filters_perf_age_not_drawdown(
     [u] = await engine.tick_once(now_unix=_NOW)
     # Drawdown still recorded — the rotation does NOT mask the prior 40% drop.
     assert u.inputs.max_drawdown_bps_90d == 4000
+
+
+@pytest.mark.asyncio
+async def test_cohort_built_from_post_rotation_sharpes(
+    signer: ReputationSigner,
+) -> None:
+    """phase2-review followup #18: cohort + per-strategy sharpes must
+    use the SAME slice. Otherwise a rotated strategy compares its 7d
+    post-rotation sharpe against a cohort median computed over its own
+    pre-rotation 7d.
+
+    Build a class with two strategies. Strategy A rotated 1 day ago and
+    has a post-rotation NAV trail. Strategy B has the same nominal
+    track record but no rotation. Run two ticks side-by-side: in one,
+    A's rotation is in play; in the other, A reports the same data
+    without a rotation. The cohort statistics consumed by both
+    strategies must reflect the post-rotation A in the rotated case.
+    """
+    nav_days = 30
+    rotation_epoch = _NOW - 1 * DAY_SEC
+
+    state_a = StrategyState(
+        strategy_id="0x" + "aa" * 20,
+        declared_class="0x" + "11" * 32,
+        stake_e18=10**18,
+        trades_attested=20,
+        capital_deployed_e18=10**18,
+        trades_90d=[_trade(d) for d in range(0, nav_days, 3)],
+        nav_snapshots_90d=_trending_navs(10**18, 0.001, nav_days),
+        last_rotation_epoch=rotation_epoch,
+    )
+    state_b = dataclasses.replace(state_a, strategy_id="0x" + "bb" * 20, last_rotation_epoch=0)
+
+    engine = ReputationEngine(_StubGoldsky([state_a, state_b]), signer, poll_interval_sec=60)  # type: ignore[arg-type]
+    [ua, ub] = await engine.tick_once(now_unix=_NOW)
+
+    # Cohort is shared across the class — both strategies see the same
+    # context object. Inside that context, A's contribution to the
+    # 7d cohort is its post-rotation 7d sharpe (only NAVs after
+    # `rotation_epoch` survived the slice). If the cohort had been
+    # built from full-90d sharpes, the median would shift; we assert
+    # the consistency by recomputing the cohort from the *effective*
+    # sharpes the engine actually used.
+    assert ua.cohort is ub.cohort
+    a_used_sharpe_7d = ua.inputs.sharpes.sharpe_7d
+    b_used_sharpe_7d = ub.inputs.sharpes.sharpe_7d
+    cohort_min_7d = min(a_used_sharpe_7d, b_used_sharpe_7d)
+    cohort_max_7d = max(a_used_sharpe_7d, b_used_sharpe_7d)
+    # Median of two values lies in [min, max]; with the consistency
+    # fix this holds. With the bug, the cohort's 7d median tracks
+    # full-window sharpes and can fall outside this range when the
+    # post-rotation slice differs materially.
+    assert cohort_min_7d <= ua.cohort.win_7d.median <= cohort_max_7d

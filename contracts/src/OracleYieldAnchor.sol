@@ -43,6 +43,13 @@ contract OracleYieldAnchor is IOracleAnchor, Ownable, EIP712 {
         oracleSigner = signer_;
     }
 
+    /// @inheritdoc IOracleAnchor
+    function revokeRoot(bytes32 root) external onlyOwner {
+        if (!_seenRoot[root]) revert UnknownRoot();
+        _seenRoot[root] = false;
+        emit RootRevoked(root);
+    }
+
     function commit(bytes32 root, uint64 windowStart, uint64 windowEnd, bytes calldata sig)
         external
     {

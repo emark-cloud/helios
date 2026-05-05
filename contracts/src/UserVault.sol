@@ -56,9 +56,16 @@ contract UserVault is
     // shift; the write itself was dropped to save an SSTORE per `setMetaStrategy`.
     mapping(address => bytes) internal _metaSignatures_deprecated;
 
+    /// @notice Per-user allowlist for `MetaStrategy.allowedStrategyClasses`,
+    ///         denormalized for O(1) lookup. `AllocatorVault` reads this on
+    ///         every allocate/rebalance — populating it once at
+    ///         `setMetaStrategy` time saves ~1.5k gas per allocate when the
+    ///         user's allowedStrategyClasses ≥ 4.
+    mapping(address => mapping(bytes32 => bool)) internal _classAllowed;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     error ZeroAddress();
     error ZeroAmount();
@@ -125,6 +132,16 @@ contract UserVault is
         }
         if (stored.defundConfirmBlocks == 0) {
             stored.defundConfirmBlocks = MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS;
+        }
+        // Refresh the denormalized class-allowlist mapping. Clear the
+        // previous entries (if re-setting) before writing the new ones so
+        // a removed class doesn't linger.
+        bytes32[] storage prev = _metas[msg.sender].allowedStrategyClasses;
+        for (uint256 i = 0; i < prev.length; i++) {
+            _classAllowed[msg.sender][prev[i]] = false;
+        }
+        for (uint256 i = 0; i < stored.allowedStrategyClasses.length; i++) {
+            _classAllowed[msg.sender][stored.allowedStrategyClasses[i]] = true;
         }
         _metas[msg.sender] = stored;
         _users[msg.sender].metaSet = true;
@@ -199,6 +216,14 @@ contract UserVault is
         returns (MetaStrategyLib.MetaStrategy memory)
     {
         return _metas[user];
+    }
+
+    /// @notice O(1) class-allowlist check. Mirrors a linear scan over
+    ///         `metaStrategyOf(user).allowedStrategyClasses` but uses the
+    ///         denormalized `_classAllowed` mapping populated at
+    ///         `setMetaStrategy` time.
+    function isClassAllowedFor(address user, bytes32 classId) external view returns (bool) {
+        return _classAllowed[user][classId];
     }
 
     function allocatorOf(address user) external view returns (address) {

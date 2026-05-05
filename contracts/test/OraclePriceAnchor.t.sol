@@ -155,4 +155,50 @@ contract OraclePriceAnchorTest is Test {
         anchor.commit(root, 100, 200, newSig);
         assertTrue(anchor.isKnownRoot(root));
     }
+
+    // ── revokeRoot ─────────────────────────────────────────────────
+
+    function test_revokeRoot_flipsIsKnownRoot() public {
+        bytes32 root = keccak256("victim");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        assertTrue(anchor.isKnownRoot(root));
+
+        vm.expectEmit(true, false, false, false);
+        emit IOracleAnchor.RootRevoked(root);
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+
+        assertFalse(anchor.isKnownRoot(root));
+        // Commit ledger preserved — only the lookup flips.
+        assertEq(anchor.commitCount(), 1);
+        IOracleAnchor.Commit memory c = anchor.commitAt(0);
+        assertEq(c.root, root);
+    }
+
+    function test_revokeRoot_onlyOwner() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        anchor.revokeRoot(root);
+    }
+
+    function test_revokeRoot_rejectsUnknown() public {
+        vm.prank(owner);
+        vm.expectRevert(IOracleAnchor.UnknownRoot.selector);
+        anchor.revokeRoot(keccak256("never-committed"));
+    }
+
+    function test_revokeRoot_idempotenceIsLoud() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+        // Second revoke surfaces the typo rather than silently no-op'ing.
+        vm.prank(owner);
+        vm.expectRevert(IOracleAnchor.UnknownRoot.selector);
+        anchor.revokeRoot(root);
+    }
 }
