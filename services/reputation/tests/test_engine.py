@@ -139,6 +139,75 @@ async def test_incremental_pull_uses_hwm_since(signer: ReputationSigner) -> None
 
 
 @pytest.mark.asyncio
+async def test_new_strategy_backfills_pre_hwm_window(signer: ReputationSigner) -> None:
+    """Per-strategy `since` regression (phase2-review-followup #10).
+
+    Tick 1 sees only `existing` and warms its HWM. Tick 2 introduces
+    a brand-new strategy `fresh` with events pre-dating the warm
+    `since`. The engine must re-pull from the 90d cutoff so `fresh`'s
+    backdated events survive instead of being silently clipped.
+    """
+    existing_id = "0x" + "ee" * 20
+    fresh_id = "0x" + "ff" * 20
+    cls = "0x" + "11" * 32
+
+    existing_t1 = _state(strategy_id=existing_id, declared_class=cls)
+    last_existing_trade = max(t.timestamp for t in existing_t1.trades_90d)
+    last_existing_nav = max(n.timestamp for n in existing_t1.nav_snapshots_90d)
+    warm_since = min(last_existing_trade, last_existing_nav)
+
+    # `fresh` carries a backdated trade older than `warm_since`. With
+    # the pre-fix global since, this row would be missing from the
+    # tick-2 response (Goldsky's timestamp_gte clips it).
+    backdated_trade = _trade(d_ago=60)  # ~60 days ago
+    assert backdated_trade.timestamp < warm_since
+    fresh_clipped = _state(strategy_id=fresh_id, declared_class=cls)
+    fresh_clipped = dataclasses.replace(
+        fresh_clipped, trades_90d=[t for t in fresh_clipped.trades_90d if t.timestamp >= warm_since]
+    )
+    fresh_full = _state(strategy_id=fresh_id, declared_class=cls)
+    fresh_full = dataclasses.replace(
+        fresh_full,
+        trades_90d=[backdated_trade, *fresh_full.trades_90d],
+    )
+
+    class _ReplayingStub:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+        async def fetch_strategy_states(
+            self, since_unix: int
+        ) -> list[StrategyState]:
+            self.calls.append(since_unix)
+            cutoff = _NOW + 60 - 90 * 24 * 60 * 60
+            if len(self.calls) == 1:
+                return [existing_t1]
+            # Tick 2: the `since` Goldsky receives determines whether
+            # `fresh`'s backdated trade is in the response.
+            if since_unix <= cutoff:
+                return [existing_t1, fresh_full]
+            return [existing_t1, fresh_clipped]
+
+        async def aclose(self) -> None:  # pragma: no cover
+            return None
+
+    stub = _ReplayingStub()
+    engine = ReputationEngine(stub, signer, poll_interval_sec=60)  # type: ignore[arg-type]
+    await engine.tick_once(now_unix=_NOW)
+    await engine.tick_once(now_unix=_NOW + 60)
+
+    # Two queries on tick 2: incremental + the unseen-strategy refetch.
+    assert len(stub.calls) == 3
+    assert stub.calls[0] == _NOW - 90 * 24 * 60 * 60  # cold start
+    assert stub.calls[1] == warm_since  # warm incremental
+    assert stub.calls[2] == _NOW + 60 - 90 * 24 * 60 * 60  # refetch from cutoff
+
+    # `fresh`'s backdated trade survived to the cached window.
+    cached_fresh = engine.latest[fresh_id]
+    assert backdated_trade in cached_fresh.state.trades_90d
+
+
+@pytest.mark.asyncio
 async def test_cohort_normalizes_across_class(signer: ReputationSigner) -> None:
     """A class with three strategies — the stronger trender outscores the weaker.
 

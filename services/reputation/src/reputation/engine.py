@@ -126,6 +126,24 @@ class ReputationEngine:
             _log.warning("reputation.goldsky.error", err=str(exc), exc_info=True)
             return []
 
+        # If any strategy in the response has no cache entry yet, its
+        # window came back clipped at `since` rather than `cutoff`
+        # (Goldsky's `timestamp_gte` is a global filter on event
+        # timestamps). Refetch from `cutoff` so backdated events for
+        # newly-observed strategies are not silently dropped. The merge
+        # path dedupes the redundant rows for already-cached strategies
+        # via the per-strategy HWM filter.
+        unseen = any(
+            s.strategy_id not in self._cache_trade_hwm
+            and s.strategy_id not in self._cache_nav_hwm
+            for s in states
+        )
+        if unseen and since > cutoff:
+            try:
+                states = await self._goldsky.fetch_strategy_states(cutoff)
+            except Exception as exc:
+                _log.warning("reputation.goldsky.refetch_error", err=str(exc), exc_info=True)
+
         # Merge the incremental events into the rolling window and rebuild
         # the per-strategy state objects the rest of the pipeline expects.
         merged_states = [self._merge_state(s, cutoff) for s in states]
