@@ -80,8 +80,7 @@ contract DeployVerifiersOnly is Script {
 
         YieldRotationV1Verifier yr = new YieldRotationV1Verifier();
         a.yieldRotationVerifier = address(yr);
-        a.yieldRotationVerifierAdapter =
-            address(new YieldRotationV1VerifierAdapter(address(yr)));
+        a.yieldRotationVerifierAdapter = address(new YieldRotationV1VerifierAdapter(address(yr)));
     }
 
     /// @dev Replace just the six verifier-related address values in the
