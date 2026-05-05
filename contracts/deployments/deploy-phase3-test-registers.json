@@ -1,0 +1,15 @@
+{
+  "chainId": 31337,
+  "deployedAt": 1,
+  "phase": "3",
+  "phase2DeployedAt": 42,
+  "phase3DeployedAt": 1,
+  "addresses": {
+    "usdc": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "allocatorRegistry": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+    "strategyRegistry": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+    "userVault": "0xa0cb889707d426a7a386870a03bc70d1b0697598",
+    "helixAllocatorVault": "0xfcc3a7e57e6841055ca6bc7b75b404576bf88f04",
+    "helixAllocatorId": "0xfcc3a7e57e6841055ca6bc7b75b404576bf88f04"
+  }
+}
