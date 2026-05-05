@@ -1156,7 +1156,6 @@ source = { editable = "reference-strategies/yield_rotation_v1" }
 dependencies = [
     { name = "eth-account" },
     { name = "eth-utils" },
-    { name = "helios-oracle" },
     { name = "helios-service-template" },
     { name = "helios-strategy-sdk" },
     { name = "httpx" },
@@ -1176,7 +1175,6 @@ dev = [
 requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "eth-utils", specifier = ">=4.1" },
-    { name = "helios-oracle", editable = "services/oracle" },
     { name = "helios-service-template", editable = "services/_template" },
     { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
     { name = "httpx", specifier = ">=0.27" },
