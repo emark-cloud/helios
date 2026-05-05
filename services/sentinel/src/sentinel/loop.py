@@ -239,9 +239,7 @@ class SentinelLoop:
                 # call when delta consumes the whole position; partial
                 # decreases land in WS3 once the rebalance() encoder is
                 # live and we can batch weight changes.
-                await self._onchain.defund_async(
-                    user.meta.user_address, strategy_id, "RANK_DROP"
-                )
+                await self._onchain.defund_async(user.meta.user_address, strategy_id, "RANK_DROP")
                 if strategy_id in user.allocations:
                     user.allocations[strategy_id].defunded = True
                 self._store.emit_event(
