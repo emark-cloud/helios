@@ -369,6 +369,71 @@ async def test_cold_start_strategy_receives_bootstrap_allocation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_partial_decrease_routes_through_rebalance() -> None:
+    """Pure redistribution between two live strategies — score-weighted
+    re-rank shifts capital from the loser to the winner. Phase 1 would
+    defund the loser; the rebalance fast-path keeps both alive and
+    issues a single `rebalance(weights_bps)` call.
+    """
+    # Same allowed_classes as default _candidate. Score swings sharply so
+    # the new target meaningfully shifts capital while keeping both
+    # strategies allocated.
+    s1 = _candidate("0x" + "11" * 20, rep=0.5)
+    s2 = _candidate("0x" + "22" * 20, rep=0.9)
+    loop, store, onchain = _build([s1, s2])
+
+    user = store.upsert_user(_user_meta(max_per_strategy_bps=10_000, max_strategies_count=2))
+    user.delegated_capital_usd = 10_000
+    # Seed prior allocation: 50/50 across both. Without the rebalance
+    # fast-path the new target (~36/64) would defund s1 and re-allocate.
+    user.allocations[s1.strategy_id] = AllocationState(
+        strategy_id=s1.strategy_id,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=5_000,
+        high_water_mark_usd=5_000,
+        nav_usd=5_000,
+    )
+    user.allocations[s2.strategy_id] = AllocationState(
+        strategy_id=s2.strategy_id,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=5_000,
+        high_water_mark_usd=5_000,
+        nav_usd=5_000,
+    )
+    user.last_rebalance_ts = 0  # eligible for rebalance pass
+
+    await loop.tick_once(now=10_000)
+
+    methods = [c.method for c in onchain.pending]
+    assert "rebalance" in methods, methods
+    assert "defundStrategy" not in methods
+    rebs = [c for c in onchain.pending if c.method == "rebalance"]
+    assert len(rebs) == 1
+    # weights sum to 10_000 and the winner (s2) gets the larger share.
+    assert sum(rebs[0].weights_bps) == 10_000
+    assert rebs[0].weights_bps[
+        list(rebs[0].strategies).index(s2.strategy_id)
+    ] > rebs[0].weights_bps[list(rebs[0].strategies).index(s1.strategy_id)]
+    # In-memory state honours the new targets and neither is defunded.
+    assert not user.allocations[s1.strategy_id].defunded
+    assert not user.allocations[s2.strategy_id].defunded
+    # Score-weighted allocator drops ≤1 USD per strategy as rounding
+    # remainder, so the kept total is within tolerance of the seed.
+    total = (
+        user.allocations[s1.strategy_id].capital_deployed_usd
+        + user.allocations[s2.strategy_id].capital_deployed_usd
+    )
+    assert 9_998 <= total <= 10_000
+    # Winner ended up with the larger share.
+    assert (
+        user.allocations[s2.strategy_id].capital_deployed_usd
+        > user.allocations[s1.strategy_id].capital_deployed_usd
+    )
+
+
+@pytest.mark.asyncio
 async def test_event_fanout_to_subscriber() -> None:
     s1 = _candidate("0x" + "11" * 20)
     loop, store, _ = _build([s1])

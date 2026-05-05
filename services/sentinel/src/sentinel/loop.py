@@ -203,6 +203,56 @@ class SentinelLoop:
         ts: int,
     ) -> None:
         target_by_id = {t.strategy_id: t for t in target}
+
+        # Fast-path: pure in-place redistribution. When every touched
+        # strategy keeps a non-zero allocation and the sum of deltas is
+        # zero (capital moves between live strategies, no idle in/out),
+        # batch the diffs into a single `rebalance(weights_bps)` call.
+        # The contract preserves total deployed across the listed
+        # strategies, so this is the optimal path for the
+        # winner-takes-more-from-loser case where the prior implementation
+        # defunded the loser entirely. Note: rebalance() cannot pull
+        # capital back to idle, so any decrease that targets zero
+        # capital still takes the per-op defund path below.
+        if self._is_pure_redistribution(user, ops, target_by_id):
+            # AllocatorVault.rebalance asserts sum(weights_bps) == 10_000.
+            # The score-weighted allocator can drop ≤ N USD as rounding
+            # remainder so the raw weights occasionally sum to 9_999;
+            # absorb the slack onto the largest weight so the contract
+            # check passes without changing target ratios materially.
+            weights = [t.weight_bps for t in target]
+            slack = 10_000 - sum(weights)
+            if slack != 0:
+                largest = max(range(len(weights)), key=lambda i: weights[i])
+                weights[largest] += slack
+            await self._onchain.rebalance_async(
+                user.meta.user_address,
+                [t.strategy_id for t in target],
+                weights,
+            )
+            for t in target:
+                alloc = user.allocations.get(t.strategy_id)
+                if alloc is None:
+                    continue
+                prior = alloc.capital_deployed_usd
+                alloc.capital_deployed_usd = t.capital_usd
+                alloc.last_rebalance_ts = ts
+                if t.capital_usd == prior:
+                    continue
+                kind = "ALLOCATION_INCREASED" if t.capital_usd > prior else "ALLOCATION_DECREASED"
+                self._store.emit_event(
+                    SentinelEvent(
+                        user_address=user.meta.user_address,
+                        kind=kind,  # type: ignore[arg-type]
+                        strategy_id=t.strategy_id,
+                        amount_usd=abs(t.capital_usd - prior),
+                        reason="REBALANCE",
+                        timestamp=ts,
+                    )
+                )
+            self._emit_rebalance_complete(user, ts)
+            return
+
         for strategy_id, delta in ops:
             if delta > 0:
                 await self._onchain.allocate_async(user.meta.user_address, strategy_id, delta)
@@ -235,10 +285,11 @@ class SentinelLoop:
                     )
                 )
             else:
-                # Decrease / removal. Phase 1 collapses both to a defund
-                # call when delta consumes the whole position; partial
-                # decreases land in WS3 once the rebalance() encoder is
-                # live and we can batch weight changes.
+                # Decrease where target_capital == 0 OR the kept set
+                # changes shape (idle goes up). The rebalance fast-path
+                # above already absorbed pure redistribution; remaining
+                # decreases need a defund because rebalance() cannot
+                # repatriate capital to idle.
                 await self._onchain.defund_async(user.meta.user_address, strategy_id, "RANK_DROP")
                 if strategy_id in user.allocations:
                     user.allocations[strategy_id].defunded = True
@@ -252,6 +303,45 @@ class SentinelLoop:
                         timestamp=ts,
                     )
                 )
+        self._emit_rebalance_complete(user, ts)
+
+    def _is_pure_redistribution(
+        self,
+        user: UserState,
+        ops: list[tuple[str, int]],
+        target_by_id: dict[str, AllocationTarget],
+    ) -> bool:
+        """True iff `ops` redistribute capital between currently-live
+        strategies without changing total deployed.
+
+        Conditions:
+          - every op's strategy is in target with `capital_usd > 0`
+            (no full removals, no idle-bound shrinkage);
+          - every op's strategy already has a live, non-defunded
+            allocation (rebalance() can only redistribute existing
+            deployed capital);
+          - net delta is at most one USD unit per touched strategy
+            (rebalance() preserves total deployed; integer-division
+            in the score-weighted allocator drops up to N USD as
+            rounding remainder, which we treat as idle within
+            tolerance).
+        """
+        if not ops:
+            return False
+        net = 0
+        touched = 0
+        for sid, delta in ops:
+            tgt = target_by_id.get(sid)
+            if tgt is None or tgt.capital_usd == 0:
+                return False
+            alloc = user.allocations.get(sid)
+            if alloc is None or alloc.defunded or alloc.capital_deployed_usd == 0:
+                return False
+            net += delta
+            touched += 1
+        return abs(net) <= touched
+
+    def _emit_rebalance_complete(self, user: UserState, ts: int) -> None:
         self._store.emit_event(
             SentinelEvent(
                 user_address=user.meta.user_address,

@@ -19,6 +19,20 @@ import { IAllocatorRegistry } from "./interfaces/IAllocatorRegistry.sol";
 ///         Deployed fresh (V1 was non-upgradeable). Both anchors can run
 ///         side-by-side during the cutover; subgraph follows V2 going
 ///         forward.
+///
+///         CUTOVER NOTE — v1↔v2: Phase-1 registries were constructed with
+///         `reputationAnchor = ReputationAnchorV1` (immutable in
+///         StrategyRegistry/AllocatorRegistry). If `setRegistries` here
+///         is wired to a V1-bound registry, the very first
+///         `postReputationUpdate` reverts with `NotReputationAnchor`
+///         from the registry (V2 is not a trusted caller). Phase-2
+///         intentionally does NOT call `setRegistries` — V2 acts as a
+///         sidecar publisher (stores `ReputationData` + emits
+///         `ReputationPosted`/`ComponentsAnchored`) and leaves the
+///         registries' on-chain `currentReputation` last-touched by V1.
+///         The full v1→v2 cutover (registry redeploy) lands in Phase 5.
+///         See docs/reputation-v1-v2-cutover.md for the failure mode and
+///         operator checklist.
 contract ReputationAnchorV2 is IReputationAnchor, Ownable, EIP712 {
     bytes32 private constant _UPDATE_TYPEHASH = keccak256(
         "ReputationUpdate(address actor,uint8 actorType,int256 currentScore,uint256 lastUpdateBlock,uint256 totalAttestedTrades,uint256 totalRealizedPnL,uint256 maxDrawdownBps,uint256 proofValidityRateBps,bytes32 componentsHash)"
