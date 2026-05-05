@@ -217,6 +217,10 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
         if (s.registeredAt == 0) revert StrategyNotFound();
         if (msg.sender != s.operator) revert NotOperator();
         if (_paramsHashOf[strategyId] != bytes32(0)) revert ParamsHashAlreadyCommitted();
+        // StrategyVault keys "uncommitted" off the registry returning zero
+        // (`_activeParamsHash` reverts with `ParamsHashNotCommitted`). Allowing
+        // a zero commit would re-open the bypass it closes.
+        if (paramsHash == bytes32(0)) revert ZeroParamsHash();
 
         _paramsHashOf[strategyId] = paramsHash;
         emit ParamsHashCommitted(strategyId, paramsHash);

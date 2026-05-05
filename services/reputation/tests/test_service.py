@@ -116,6 +116,9 @@ async def test_audit_endpoint_returns_full_breakdown() -> None:
         assert {"sharpe_7d", "sharpe_30d", "sharpe_90d", "norm_7d", "norm_30d", "norm_90d"} == (
             body["perf_breakdown"].keys()
         )
+        # PR4: phase2-review.md item 17 — proof component is binary 0/1
+        # in Phase 2, so the audit payload must carry the caveat.
+        assert body["proof_score_is_binary"] is True
 
         missing = await client.get("/v1/audit/0xdead")
         assert missing.status_code == 404

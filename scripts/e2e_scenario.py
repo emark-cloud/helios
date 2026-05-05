@@ -303,6 +303,45 @@ def step_allocate(ctx: Ctx, strategy: str, amount_usdc: int) -> dict[str, Any]:
 
 _PHASE1_ORACLE_ROOT = keccak(b"phase1-e2e-oracle-root")
 
+# PR4: vault `_activeParamsHash` no longer falls back to `manifest.paramsHash`.
+# A non-zero hash MUST be committed via `StrategyRegistry.commitInitialParamsHash`
+# before the vault accepts any trade. The exact value is opaque to Phase 1's
+# mock verifier — operator just has to assert PI_PARAMS_HASH == this in the
+# proof body.
+_PHASE1_PARAMS_HASH = keccak(b"phase1-e2e-paramsHash")
+
+_REGISTRY_COMMIT_ABI = [
+    {
+        "type": "function",
+        "name": "commitInitialParamsHash",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "strategyId", "type": "address"},
+            {"name": "paramsHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    }
+]
+
+
+def step_commit_params_hash(ctx: Ctx, strategy: Contract) -> bytes:
+    """Operator commits a non-zero paramsHash post-register. Phase 1 e2e uses
+    a fixed placeholder — the mock verifier doesn't decode the proof, so
+    any non-zero PI_PARAMS_HASH that round-trips equality with the registry
+    works. Once SDK witness builders are wired (Phase 2 e2e shape) the
+    operator commits `Poseidon(real-params)` instead."""
+    print("[4.6] operator commitInitialParamsHash on the active strategy")
+    registry = ctx.w3.eth.contract(
+        address=Web3.to_checksum_address(ctx.addrs["strategyRegistry"]),
+        abi=_REGISTRY_COMMIT_ABI,
+    )
+    _send(
+        ctx.w3,
+        ctx.deployer,
+        registry.functions.commitInitialParamsHash(strategy.address, _PHASE1_PARAMS_HASH),
+    )
+    return _PHASE1_PARAMS_HASH
+
 
 def step_commit_oracle_root(ctx: Ctx) -> bytes:
     """Post a single EIP-712-signed price commit so `_validateAndVerify`'s
@@ -370,13 +409,10 @@ def step_execute_with_proof(ctx: Ctx, strategy: Contract, oracle_root: bytes) ->
     """
     print("[5] operator executeWithProof (mock verifier; trades=[] skips swap)")
     block = ctx.w3.eth.block_number
-    # _activeParamsHash() prefers the registry-committed value (post-WS7.A
-    # rotation) and falls back to manifest.paramsHash. DeployPhase1 doesn't
-    # call commitInitialParamsHash, so for the Phase 1 e2e we read the
-    # manifest directly — equivalent to the on-chain fallback.
-    # StrategyManifest layout: (declaredClass, assetUniverse, maxCapacity,
-    # feeRateBps, operator, stakeAmount, paramsHash) — paramsHash is at idx 6.
-    params_hash = strategy.functions.manifest().call()[6]
+    # PR4: `_activeParamsHash()` no longer falls back to manifest. The
+    # canonical hash is the registry-committed value — see
+    # `step_commit_params_hash` which posts the same constant.
+    params_hash = _PHASE1_PARAMS_HASH
     public_inputs = [
         int.from_bytes(keccak(b"phase1-e2e-trade-1")[:32], "big"),  # 0  PI_TRADE_HASH
         int.from_bytes(CLASS_MOM_BYTES32, "big"),  # 1  PI_DECLARED_CLASS
@@ -567,6 +603,7 @@ def main() -> int:
     step_deposit_and_delegate(ctx)
     step_allocate(ctx, ctx.addrs["strategyVaultMomentum"], 10_000)
     oracle_root = step_commit_oracle_root(ctx)
+    step_commit_params_hash(ctx, ctx.strategy_momentum)
     step_execute_with_proof(ctx, ctx.strategy_momentum, oracle_root)
     step_post_reputation(ctx)
 

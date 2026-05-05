@@ -205,8 +205,8 @@ class MeanReversionRuntime:
                 max_slippage_bps=intent.max_slippage_bps,
                 n_sigma_x100=self._strategy.n_sigma_x100,
                 stop_loss_price_e18=int(self._strategy.stop_loss_price * 10**18),
-                is_signal_flip=self._strategy.last_is_signal_flip,
-                is_stop_loss=self._strategy.last_is_stop_loss,
+                is_signal_flip=intent.is_signal_flip,
+                is_stop_loss=intent.is_stop_loss,
             )
         except ValueError as exc:
             _log.warning("mean_reversion.witness.invalid", asset=asset, err=str(exc))
@@ -245,8 +245,8 @@ class MeanReversionRuntime:
             "asset": asset,
             "direction": int(intent.direction),
             "amount_in": int(request.inputs["amount_in"]),
-            "is_signal_flip": int(self._strategy.last_is_signal_flip),
-            "is_stop_loss": int(self._strategy.last_is_stop_loss),
+            "is_signal_flip": int(intent.is_signal_flip),
+            "is_stop_loss": int(intent.is_stop_loss),
             "nonce": nonce,
         }
         return record

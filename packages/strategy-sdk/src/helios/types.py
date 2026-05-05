@@ -27,10 +27,23 @@ class TradeIntent(BaseModel):
     amount_in_asset: float | None = None
     max_slippage_bps: int = 50
     block_window_bars: int = 5
+    # PR4: mean-reversion exits must specify *which* gate fired so the
+    # circuit's `is_exit === is_signal_flip + is_stop_loss` constraint
+    # is satisfied. The earlier shape carried these as instance flags
+    # on `MeanReversionStrategy`, which raced across assets when the
+    # runtime's `tick_bar` reset them between `on_bar` calls. Carrying
+    # them on the intent itself makes them per-trade and immutable.
+    # Both default False; set them ONLY on EXIT intents and never both.
+    is_signal_flip: bool = False
+    is_stop_loss: bool = False
 
     def model_post_init(self, _ctx: object) -> None:
         if self.amount_in_usd is None and self.amount_in_asset is None:
             raise ValueError("Provide amount_in_usd or amount_in_asset.")
+        if (self.is_signal_flip or self.is_stop_loss) and self.direction != Direction.EXIT:
+            raise ValueError("is_signal_flip / is_stop_loss are EXIT-only flags")
+        if self.is_signal_flip and self.is_stop_loss:
+            raise ValueError("is_signal_flip and is_stop_loss are mutually exclusive")
 
 
 class Position(BaseModel):

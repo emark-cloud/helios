@@ -81,6 +81,29 @@ def test_position_object_round_trip() -> None:
     assert a.position_object("WETH") is None
 
 
+def test_nav_separate_from_available_capital() -> None:
+    # PR4: `nav` is mark-to-market (cash + held); `available_capital` is
+    # just free cash. Sizing helpers prefer NAV so a deployed strategy
+    # doesn't downsize new entries to leftover cash.
+    a = _NoopAgent()
+    a._set_capital(2_000)  # 80% of 10k NAV is deployed; only 2k cash left
+    a._set_nav(10_000)
+    assert a.available_capital == 2_000
+    assert a.nav == 10_000
+
+
+def test_position_for_signed_quantity() -> None:
+    # PR4: `position_for` returns SIGNED qty so consumers can branch on
+    # direction via the sign (e.g. `position < 0` to detect a short).
+    a = _NoopAgent()
+    a._set_position("WETH", -1.5, 100.0, Direction.SHORT)
+    assert a.position_for("WETH") == -1.5
+    a._set_position("WETH", 2.0, 100.0, Direction.LONG)
+    assert a.position_for("WETH") == 2.0
+    a._set_position("WETH", 0.0, 0.0, Direction.EXIT)
+    assert a.position_for("WETH") == 0.0
+
+
 def test_manifest_passes_through_class_attributes() -> None:
     a = _NoopAgent()
     m = a.manifest(operator="0xabc", stake_amount_usd=5_000, max_capacity_usd=100_000)

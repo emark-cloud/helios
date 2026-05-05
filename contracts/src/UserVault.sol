@@ -50,7 +50,11 @@ contract UserVault is
 
     mapping(address => UserState) internal _users;
     mapping(address => MetaStrategyLib.MetaStrategy) internal _metas;
-    mapping(address => bytes) internal _metaSignatures;
+    // Deprecated PR4: previously stored the [PASSPORT-STUB] signature alongside
+    // the meta. Was never read on-chain (verification lives in the off-chain
+    // Sentinel REST handler). Slot retained so the UUPS storage layout doesn't
+    // shift; the write itself was dropped to save an SSTORE per `setMetaStrategy`.
+    mapping(address => bytes) internal _metaSignatures_deprecated;
 
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
@@ -90,7 +94,10 @@ contract UserVault is
     /// @notice Records the meta-strategy for msg.sender. The signature is
     ///         carried for forward compat with Kite Passport but is not
     ///         verified in Phase 1 — the user IS the caller. [PASSPORT-STUB]
-    function setMetaStrategy(MetaStrategyLib.MetaStrategy calldata meta, bytes calldata signature)
+    function setMetaStrategy(
+        MetaStrategyLib.MetaStrategy calldata meta,
+        bytes calldata /* signature - PR4: verified off-chain by Sentinel */
+    )
         external
     {
         if (meta.maxCapital == 0) revert ZeroAmount();
@@ -120,7 +127,6 @@ contract UserVault is
             stored.defundConfirmBlocks = MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS;
         }
         _metas[msg.sender] = stored;
-        _metaSignatures[msg.sender] = signature;
         _users[msg.sender].metaSet = true;
         emit MetaStrategySet(msg.sender, stored.metaStrategyHash);
     }

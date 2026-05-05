@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
+from _template.web3_consts import RECEIPT_TIMEOUT_SEC
 from eth_account import Account
 from helios_contracts_abi.abis import IReputationAnchor_ABI
 from web3 import Web3
@@ -27,7 +28,6 @@ from web3.types import TxReceipt
 from reputation.signer import SignedUpdate
 
 _log = structlog.get_logger(__name__)
-_RECEIPT_TIMEOUT_SEC = 30
 
 
 @dataclass(slots=True)
@@ -163,7 +163,7 @@ class AnchorPoster:
         signed_tx = self._account.sign_transaction(tx)
         tx_hash = self._w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         receipt: TxReceipt = self._w3.eth.wait_for_transaction_receipt(
-            tx_hash, timeout=_RECEIPT_TIMEOUT_SEC
+            tx_hash, timeout=RECEIPT_TIMEOUT_SEC
         )
         if receipt["status"] != 1:
             raise RuntimeError(f"tx reverted: {tx_hash.hex()}")

@@ -56,12 +56,6 @@ class MeanReversionStrategy(StrategyAgent):
         self._max_slippage_bps = max_slippage_bps
         self._position_fraction = position_fraction
 
-        # Surfaced post-`on_bar` for the runtime → witness builder. The
-        # circuit needs to know which exit reason fired (signal flip vs.
-        # stop loss) so it can satisfy `is_exit === is_signal_flip + is_stop_loss`.
-        self._last_is_signal_flip: bool = False
-        self._last_is_stop_loss: bool = False
-
     # ── Operator surface ───────────────────────────────────────
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
         if asset == "USDC":
@@ -77,24 +71,20 @@ class MeanReversionStrategy(StrategyAgent):
         stddev = math.sqrt(variance)
         if stddev == 0.0:
             # Degenerate flat history — no z-score; treat as no-signal.
-            self._reset_exit_flags()
             return None
         z = (last_price - mean) / stddev
         n_sigma = self._n_sigma_x100 / 100.0
         position = self.position_for(asset)
 
-        # Reset before deciding so callers always see the freshest flags.
-        self._reset_exit_flags()
-
         # ── Stop-loss exit (long-only — Phase 2 reference impl) ─────────
         if position > 0 and self._stop_loss_price > 0 and last_price <= self._stop_loss_price:
-            self._last_is_stop_loss = True
             return TradeIntent(
                 asset_in=asset,
                 asset_out="USDC",
                 amount_in_asset=position,
                 direction=Direction.EXIT,
                 max_slippage_bps=self._max_slippage_bps,
+                is_stop_loss=True,
             )
 
         # ── Long entry: N-sigma DOWN, flat-or-short ─────────────────────
@@ -121,7 +111,6 @@ class MeanReversionStrategy(StrategyAgent):
         # the entry threshold. Match the circuit's `flip_excess` ≥ 0 gate
         # (lhs ≤ rhs ⇔ |z| ≤ n_sigma).
         if abs(z) < n_sigma and position != 0:
-            self._last_is_signal_flip = True
             if position > 0:
                 return TradeIntent(
                     asset_in=asset,
@@ -129,6 +118,7 @@ class MeanReversionStrategy(StrategyAgent):
                     amount_in_asset=position,
                     direction=Direction.EXIT,
                     max_slippage_bps=self._max_slippage_bps,
+                    is_signal_flip=True,
                 )
             # short → buy back
             return TradeIntent(
@@ -137,24 +127,29 @@ class MeanReversionStrategy(StrategyAgent):
                 amount_in_asset=-position,
                 direction=Direction.EXIT,
                 max_slippage_bps=self._max_slippage_bps,
+                is_signal_flip=True,
             )
 
         return None
 
     # ── Internal sizing ───────────────────────────────────────
     def _size(self) -> float:
+        # PR4: scale entries against NAV (cash + held positions
+        # marked-to-market) so a heavily-deployed strategy doesn't
+        # collapse new sizes to the leftover cash slice. `size_trade`
+        # still clamps to free cash.
         return min(
             float(self.max_position_size_usd),
-            self.available_capital * self._position_fraction,
+            self.nav * self._position_fraction,
         )
-
-    def _reset_exit_flags(self) -> None:
-        self._last_is_signal_flip = False
-        self._last_is_stop_loss = False
 
     # ── Test/runtime helpers ──────────────────────────────────
     def set_capital(self, usd: float) -> None:
         self._available_capital_usd = usd
+        # Tests use this helper to simulate a fresh allocation; with no
+        # held positions cash == NAV, which keeps `_size()` (now NAV-
+        # backed) bit-compatible with the prior cash-backed shape.
+        self._nav_usd = usd
 
     def set_position(self, asset: str, qty: float, avg_price: float, direction: Direction) -> None:
         self._positions[asset] = Position(
@@ -173,11 +168,3 @@ class MeanReversionStrategy(StrategyAgent):
     @property
     def max_slippage_bps(self) -> int:
         return self._max_slippage_bps
-
-    @property
-    def last_is_signal_flip(self) -> bool:
-        return self._last_is_signal_flip
-
-    @property
-    def last_is_stop_loss(self) -> bool:
-        return self._last_is_stop_loss

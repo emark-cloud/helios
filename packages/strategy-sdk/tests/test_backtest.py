@@ -174,7 +174,9 @@ class _ShortThenExitStrategy(StrategyAgent):
             return TradeIntent(
                 asset_in="USDC", asset_out=asset, amount_in_usd=1_000, direction=Direction.SHORT
             )
-        if n == 6 and self.position_for(asset) > 0:
+        # PR4: `position_for` now returns SIGNED qty, so an open short
+        # is detected with `< 0` rather than the prior `abs(qty) > 0`.
+        if n == 6 and self.position_for(asset) < 0:
             return TradeIntent(
                 asset_in=asset, asset_out="USDC", amount_in_asset=0.0, direction=Direction.EXIT
             )

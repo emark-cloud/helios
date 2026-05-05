@@ -98,14 +98,16 @@ contract StrategyVaultTest is Test {
         vm.prank(allocatorVault);
         usdc.approve(address(vault), type(uint256).max);
 
-        // The vault now consults the registry for the active params hash
+        // The vault consults the registry for the active params hash
         // (WS7.A). Tests use a plain EOA for `registry`, so mock the
-        // selector to return zero — the vault falls back to the manifest
-        // value for these legacy paths.
+        // selector to return the manifest hash — the equivalent of
+        // having called `commitInitialParamsHash` post-register on the
+        // real registry. PR4: the manifest fallback is gone, so a zero
+        // return now reverts `ParamsHashNotCommitted`.
         vm.mockCall(
             registry,
             abi.encodeWithSelector(IStrategyRegistry.paramsHashOf.selector),
-            abi.encode(bytes32(0))
+            abi.encode(bytes32(uint256(0xfee5)))
         );
 
         // PR1a: vault now binds proofs to roots known to the price/yield
@@ -692,6 +694,23 @@ contract StrategyVaultTest is Test {
     }
 
     // ── WS7.A: registry-pulled params hash overrides manifest ──────
+
+    function test_ExecuteWithProof_RevertsWhenParamsHashNotCommitted() public {
+        // No commit on the registry yet ⇒ paramsHashOf returns 0. PR4
+        // removed the manifest fallback, so the vault must reject any
+        // trade attempt before even checking the proof's PI value.
+        vm.mockCall(
+            registry,
+            abi.encodeWithSelector(IStrategyRegistry.paramsHashOf.selector),
+            abi.encode(bytes32(0))
+        );
+
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.ParamsHashNotCommitted.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
 
     function test_ExecuteWithProof_UsesRegistryParamsHashWhenCommitted() public {
         bytes32 newHash = keccak256("rotated-params-v2");

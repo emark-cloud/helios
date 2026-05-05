@@ -41,6 +41,7 @@ interface IStrategyRegistry {
     error ParamsRotationAlreadyPending();
     error ParamsHashAlreadyCommitted();
     error ParamsHashNotCommitted();
+    error ZeroParamsHash();
 
     function registerStrategy(address vault, bytes32 declaredClass, uint256 stakeAmount)
         external

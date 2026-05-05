@@ -347,6 +347,15 @@ contract StrategyRegistryTest is Test {
         registry.commitInitialParamsHash(vault, keccak256("x"));
     }
 
+    function test_CommitInitialParamsHash_RevertsOnZero() public {
+        // PR4: zero would re-open the bypass that the StrategyVault closes
+        // by reverting on a zero registry value.
+        _registerForRotation();
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.ZeroParamsHash.selector);
+        registry.commitInitialParamsHash(vault, bytes32(0));
+    }
+
     function test_InitiateParamsRotation_RevertsIfUncommitted() public {
         _registerForRotation();
         vm.prank(operator);

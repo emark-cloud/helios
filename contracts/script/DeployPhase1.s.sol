@@ -159,6 +159,12 @@ contract DeployPhase1 is Script {
         sr.registerStrategy(a.strategyVaultMomentum, CLASS_MOM, STRATEGY_STAKE);
         sr.registerStrategy(a.strategyVaultMeanReversion, CLASS_MR, STRATEGY_STAKE);
         sr.registerStrategy(a.strategyVaultYieldRotation, CLASS_YR, STRATEGY_STAKE);
+        // PR4: vault `_activeParamsHash` no longer falls back to manifest.
+        // Operators must commit a non-zero hash before trading. Deploy
+        // intentionally does NOT commit here — Phase 2 e2e and the SDK
+        // witness builder both need to commit a real Poseidon-of-params,
+        // so the e2e flow that uses mock proofs (Phase 1 vertical slice)
+        // calls `commitInitialParamsHash` from `e2e_scenario.py` instead.
 
         bytes32[] memory supported = new bytes32[](3);
         supported[0] = CLASS_MOM;

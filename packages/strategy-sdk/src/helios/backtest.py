@@ -125,10 +125,23 @@ def run_backtest(
     start_time = start_time or datetime.now(UTC)
 
     strategy._set_capital(cash)
+    strategy._set_nav(cash)
     counters = _Counters()
 
     for bar in range(n_bars):
         ts = start_time + timedelta(seconds=bar * bar_interval_sec)
+        # PR4: refresh mark-to-market NAV before any asset's `on_bar` runs
+        # so sizing helpers (`self.nav * fraction`) scale to the strategy's
+        # full footprint, not just leftover cash. Use the prior bar's
+        # close (= prices[a][bar-1] for bar > 0) since this bar's print
+        # has not yet executed.
+        if bar > 0:
+            mtm_pre = cash + sum(
+                qty * float(prices[a][bar - 1])
+                for a, qty in holdings.items()
+                if a in prices and qty != 0
+            )
+            strategy._set_nav(mtm_pre)
         for asset in strategy.asset_universe:
             if asset not in prices:
                 continue
@@ -332,7 +345,11 @@ def _apply_intent(
         prev_qty = holdings.get(asset, 0.0)
         new_qty = prev_qty + qty
         holdings[asset] = new_qty
-        strategy._set_position(asset, abs(new_qty), price, Direction.SHORT)
+        # PR4: store the SIGNED quantity (negative for shorts) so callers
+        # of `StrategyAgent.position_for(asset) < 0` actually see the
+        # short. Earlier code stored `abs(new_qty)` and silently broke
+        # any consumer that branched on direction via the sign.
+        strategy._set_position(asset, new_qty, price, Direction.SHORT)
 
     fills.append(
         TradeFill(
