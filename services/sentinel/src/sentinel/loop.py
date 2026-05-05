@@ -27,7 +27,7 @@ import structlog
 from helios_allocator.types import AllocationTarget, StrategyCandidate
 
 from sentinel.allocator import SentinelAllocator, diff_allocations
-from sentinel.goldsky import SentinelGoldsky
+from sentinel.goldsky import SentinelGoldsky, StrategyDirectoryRow, _to_candidate
 from sentinel.onchain import OnChainRunner
 from sentinel.state import AllocationState, SentinelEvent, SentinelStore, UserState, now_ts
 
@@ -61,6 +61,12 @@ class SentinelLoop:
         self._onchain = onchain
         self._cfg = config or LoopConfig()
         self._candidates: list[StrategyCandidate] = []
+        # PR5 (item 21): keep the directory rows alongside the candidates
+        # so `/v1/strategies` can read from the same cache rather than
+        # re-querying Goldsky on every dashboard request. Both are derived
+        # from the same `fetch_directory()` payload — refreshing one
+        # refreshes the other on the `rank_update_interval_sec` cadence.
+        self._directory: list[StrategyDirectoryRow] = []
         self._last_rank_ts: int = 0
         self._last_fee_ts: int = 0
         self._task: asyncio.Task[None] | None = None
@@ -101,11 +107,20 @@ class SentinelLoop:
         if ts - self._last_rank_ts < self._cfg.rank_update_interval_sec:
             return
         try:
-            self._candidates = await self._goldsky.fetch_candidates()
+            rows = await self._goldsky.fetch_directory()
+            self._directory = rows
+            self._candidates = [_to_candidate(r) for r in rows]
             self._last_rank_ts = ts
             _log.info("sentinel.candidates.refresh", count=len(self._candidates))
         except Exception as exc:
             _log.warning("sentinel.candidates.error", err=str(exc), exc_info=True)
+
+    async def directory(self, ts: int | None = None) -> list[StrategyDirectoryRow]:
+        """Cached directory rows for `/v1/strategies`. Refreshes lazily on the
+        same `rank_update_interval_sec` cadence as the loop itself, so dashboard
+        loads no longer hit Goldsky per request."""
+        await self._refresh_candidates(ts if ts is not None else now_ts())
+        return list(self._directory)
 
     async def _tick_user(self, user: UserState, ts: int) -> None:
         # Step 4: drawdown check first — before any rebalancing logic.
@@ -276,4 +291,9 @@ class SentinelLoop:
     def seed_candidates(self, candidates: Iterable[StrategyCandidate]) -> None:
         """Used by tests + scenario mode to inject candidates without HTTP."""
         self._candidates = list(candidates)
+        self._last_rank_ts = int(time.time())
+
+    def seed_directory(self, rows: Iterable[StrategyDirectoryRow]) -> None:
+        """Test/scenario hook to seed `/v1/strategies` cache without HTTP."""
+        self._directory = list(rows)
         self._last_rank_ts = int(time.time())

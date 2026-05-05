@@ -5,10 +5,28 @@ from __future__ import annotations
 import pytest
 from helios_allocator.types import MetaStrategy, StrategyCandidate
 from sentinel.allocator import SentinelAllocator
-from sentinel.goldsky import SentinelGoldsky
+from sentinel.goldsky import SentinelGoldsky, StrategyDirectoryRow
 from sentinel.loop import LoopConfig, SentinelLoop
 from sentinel.onchain import OnChainRunner
 from sentinel.state import AllocationState, SentinelStore
+
+
+def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
+    """PR5: loop now caches `StrategyDirectoryRow` so `/v1/strategies` can read
+    from the same payload. Existing test fixtures still construct candidates;
+    map them back to rows so the stub can satisfy `fetch_directory`."""
+    return StrategyDirectoryRow(
+        strategy_id=c.strategy_id,
+        declared_class=c.declared_class,
+        chain_id=c.chain_id,
+        operator=c.operator,
+        fee_rate_bps=c.fee_rate_bps,
+        stake_amount_usd=c.stake_amount_usd,
+        max_capacity_usd=c.max_capacity_usd,
+        current_allocations_usd=c.current_allocations_usd,
+        reputation_score_e4=round(c.reputation_score * 10_000),
+        trades_attested=c.trades_attested,
+    )
 
 
 class _StubGoldsky(SentinelGoldsky):
@@ -17,8 +35,8 @@ class _StubGoldsky(SentinelGoldsky):
     def __init__(self, candidates: list[StrategyCandidate]) -> None:
         self._candidates_seed = candidates
 
-    async def fetch_candidates(self) -> list[StrategyCandidate]:  # type: ignore[override]
-        return list(self._candidates_seed)
+    async def fetch_directory(self) -> list[StrategyDirectoryRow]:  # type: ignore[override]
+        return [_candidate_to_row(c) for c in self._candidates_seed]
 
     async def aclose(self) -> None:  # pragma: no cover
         return None
@@ -243,11 +261,12 @@ async def test_full_scenario_allocate_drawdown_reallocate() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def fetch_candidates(self) -> list[StrategyCandidate]:  # type: ignore[override]
+        async def fetch_directory(self) -> list[StrategyDirectoryRow]:  # type: ignore[override]
             self.calls += 1
             # Tick 1: both active. Tick 2+: s2 has dropped from the
             # directory (subgraph reflects its losing streak).
-            return [s1, s2] if self.calls == 1 else [s1]
+            cs = [s1, s2] if self.calls == 1 else [s1]
+            return [_candidate_to_row(c) for c in cs]
 
         async def aclose(self) -> None:
             return None

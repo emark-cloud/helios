@@ -175,7 +175,11 @@ def _make_router(
         chain_id: int | None = None,
         min_reputation: float | None = None,
     ) -> list[StrategyDirectoryRow]:
-        rows = await goldsky.fetch_directory()
+        # PR5 (item 21): read from the loop's cached directory instead of
+        # firing a fresh Goldsky query on every dashboard load. The cache
+        # refreshes on the same `rank_update_interval_sec` cadence the
+        # decision loop already uses.
+        rows = await loop.directory()
         return _filter_directory(rows, cls=cls, chain_id=chain_id, min_reputation=min_reputation)
 
     @router.websocket("/users/{user}/events")

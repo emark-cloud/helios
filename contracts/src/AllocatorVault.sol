@@ -55,7 +55,15 @@ contract AllocatorVault is
     uint32 public chainId; // home chain id, snapshotted at init
 
     mapping(address user => mapping(address strategy => AllocationRecord)) internal _allocations;
-    mapping(address user => mapping(address strategy => uint256)) internal _strategyDeployed;
+    /// @dev Mirror of `_allocations[user][s].capitalDeployed` retained for
+    ///      UUPS storage-layout compatibility. Writes were removed in
+    ///      phase2-review.md item 19 — every prior reader/writer points at
+    ///      the canonical struct field instead. Saves an SSTORE per
+    ///      allocate / rebalance / defund (~5k gas / strategy / call).
+    ///      The slot stays so existing proxies can be upgraded without
+    ///      shifting the layout; new deployments will leave it empty.
+    mapping(address user => mapping(address strategy => uint256)) internal
+        _strategyDeployed_deprecated;
     uint256 internal _accruedFees;
 
     /// @dev Reserved storage for future upgrades. Append new state variables
@@ -136,7 +144,6 @@ contract AllocatorVault is
         bool isNew = rec.strategy == address(0);
         rec.strategy = strategy;
         rec.capitalDeployed += amount;
-        _strategyDeployed[user][strategy] = rec.capitalDeployed;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);
         rec.lastRebalanceTimestamp = uint64(block.timestamp);
 
@@ -188,14 +195,14 @@ contract AllocatorVault is
         uint256 totalDeployed;
         for (uint256 i = 0; i < strategies.length; i++) {
             sum += weightsBps[i];
-            totalDeployed += _strategyDeployed[user][strategies[i]];
+            totalDeployed += _allocations[user][strategies[i]].capitalDeployed;
         }
         if (sum != 10_000) revert InvalidWeights();
 
         for (uint256 i = 0; i < strategies.length; i++) {
             address s = strategies[i];
             uint256 target = (totalDeployed * weightsBps[i]) / 10_000;
-            uint256 current = _strategyDeployed[user][s];
+            uint256 current = _allocations[user][s].capitalDeployed;
             if (target > current) {
                 _allocateInternal(user, s, target - current);
             } else if (target < current) {
@@ -223,7 +230,7 @@ contract AllocatorVault is
             return;
         }
 
-        uint256 deployed = _strategyDeployed[user][strategy];
+        uint256 deployed = rec.capitalDeployed;
         uint256 totalAlloc = IStrategyVault(strategy).allocationOf(address(this));
         // After distributeRealized, the strategy has reduced totalNAV by exactly
         // realizedTotal. Apportion to user by their share of allocator deployed.
@@ -296,7 +303,6 @@ contract AllocatorVault is
         bool isNew = rec.strategy == address(0);
         rec.strategy = strategy;
         rec.capitalDeployed += amount;
-        _strategyDeployed[user][strategy] = rec.capitalDeployed;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);
 
         if (isNew) emit AllocationCreated(user, strategy, amount, chainId);
@@ -308,7 +314,6 @@ contract AllocatorVault is
         if (amount > rec.capitalDeployed) revert AllocationOutOfBounds();
         IStrategyVault(strategy).withdrawToAllocator(address(this), amount);
         rec.capitalDeployed -= amount;
-        _strategyDeployed[user][strategy] = rec.capitalDeployed;
         baseAsset.forceApprove(userVault, amount);
         IUserVaultForAllocator(userVault).creditFromAllocator(user, amount);
         emit AllocationDecreased(user, strategy, amount);
@@ -328,7 +333,6 @@ contract AllocatorVault is
         }
 
         rec.capitalDeployed = 0;
-        _strategyDeployed[user][strategy] = 0;
 
         // Credit user's full balance back (principal + their share of realized).
         uint256 totalBack = principal + realized;
