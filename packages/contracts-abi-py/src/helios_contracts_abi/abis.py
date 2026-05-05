@@ -999,54 +999,6 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
-    "name": "navDigest",
-    "inputs": [
-      {
-        "name": "totalNAV_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "timestamp",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "navDigest",
-    "inputs": [
-      {
-        "name": "totalNAV_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "timestamp",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "navOf",
     "inputs": [
       {
@@ -1060,32 +1012,6 @@ IStrategyVault_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "priceAnchor",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "priceAnchor",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1899,44 +1825,6 @@ IStrategyRegistry_ABI = [
       },
       {
         "name": "newHash",
-        "type": "bytes32",
-        "indexed": False,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": False
-  },
-  {
-    "type": "event",
-    "name": "ParamsRotationCancelled",
-    "inputs": [
-      {
-        "name": "strategyId",
-        "type": "address",
-        "indexed": True,
-        "internalType": "address"
-      },
-      {
-        "name": "cancelledNewHash",
-        "type": "bytes32",
-        "indexed": False,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": False
-  },
-  {
-    "type": "event",
-    "name": "ParamsRotationCancelled",
-    "inputs": [
-      {
-        "name": "strategyId",
-        "type": "address",
-        "indexed": True,
-        "internalType": "address"
-      },
-      {
-        "name": "cancelledNewHash",
         "type": "bytes32",
         "indexed": False,
         "internalType": "bytes32"
