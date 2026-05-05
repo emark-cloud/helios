@@ -79,7 +79,10 @@ async def test_scores_endpoints_after_one_tick() -> None:
             score["signed"]["signature"].startswith("0x")
             and len(score["signed"]["signature"]) == 132
         )
-        assert score["signed"]["typehash_version"] == "1"
+        # Whichever typehash the service is configured with should round-trip
+        # through the API. Pinning to a literal made the test brittle to
+        # `.env` files that pre-flip to v2 (`docs/reputation-v1-v2-cutover.md`).
+        assert score["signed"]["typehash_version"] == settings.typehash_version
 
         one = await client.get(f"/v1/scores/{state.strategy_id}")
         assert one.status_code == 200
