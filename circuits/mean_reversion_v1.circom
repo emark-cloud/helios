@@ -78,6 +78,22 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     slipBpsLte.in[1] <== 10000;
     slipBpsLte.out === 1;
 
+    // ── Range checks on private inputs ──────────────────────────────
+    // Mean-reversion squares the deviations (16·price - sum)², so a
+    // malicious prover with witness control could grind unrealistic
+    // prices to wrap the field and bypass the downstream Num2Bits(192).
+    // Pin price intake to 64 bits and the n_sigma_x100 threshold to 32.
+    // stop_loss_price feeds the exit-side stop-loss check.
+    component priceBits[16];
+    for (var pi = 0; pi < 16; pi++) {
+        priceBits[pi] = Num2Bits(64);
+        priceBits[pi].in <== price_observations[pi];
+    }
+    component thresholdBits = Num2Bits(32);
+    thresholdBits.in <== signal_threshold;
+    component stopLossBits = Num2Bits(64);
+    stopLossBits.in <== stop_loss_price;
+
     // ── Constraint B: asset indices in range ────────────────────────
     component inIdxBits  = Num2Bits(8);
     component outIdxBits = Num2Bits(8);
