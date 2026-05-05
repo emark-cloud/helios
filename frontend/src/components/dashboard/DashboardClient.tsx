@@ -13,6 +13,7 @@ import { useAccount } from "wagmi";
 import { ActivityRail } from "@/components/dashboard/ActivityRail";
 import { AllocationsTable } from "@/components/dashboard/AllocationsTable";
 import { AllocatorCard } from "@/components/dashboard/AllocatorCard";
+import { AllocatorLeaderboard } from "@/components/dashboard/AllocatorLeaderboard";
 import { DashboardTopStrip } from "@/components/dashboard/DashboardTopStrip";
 import { WithdrawControl } from "@/components/dashboard/WithdrawControl";
 import { fetchDashboard, type DashboardPayload } from "@/lib/sentinel";
@@ -35,7 +36,12 @@ export function DashboardClient(): JSX.Element {
   });
 
   if (!enabled) {
-    return <DisconnectedState />;
+    return (
+      <div className="flex flex-col gap-6">
+        <DisconnectedState />
+        <AllocatorLeaderboard />
+      </div>
+    );
   }
 
   if (query.isLoading) {
@@ -79,6 +85,7 @@ export function DashboardClient(): JSX.Element {
             </h2>
             <AllocationsTable allocations={data.allocations} />
           </section>
+          <AllocatorLeaderboard />
         </div>
         <div className="lg:sticky lg:top-16 lg:h-[calc(100vh-6rem)]">
           <ActivityRail user={address as string} />
