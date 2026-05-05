@@ -4,5 +4,13 @@ broadcast/*/*/dry-run/
 broadcast/**/run-[0-9]*.json
 !broadcast/**/run-latest.json
 
+# E2E-only scripts run against the local anvil-kite docker container,
+# never against live Kite testnet. Their run-latest.json artefacts
+# (block 0x0..0x20-ish) would mislead readers into thinking Phase 2
+# was deployed to chain 2368. Keep them local.
+broadcast/DeployPhase2.s.sol/
+broadcast/RegisterFreshStrategy.s.sol/
+broadcast/RegisterPhase2Strategies.s.sol/
+
 # Foundry libs are checked in as submodules; don't ignore.
 !lib/
