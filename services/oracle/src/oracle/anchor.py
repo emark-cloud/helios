@@ -204,9 +204,7 @@ class AnchorPoster:
             live_nonce = self._read_onchain_nonce()
             record.nonce = live_nonce
             live_payload = replace(payload, nonce=live_nonce)
-            signed = sign_commit(
-                live_payload, self.signer_pk, self.chain_id, self.anchor_address
-            )
+            signed = sign_commit(live_payload, self.signer_pk, self.chain_id, self.anchor_address)
             tx_hash, block = self._submit(signed)
             record.tx_hash = tx_hash
             record.submitted = True
