@@ -59,6 +59,47 @@ Both are first-class meta-strategy fields, exposed under "Advanced" on `/onboard
 
 ---
 
+## Allocator reputation v1 (Phase 3 / WS5.A)
+
+Strategies and allocators share the on-chain `ReputationAnchor.postReputationUpdate` plumbing — the same EIP-712 typehash, the same `componentsHash` opaque-bytes32 field, the same signer key — but the off-chain score is computed from a different formula because what makes an allocator good is not what makes a strategy good. A strategy is judged on its NAV trajectory + proof discipline; an allocator is judged on whether the users it routes capital for actually come out ahead and whether it reacts when things go wrong.
+
+For an allocator `a` over the rolling 30-day window:
+
+```
+ReputationScore(a) = 0.55 · PnLScore + 0.20 · DrawdownDiscipline
+                   + 0.15 · Retention + 0.10 · StakeScore
+```
+
+Components, all clipped to their natural ranges (the `score_e4` aggregate ends up in `[-10000, +10000]`):
+
+- **PnLScore ∈ [-1, +1]** — `clip(Σ user net P&L above HWM / Σ capital under management, -1, +1)`. The dominant term. "Above HWM" prevents a recently-recovered position from double-paying after a drawdown, and netting-by-AUM keeps a small allocator with one lucky win from outranking a large allocator with a steady book.
+- **DrawdownDiscipline ∈ [0, 1]** — `breach_response_count / breach_total_count`, where a breach is "responded" if the allocator defunded the affected user within `DRAWDOWN_RESPONSE_SEC = 60` seconds of the breach. An allocator that lets a breach sit for five minutes loses score here. With zero breaches in the window the component returns 1.0 — absence of evidence is rewarded, but the 30-day window prevents a stale-clean record from carrying indefinitely.
+- **Retention ∈ [0, 1]** — `users_at_window_end / users_at_window_start`. Inverted churn over the same 30-day window. New users that arrive mid-window don't count toward retention because there's nothing to keep yet (they're picked up by future windows).
+- **StakeScore ∈ [0, 1]** — same `log(1 + s/1000) / log(1 + max_s_in_class/1000)` curve as strategies (`Helios.md §8.2 StakeScore`). Reused verbatim so allocators and strategies face the same stake-weighting tradeoff (`§8.1` principle 2).
+
+### Cold start — zero users + zero breaches
+
+Mirrors the strategy `trades_attested == 0` floor: an allocator with no users at either end of the retention window AND no breaches in the window has nothing to score on. The aggregate collapses to `w_stake · StakeScore`. As soon as users delegate (or a breach occurs), the full formula takes over and the score is non-decreasing in expectation against the cold-start floor.
+
+### Why this weighting
+
+The 0.55 floor on `PnLScore` is deliberately heavier than the strategy `0.40 · PerformanceScore`. A strategy can have positive Sharpe and still leave its allocator's users net-down after fees + slippage — for the allocator's score, the realized user outcome is the only thing that matters. Drawdown discipline at 0.20 captures the "did you react" axis that a strategy doesn't have analog to (strategies are judged on the realized drawdown itself, not on response speed; an allocator's choice to defund is the only reaction available to it). Retention at 0.15 catches the long-run economics — users vote with their feet, and an allocator they're leaving is signal independent of P&L. Stake at 0.10 is intentionally the smallest weight; same logic as §8.1 — stake is barrier-to-entry, not skill.
+
+### Subject to revision
+
+Per `Helios.md §8.2`'s weight-change discipline, any tweak to these four weights is a **v2 decision**, not a drop-in edit. The first cut documented here is what ships in Phase 3. Concrete revision triggers we'll watch for after the demo: P&L dominance starting to over-reward high-leverage allocators (we'd add a vol-adjusted PnL variant), or breach-response saturating at 100% across all allocators (we'd tighten the response window from 60s to something allocator-distinguishing).
+
+### Where it lives in code
+
+- `services/reputation/src/reputation/score.py` — `compute_allocator_score`, `AllocatorScoreInputs/Components/Outputs`, `hash_allocator_components`.
+- `services/reputation/src/reputation/engine.py` — `tick_allocators_once`, `_compute_allocator_update`, `AllocatorEngineUpdate`.
+- `services/reputation/src/reputation/goldsky.py` — `_QUERY_ALLOCATOR_STATE`, `AllocatorState`, `_parse_allocator`. The query targets the entities WS5.B (subgraph allocator entities) lands; the engine + tests run against stubs that pre-aggregate `AllocatorState` directly until the subgraph is in place.
+- `services/reputation/src/reputation/signer.py` — already actor-type-discriminated (`ActorType.ALLOCATOR = 1`); the EIP-712 struct hash differs from the strategy path purely via the `actorType` field.
+
+Tested by `services/reputation/tests/test_engine_allocator.py` (synthetic-ledger A vs B ranking, cold-start floor, per-component levers) and `test_anchor_allocator.py` (round-trip through `postReputationUpdate` with `actor_type=ALLOCATOR`, EIP-712 signature divergence from strategy path).
+
+---
+
 ## Phase 6 placeholders
 
 The sections below land in Phase 6 alongside the rest of this file:

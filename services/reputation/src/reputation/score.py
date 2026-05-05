@@ -270,3 +270,145 @@ def _hash_components_e4(
         [perf_e4, risk_e4, proof_e4, stake_e4, age_e4],
     )
     return bytes(keccak(payload))
+
+
+# ---- WS5.A: allocator reputation v1 -------------------------------------
+#
+# Four-component formula, weights documented in
+# `docs/reputation-math.md §"Allocator reputation v1"`:
+#
+#     ReputationScore = 0.55·PnL + 0.20·Drawdown + 0.15·Retention + 0.10·Stake
+#
+# Cold-start floor mirrors §8.7: an allocator with zero users + zero
+# breaches collapses to `w_stake · StakeScore`.
+
+W_ALLOC_PNL = 0.55
+W_ALLOC_DRAWDOWN = 0.20
+W_ALLOC_RETENTION = 0.15
+W_ALLOC_STAKE = 0.10
+assert math.isclose(
+    W_ALLOC_PNL + W_ALLOC_DRAWDOWN + W_ALLOC_RETENTION + W_ALLOC_STAKE, 1.0, abs_tol=1e-9
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatorScoreInputs:
+    aggregate_pnl_above_hwm_e18: int  # signed
+    aggregate_capital_e18: int
+    breach_total_count: int
+    breach_response_count: int
+    users_at_window_start: int
+    users_at_window_end: int
+    stake_e18: int
+    max_stake_in_class_e18: int
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatorScoreComponents:
+    pnl: float  # in [-1, 1]
+    drawdown: float  # in [0, 1]
+    retention: float  # in [0, 1]
+    stake: float  # in [0, 1]
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatorScoreOutputs:
+    score_e4: int
+    components: AllocatorScoreComponents
+    components_hash: bytes
+
+
+def compute_allocator_score(inputs: AllocatorScoreInputs) -> AllocatorScoreOutputs:
+    stake = _stake(inputs.stake_e18, inputs.max_stake_in_class_e18)
+
+    # Cold-start floor: no users at either end of the retention window
+    # AND no breaches recorded — nothing to score on. Stake is the only
+    # legible signal, same posture as `Helios.md §8.7` for strategies.
+    no_activity = (
+        inputs.users_at_window_start <= 0
+        and inputs.users_at_window_end <= 0
+        and inputs.breach_total_count <= 0
+    )
+    if no_activity:
+        floor = W_ALLOC_STAKE * stake
+        score_e4 = max(-10_000, min(10_000, round(10_000 * floor)))
+        components = AllocatorScoreComponents(pnl=0.0, drawdown=0.0, retention=0.0, stake=stake)
+        return AllocatorScoreOutputs(
+            score_e4=score_e4,
+            components=components,
+            components_hash=hash_allocator_components(components),
+        )
+
+    pnl = _allocator_pnl(inputs.aggregate_pnl_above_hwm_e18, inputs.aggregate_capital_e18)
+    drawdown = _allocator_drawdown(inputs.breach_total_count, inputs.breach_response_count)
+    retention = _allocator_retention(inputs.users_at_window_start, inputs.users_at_window_end)
+
+    aggregate = (
+        W_ALLOC_PNL * pnl
+        + W_ALLOC_DRAWDOWN * drawdown
+        + W_ALLOC_RETENTION * retention
+        + W_ALLOC_STAKE * stake
+    )
+    score_e4 = max(-10_000, min(10_000, round(10_000 * aggregate)))
+    components = AllocatorScoreComponents(
+        pnl=pnl, drawdown=drawdown, retention=retention, stake=stake
+    )
+    return AllocatorScoreOutputs(
+        score_e4=score_e4,
+        components=components,
+        components_hash=hash_allocator_components(components),
+    )
+
+
+def _allocator_pnl(pnl_e18: int, capital_e18: int) -> float:
+    """Aggregate P&L above HWM, normalized by capital under management
+    and clipped to [-1, 1]. Returns 0.0 when capital is zero (the
+    cold-start branch handles the truly-empty case before we get here)."""
+    if capital_e18 <= 0:
+        return 0.0
+    ratio = pnl_e18 / capital_e18
+    return max(-1.0, min(1.0, ratio))
+
+
+def _allocator_drawdown(total: int, responded: int) -> float:
+    """Fraction of breaches defunded within `_DRAWDOWN_RESPONSE_SEC` of
+    the breach. Returns 1.0 when no breaches occurred — an allocator with
+    no triggers shouldn't be penalized; absence of evidence is rewarded.
+    The breach feed is bounded to the 30d retention window upstream so
+    a stale clean record can't carry indefinitely."""
+    if total <= 0:
+        return 1.0
+    return max(0.0, min(1.0, responded / total))
+
+
+def _allocator_retention(start: int, end: int) -> float:
+    """Fraction of users present at window start who are still delegated
+    at window end. Returns 1.0 when there were no users to retain — a
+    fresh allocator with no starting cohort can't have churned anyone."""
+    if start <= 0:
+        return 1.0
+    return max(0.0, min(1.0, end / start))
+
+
+def hash_allocator_components(components: AllocatorScoreComponents) -> bytes:
+    """`keccak256(abi.encode(int256, uint256, uint256, uint256))` over the
+    four allocator sub-scores in e4 fixed point. Different layout from
+    the strategy `hash_components` (4 fields vs 5) — the on-chain
+    `componentsHash` field is opaque bytes32, so the off-chain layout
+    can vary by actor type without a contract change."""
+    pnl_e4 = round(components.pnl * 10_000)
+    drawdown_e4 = round(components.drawdown * 10_000)
+    retention_e4 = round(components.retention * 10_000)
+    stake_e4 = round(components.stake * 10_000)
+    return _hash_alloc_components_e4(pnl_e4, drawdown_e4, retention_e4, stake_e4)
+
+
+@lru_cache(maxsize=4096)
+def _hash_alloc_components_e4(
+    pnl_e4: int, drawdown_e4: int, retention_e4: int, stake_e4: int
+) -> bytes:
+    payload = abi_encode(
+        ["int256", "uint256", "uint256", "uint256"],
+        [pnl_e4, drawdown_e4, retention_e4, stake_e4],
+    )
+    return bytes(keccak(payload))

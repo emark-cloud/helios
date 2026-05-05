@@ -23,13 +23,16 @@ import structlog
 
 from reputation.anchor import AnchorPoster, PostedUpdate
 from reputation.cohort import cohort_stats, neutral
-from reputation.goldsky import NavEvent, StrategyState, TradeEvent
+from reputation.goldsky import AllocatorState, NavEvent, StrategyState, TradeEvent
 from reputation.score import (
+    AllocatorScoreInputs,
+    AllocatorScoreOutputs,
     CohortContext,
     ScoreInputs,
     ScoreOutputs,
     WindowSharpe,
     annualized_sharpe_from_nav,
+    compute_allocator_score,
     compute_score,
 )
 from reputation.signer import (
@@ -42,6 +45,10 @@ from reputation.windows import slice_windows
 
 _log = structlog.get_logger(__name__)
 _NINETY_DAYS_SEC = 90 * 24 * 60 * 60
+# WS5.A: 30d window for allocator retention + breach-discipline. Strategy
+# scoring uses 90d (Sharpe windows) but allocator inputs are aggregated
+# over a tighter window so churn + breach response track recent behavior.
+_THIRTY_DAYS_SEC = 30 * 24 * 60 * 60
 
 
 class _GoldskyProto(Protocol):
@@ -57,6 +64,19 @@ class EngineUpdate:
     outputs: ScoreOutputs
     signed: SignedUpdate
     cohort: CohortContext
+    posted: PostedUpdate | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatorEngineUpdate:
+    """Parallel to `EngineUpdate` but for allocator (`ActorType.ALLOCATOR`)
+    scoring. The signed payload uses the same `ReputationUpdate` typehash
+    (v1/v2) as strategies — the contract distinguishes by `actorType`."""
+
+    state: AllocatorState
+    inputs: AllocatorScoreInputs
+    outputs: AllocatorScoreOutputs
+    signed: SignedUpdate
     posted: PostedUpdate | None = None
 
 
@@ -86,10 +106,18 @@ class ReputationEngine:
         self._cache_navs: dict[str, list[NavEvent]] = {}
         self._cache_trade_hwm: dict[str, int] = {}
         self._cache_nav_hwm: dict[str, int] = {}
+        # WS5.A: per-allocator latest update. Allocator state is
+        # pre-aggregated upstream (in Goldsky), so no rolling window
+        # cache is needed here — each tick refetches the full 30d slice.
+        self._latest_allocators: dict[str, AllocatorEngineUpdate] = {}
 
     @property
     def latest(self) -> dict[str, EngineUpdate]:
         return dict(self._latest)
+
+    @property
+    def latest_allocators(self) -> dict[str, AllocatorEngineUpdate]:
+        return dict(self._latest_allocators)
 
     def subscribe(self) -> asyncio.Queue[EngineUpdate]:
         q: asyncio.Queue[EngineUpdate] = asyncio.Queue(maxsize=128)
@@ -223,9 +251,79 @@ class ReputationEngine:
             last_rotation_epoch=fresh.last_rotation_epoch,
         )
 
+    async def tick_allocators_once(
+        self, now_unix: int | None = None
+    ) -> list[AllocatorEngineUpdate]:
+        """WS5.A: pull pre-aggregated 30d allocator state from Goldsky,
+        compute the four-component allocator score, sign + post."""
+        ts = now_unix if now_unix is not None else int(time.time())
+        window_start = ts - _THIRTY_DAYS_SEC
+        # Defensive: pre-WS5.B Goldsky stubs (and the existing strategy
+        # test stubs) don't implement `fetch_allocator_states`. The
+        # allocator branch silently no-ops in that case rather than
+        # breaking the strategy tick that drives the same `_run` loop.
+        fetcher = getattr(self._goldsky, "fetch_allocator_states", None)
+        if fetcher is None:
+            return []
+        try:
+            states = await fetcher(window_start)
+        except Exception as exc:
+            _log.warning("reputation.goldsky.allocator.error", err=str(exc), exc_info=True)
+            return []
+
+        updates: list[AllocatorEngineUpdate] = []
+        for s in states:
+            update = await self._compute_allocator_update(state=s, now_unix=ts)
+            self._latest_allocators[s.allocator_id] = update
+            updates.append(update)
+
+        _log.info("reputation.tick.allocators", count=len(updates))
+        return updates
+
+    async def _compute_allocator_update(
+        self, state: AllocatorState, now_unix: int
+    ) -> AllocatorEngineUpdate:
+        inputs = AllocatorScoreInputs(
+            aggregate_pnl_above_hwm_e18=state.aggregate_pnl_above_hwm_e18,
+            aggregate_capital_e18=state.aggregate_capital_e18,
+            breach_total_count=state.breach_total_count,
+            breach_response_count=state.breach_response_count,
+            users_at_window_start=state.users_at_window_start,
+            users_at_window_end=state.users_at_window_end,
+            stake_e18=state.stake_e18,
+            max_stake_in_class_e18=state.max_stake_in_class_e18,
+        )
+        outputs = compute_allocator_score(inputs)
+
+        # `ReputationData` fields are strategy-shaped; for allocators we
+        # repurpose what makes sense and zero the rest. The full
+        # breakdown lives in `componentsHash` which the on-chain anchor
+        # records verbatim regardless of actor type.
+        update = ReputationUpdate(
+            actor=state.allocator_id,
+            actor_type=ActorType.ALLOCATOR,
+            current_score=outputs.score_e4,
+            last_update_block=now_unix,
+            total_attested_trades=0,
+            total_realized_pnl=max(0, state.aggregate_pnl_above_hwm_e18),
+            max_drawdown_bps=0,
+            proof_validity_rate_bps=0,
+            components_hash=outputs.components_hash,
+        )
+        signed = self._signer.sign_update(update)
+        posted = await self._anchor.post_async(signed) if self._anchor is not None else None
+        return AllocatorEngineUpdate(
+            state=state,
+            inputs=inputs,
+            outputs=outputs,
+            signed=signed,
+            posted=posted,
+        )
+
     async def _run(self) -> None:
         while not self._stop.is_set():
             await self.tick_once()
+            await self.tick_allocators_once()
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
             except TimeoutError:
@@ -414,6 +512,7 @@ def neutral_cohort() -> CohortContext:
 
 
 __all__ = [
+    "AllocatorEngineUpdate",
     "EngineUpdate",
     "ReputationEngine",
     "neutral_cohort",
