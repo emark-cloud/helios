@@ -35,6 +35,64 @@ type Allocator @entity {
   currentReputation: BigInt!
   users: [User!]! @derivedFrom(field: "allocator")
   allocations: [Allocation!]! @derivedFrom(field: "allocator")
+  # Phase 3 / WS5.B reverse refs.
+  delegations: [UserDelegation!]! @derivedFrom(field: "allocator")
+  decisions: [AllocatorDecision!]! @derivedFrom(field: "allocator")
+  reputationUpdates: [AllocatorReputationUpdate!]! @derivedFrom(field: "allocator")
+}
+
+# Phase 3 / WS5.B — Per-(user, allocator) delegation snapshot. The
+# reputation engine reads this to aggregate users + capital under
+# management for the allocator score (`docs/reputation-math.md
+# §"Allocator reputation v1"`). One row per pair, upserted on each
+# allocation event.
+#
+# Per `project_subgraph_bigint_limitation.md`, `capital` is the
+# most-recent allocation amount (NOT a running sum). Consumers
+# aggregate live capital by summing per-strategy `Allocation` rows at
+# query time. `since` carries the first AllocationCreated timestamp;
+# `defundedAt` flips to non-null on a StrategyDefunded event and
+# resets to null if the user re-allocates afterwards.
+type UserDelegation @entity {
+  id: Bytes!                      # keccak(user || allocator)
+  user: User!
+  allocator: Allocator!
+  capital: BigInt!
+  since: BigInt!
+  defundedAt: BigInt
+}
+
+# Phase 3 / WS5.B — Append-only audit log of allocator-driven
+# capital moves. The frontend renders this on `/allocators/[name]`
+# (recent decisions table). The reputation engine windows by
+# `timestamp` for drawdown-discipline (DEFUND with drawdown reason)
+# and routing-cadence stats.
+type AllocatorDecision @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  allocator: Allocator!
+  user: User
+  strategy: Strategy
+  kind: String!                   # "ALLOCATE" | "DEFUND" | "REBALANCE_INCREASE" | "REBALANCE_DECREASE"
+  amount: BigInt!
+  reason: String                  # only set when kind == DEFUND
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 3 / WS5.B — Append-only allocator reputation history. Mirrors
+# `ReputationSnapshot` for strategies but keyed by allocator-event so
+# the audit page can correlate score movement with the
+# `AllocatorDecision` timeline. Emitted on every
+# `AllocatorRegistry.AllocatorReputationUpdated`.
+type AllocatorReputationUpdate @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  allocator: Allocator!
+  delta: BigInt!                  # signed
+  newScore: BigInt!               # signed
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
 }
 
 type Strategy @entity {

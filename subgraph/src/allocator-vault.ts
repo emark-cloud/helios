@@ -5,9 +5,10 @@ import {
   AllocationDecreased,
   StrategyDefunded,
 } from "../generated/AllocatorVault/AllocatorVault";
-import { Allocation, DefundEvent } from "../generated/schema";
+import { Allocation, AllocatorDecision, DefundEvent } from "../generated/schema";
 import {
   getOrCreateAllocator,
+  getOrCreateDelegation,
   getOrCreateStrategy,
   getOrCreateUser,
   logEventId,
@@ -54,6 +55,33 @@ function ensureAllocation(
 // non-null entity getters), so we sidestep it for now. Phase 2 reintroduces
 // running totals via @aggregation entities once we upgrade graph-ts.
 
+// Phase 3 / WS5.B — emit a per-decision `AllocatorDecision` row for every
+// allocator-driven capital move. The reputation engine windows these by
+// timestamp for the allocator audit log; `/allocators/[name]` renders them
+// chronologically. `kind` is the only categorical field — adding a new
+// kind requires updating both the schema enum doc + frontend filter.
+function emitDecision(
+  event: ethereum.Event,
+  allocator: Bytes,
+  user: Bytes,
+  strategy: Bytes,
+  kind: string,
+  amount: BigInt,
+  reason: string | null,
+): void {
+  const d = new AllocatorDecision(logEventId(event));
+  d.allocator = allocator;
+  d.user = user;
+  d.strategy = strategy;
+  d.kind = kind;
+  d.amount = amount;
+  if (reason != null) d.reason = reason;
+  d.timestamp = event.block.timestamp;
+  d.blockNumber = event.block.number;
+  d.txHash = event.transaction.hash;
+  d.save();
+}
+
 export function handleAllocationCreated(event: AllocationCreated): void {
   const user = event.params.user as Bytes;
   const strategy = event.params.strategy as Bytes;
@@ -67,30 +95,72 @@ export function handleAllocationCreated(event: AllocationCreated): void {
   a.capitalDeployed = event.params.amount;
   a.lastRebalanceAt = event.block.timestamp;
   a.save();
+
+  // WS5.B: upsert the (user, allocator) delegation. `since` is set on
+  // first creation by `getOrCreateDelegation`; if the user previously
+  // defunded and is re-allocating, clear `defundedAt` so the engine
+  // counts them as actively retained.
+  const delegation = getOrCreateDelegation(user, allocator, event.block.timestamp);
+  delegation.capital = event.params.amount;
+  delegation.defundedAt = null;
+  delegation.save();
+
+  emitDecision(event, allocator, user, strategy, "ALLOCATE", event.params.amount, null);
 }
 
 export function handleAllocationIncreased(event: AllocationIncreased): void {
   const user = event.params.user as Bytes;
   const strategy = event.params.strategy as Bytes;
-  const a = ensureAllocation(user, strategy, event.address, event);
+  const allocator = event.address;
+  const a = ensureAllocation(user, allocator, strategy, event);
   a.capitalDeployed = event.params.delta;
   a.lastRebalanceAt = event.block.timestamp;
   a.save();
+
+  const delegation = getOrCreateDelegation(user, allocator, event.block.timestamp);
+  delegation.capital = event.params.delta;
+  delegation.save();
+
+  emitDecision(
+    event,
+    allocator,
+    user,
+    strategy,
+    "REBALANCE_INCREASE",
+    event.params.delta,
+    null,
+  );
 }
 
 export function handleAllocationDecreased(event: AllocationDecreased): void {
   const user = event.params.user as Bytes;
   const strategy = event.params.strategy as Bytes;
-  const a = ensureAllocation(user, strategy, event.address, event);
+  const allocator = event.address;
+  const a = ensureAllocation(user, allocator, strategy, event);
   a.capitalDeployed = event.params.delta;
   a.lastRebalanceAt = event.block.timestamp;
   a.save();
+
+  const delegation = getOrCreateDelegation(user, allocator, event.block.timestamp);
+  delegation.capital = event.params.delta;
+  delegation.save();
+
+  emitDecision(
+    event,
+    allocator,
+    user,
+    strategy,
+    "REBALANCE_DECREASE",
+    event.params.delta,
+    null,
+  );
 }
 
 export function handleStrategyDefunded(event: StrategyDefunded): void {
   const user = event.params.user as Bytes;
   const strategy = event.params.strategy as Bytes;
-  const a = ensureAllocation(user, strategy, event.address, event);
+  const allocator = event.address;
+  const a = ensureAllocation(user, allocator, strategy, event);
   a.defundedAt = event.block.timestamp;
   a.defundReason = event.params.reason;
   a.save();
@@ -104,4 +174,13 @@ export function handleStrategyDefunded(event: StrategyDefunded): void {
   evt.timestamp = event.block.timestamp;
   evt.txHash = event.transaction.hash;
   evt.save();
+
+  // WS5.B: mark the delegation defunded so retention math counts the
+  // user as no longer delegated. A subsequent AllocationCreated for
+  // the same (user, allocator) pair will clear `defundedAt`.
+  const delegation = getOrCreateDelegation(user, allocator, event.block.timestamp);
+  delegation.defundedAt = event.block.timestamp;
+  delegation.save();
+
+  emitDecision(event, allocator, user, strategy, "DEFUND", a.capitalDeployed, event.params.reason);
 }

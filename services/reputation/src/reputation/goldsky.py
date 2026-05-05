@@ -16,37 +16,45 @@ from typing import Any
 
 import httpx
 
-# WS5.A: forward-looking query against the entities WS5.B (subgraph allocator
-# entities) will land. The Goldsky schema fields below mirror the planned
-# `Allocator` / `UserDelegation` / `AllocatorDecision` entities. Until WS5.B
-# ships, this query errors against the live subgraph; engine + tests run
-# against stubs that pre-aggregate `AllocatorState` directly.
+# WS5.B query. Reads the subgraph entities introduced in WS5.B
+# (`UserDelegation`, `AllocatorDecision`, `AllocatorReputationUpdate`)
+# plus the existing `Allocator` entity. Aggregation is done in the
+# Python parser per `project_subgraph_bigint_limitation.md` — graph-ts
+# strict-null inference fights BigInt accumulation in mappings, so the
+# subgraph emits per-event rows and clients sum them at query time.
 #
-# Per `project_subgraph_bigint_limitation.md`, mapping handlers cannot
-# accumulate BigInt without graph-ts strict-null fights, so the parser
-# below sums per-event rows at query time — same posture as the strategy
-# `Allocation.capitalDeployed` aggregation.
+# Coverage gaps tracked for follow-up:
+#   * `aggregate_pnl_above_hwm_e18` — the subgraph does not yet expose
+#     per-user net P&L above HWM. WS3.A's per-trade P&L emission will
+#     unblock this; for now the parser feeds 0, which collapses the
+#     PnL component to 0. Allocators are differentiated on the other
+#     three components until that lands.
+#   * Breach response timing — `AllocatorDecision` records DEFUND
+#     events with the on-chain `reason` string, but pairing each DEFUND
+#     with a preceding NAV-drawdown crossover requires walking
+#     NAVSnapshot rows the engine already caches. Done as a follow-up
+#     in WS7's e2e replay; for now `breach_total_count == 0` so the
+#     drawdown component returns 1.0 ("absence of evidence is rewarded"
+#     per `docs/reputation-math.md §"Allocator reputation v1"`).
 _QUERY_ALLOCATOR_STATE = """
-query AllocatorState($since: BigInt!, $windowStart: BigInt!) {
+query AllocatorState($windowStart: BigInt!) {
   allocators(first: 1000) {
     id
     stakeAmount
-    declaredClass
     delegations(first: 1000) {
       capital
-      pnlAboveHwm
       since
       defundedAt
     }
-    breaches: decisions(
+    decisions(
       first: 1000
-      where: { timestamp_gte: $windowStart, kind: BREACH }
+      where: { timestamp_gte: $windowStart, kind: "DEFUND" }
       orderBy: timestamp
       orderDirection: asc
     ) {
       id
       timestamp
-      defundedAt
+      reason
     }
   }
 }
@@ -135,7 +143,7 @@ class StrategyState:
 class AllocatorState:
     """Pre-aggregated 30d allocator state. Goldsky-side aggregation is done
     in `_parse_allocator` rather than the WASM mapping handlers — the
-    WS5.A query returns per-event rows that the parser sums.
+    WS5.B subgraph emits per-event rows that the parser sums.
 
     Fields drive the four-component formula in `score.compute_allocator_score`:
 
@@ -192,22 +200,17 @@ class GoldskyClient:
 
     async def fetch_allocator_states(self, window_start_unix: int) -> list[AllocatorState]:
         """Fetch per-allocator pre-aggregated state for the 30d retention
-        window starting at `window_start_unix`. The class-relative
-        `max_stake_in_class_e18` is filled in here (not in the subgraph)
-        from the response itself."""
+        window starting at `window_start_unix`. Allocators don't have a
+        single declared class (`AllocatorEntry.supportedClasses` is a
+        list per `IAllocatorRegistry`), so `max_stake_in_class_e18` is
+        normalized against the global allocator-cohort max stake."""
         if not self._endpoint:
             return []
-        # `since` carries the same value (parser uses it for breach
-        # filtering), kept as a separate variable for future flexibility
-        # if the breach window diverges from the retention window.
         resp = await self._client.post(
             self._endpoint,
             json={
                 "query": _QUERY_ALLOCATOR_STATE,
-                "variables": {
-                    "since": str(window_start_unix),
-                    "windowStart": str(window_start_unix),
-                },
+                "variables": {"windowStart": str(window_start_unix)},
             },
         )
         resp.raise_for_status()
@@ -217,19 +220,13 @@ class GoldskyClient:
         data = body.get("data") or {}
         raw: list[dict[str, Any]] = list(data.get("allocators") or [])
         parsed = [_parse_allocator(a, window_start_unix) for a in raw]
-        # Class-relative max stake is computed across the response so the
-        # stake component is bounded on the live cohort, not historical.
-        max_stake_by_class: dict[str, int] = {}
-        for s in parsed:
-            cur = max_stake_by_class.get(s.declared_class, 0)
-            if s.stake_e18 > cur:
-                max_stake_by_class[s.declared_class] = s.stake_e18
+        max_stake = max((s.stake_e18 for s in parsed), default=0)
         return [
             AllocatorState(
                 allocator_id=s.allocator_id,
                 declared_class=s.declared_class,
                 stake_e18=s.stake_e18,
-                max_stake_in_class_e18=max_stake_by_class.get(s.declared_class, 0),
+                max_stake_in_class_e18=max_stake,
                 aggregate_pnl_above_hwm_e18=s.aggregate_pnl_above_hwm_e18,
                 aggregate_capital_e18=s.aggregate_capital_e18,
                 breach_total_count=s.breach_total_count,
@@ -287,20 +284,26 @@ def _parse_strategy(raw: dict[str, Any]) -> StrategyState:
     )
 
 
-# Allocator drawdown-discipline window: a breach is "responded" if the
-# allocator defunded the affected user within this many seconds. 60s
-# matches the spec callout in `docs/phase3-plan.md` WS5.A.
-_DRAWDOWN_RESPONSE_SEC = 60
+# Drawdown-defund reasons as emitted by `AllocatorVault.defund` (and any
+# permissionless drawdown defund path). Lower-cased substring match so
+# the parser is robust to "drawdown threshold breached" phrasings. When
+# the on-chain `defund` reason strings stabilize, this can tighten to an
+# exact equality check; for now we want to catch any drawdown-flavored
+# defund as a breach.
+_DRAWDOWN_REASON_TOKENS = ("drawdown", "max_drawdown", "max-drawdown")
+
+
+def _is_drawdown_reason(reason: str | None) -> bool:
+    if not reason:
+        return False
+    lowered = reason.lower()
+    return any(tok in lowered for tok in _DRAWDOWN_REASON_TOKENS)
 
 
 def _parse_allocator(raw: dict[str, Any], window_start_unix: int) -> AllocatorState:
     delegations: list[dict[str, Any]] = list(raw.get("delegations") or [])
-    breaches: list[dict[str, Any]] = list(raw.get("breaches") or [])
+    decisions: list[dict[str, Any]] = list(raw.get("decisions") or [])
 
-    # Aggregate P&L + capital across delegations, ignoring defunded ones
-    # (capital is no longer at work for this allocator). Same posture as
-    # the strategy `Allocation.capitalDeployed` filter.
-    aggregate_pnl = 0
     aggregate_capital = 0
     users_at_window_end = 0
     users_at_window_start = 0
@@ -310,7 +313,6 @@ def _parse_allocator(raw: dict[str, Any], window_start_unix: int) -> AllocatorSt
         active = defunded_at == 0
         if active:
             aggregate_capital += _to_int(d.get("capital"))
-            aggregate_pnl += _to_int(d.get("pnlAboveHwm"))
             users_at_window_end += 1
         # `users_at_window_start`: delegations whose `since <= windowStart`
         # AND were either still active at window start or defunded after
@@ -320,25 +322,24 @@ def _parse_allocator(raw: dict[str, Any], window_start_unix: int) -> AllocatorSt
         if since <= window_start_unix and (defunded_at == 0 or defunded_at > window_start_unix):
             users_at_window_start += 1
 
-    # Breach response: defunded within 60s of breach. `breaches` already
-    # filtered to the window by the GraphQL `where` clause.
-    breach_total_count = len(breaches)
-    breach_response_count = 0
-    for b in breaches:
-        breach_ts = _to_int(b.get("timestamp"))
-        defunded_at = _to_int(b.get("defundedAt"))
-        if defunded_at > 0 and (defunded_at - breach_ts) <= _DRAWDOWN_RESPONSE_SEC:
-            breach_response_count += 1
+    # Breach proxy: count drawdown-flavored DEFUND decisions in the
+    # window. Until WS3.A's per-trade P&L emission lands, we cannot
+    # pair each breach with a NAV-crossover timestamp, so every
+    # observed defund is treated as both a breach AND a response. Net
+    # effect: the drawdown component is 1.0 for an allocator that
+    # defunded promptly on drawdown reasons, 0/0 (also 1.0) when the
+    # window is clean. The placeholder is documented above the query.
+    drawdown_defunds = sum(1 for x in decisions if _is_drawdown_reason(x.get("reason")))
 
     return AllocatorState(
         allocator_id=str(raw.get("id")),
-        declared_class=str(raw.get("declaredClass") or ""),
+        declared_class="",  # allocators support multiple classes — see fetch_allocator_states
         stake_e18=_to_int(raw.get("stakeAmount")),
         max_stake_in_class_e18=0,  # set by caller
-        aggregate_pnl_above_hwm_e18=aggregate_pnl,
+        aggregate_pnl_above_hwm_e18=0,  # WS3.A follow-up — see query header
         aggregate_capital_e18=aggregate_capital,
-        breach_total_count=breach_total_count,
-        breach_response_count=breach_response_count,
+        breach_total_count=drawdown_defunds,
+        breach_response_count=drawdown_defunds,
         users_at_window_start=users_at_window_start,
         users_at_window_end=users_at_window_end,
     )
