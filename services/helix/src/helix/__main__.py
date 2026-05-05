@@ -2,13 +2,13 @@
 
 import uvicorn
 
-from helix.service import Settings, build_app
+from helix.service import Settings
 
 
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]
     uvicorn.run(
-        build_app,
+        "helix.service:build_app",
         host=settings.http_host,
         port=settings.http_port,
         factory=True,

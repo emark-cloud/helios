@@ -1,11 +1,16 @@
 [project]
 name = "helios-helix"
 version = "0.1.0"
-description = "Helios Helix — second reference allocator, built ground-up on the AllocatorSDK. Correlation-aware, regime-adaptive."
+description = "Helios Helix — second reference allocator, built ground-up on the AllocatorSDK. Helix-lite v1: regime-pinned fee-factor over the SDK rank product."
 requires-python = ">=3.11"
 dependencies = [
     "helios-service-template",
     "helios-allocator-sdk",
+    "eth-account>=0.13",
+    "eth-utils>=4.1",
+    "httpx>=0.27",
+    "structlog>=24.4",
+    "web3>=7.4",
     "numpy>=2.0",
     "pandas>=2.2",
 ]
