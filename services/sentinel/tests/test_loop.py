@@ -413,9 +413,10 @@ async def test_partial_decrease_routes_through_rebalance() -> None:
     assert len(rebs) == 1
     # weights sum to 10_000 and the winner (s2) gets the larger share.
     assert sum(rebs[0].weights_bps) == 10_000
-    assert rebs[0].weights_bps[
-        list(rebs[0].strategies).index(s2.strategy_id)
-    ] > rebs[0].weights_bps[list(rebs[0].strategies).index(s1.strategy_id)]
+    assert (
+        rebs[0].weights_bps[list(rebs[0].strategies).index(s2.strategy_id)]
+        > rebs[0].weights_bps[list(rebs[0].strategies).index(s1.strategy_id)]
+    )
     # In-memory state honours the new targets and neither is defunded.
     assert not user.allocations[s1.strategy_id].defunded
     assert not user.allocations[s2.strategy_id].defunded
