@@ -175,9 +175,7 @@ async def test_new_strategy_backfills_pre_hwm_window(signer: ReputationSigner) -
         def __init__(self) -> None:
             self.calls: list[int] = []
 
-        async def fetch_strategy_states(
-            self, since_unix: int
-        ) -> list[StrategyState]:
+        async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]:
             self.calls.append(since_unix)
             cutoff = _NOW + 60 - 90 * 24 * 60 * 60
             if len(self.calls) == 1:

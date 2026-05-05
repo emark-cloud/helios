@@ -134,8 +134,7 @@ class ReputationEngine:
         # path dedupes the redundant rows for already-cached strategies
         # via the per-strategy HWM filter.
         unseen = any(
-            s.strategy_id not in self._cache_trade_hwm
-            and s.strategy_id not in self._cache_nav_hwm
+            s.strategy_id not in self._cache_trade_hwm and s.strategy_id not in self._cache_nav_hwm
             for s in states
         )
         if unseen and since > cutoff:
