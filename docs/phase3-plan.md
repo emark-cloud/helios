@@ -420,7 +420,7 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 
 | # | Status | Step | Gate before merge |
 |---|--------|------|-------------------|
-| 1 | `[~]` | **WS1.A PR 1/3 — extract** runtime/onchain/goldsky/loop into `helios_allocator.runtime.*` as new modules. Sentinel keeps importing from old paths. | Sentinel tests + Phase 2 e2e green. |
+| 1 | `[x]` | **WS1.A PR 1/3 — extract** runtime/onchain/goldsky/loop into `helios_allocator.runtime.*` as new modules. Sentinel keeps importing from old paths. | Sentinel tests + Phase 2 e2e green. (PR #36, merged 2026-05-05) |
 | 2 | `[ ]` | **WS1.A PR 2/3 — switch** Sentinel to import from the SDK runtime. Old `services/sentinel/{loop,onchain,goldsky,state}.py` become thin re-exports. | `scripts/e2e-scenario.sh` green. |
 | 3 | `[ ]` | **WS1.A PR 3/3 — delete** re-export shims. Sentinel ≤ 50 lines of glue. | Sentinel tests + Phase 2 e2e green. |
 | 4 | `[ ]` | **WS1.B — SDK helpers** (`detect_regime`, `helix_fee_factor`, correlation, BTC vol). | `pytest packages/allocator-sdk` green. |
