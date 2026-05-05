@@ -17,6 +17,9 @@ e2e infrastructure for marginal extra confidence.
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 from sentinel.onchain import OnChainCall, OnChainRunner
 
@@ -124,3 +127,37 @@ def test_build_function_unknown_method_raises() -> None:
 
     with pytest.raises(ValueError, match="unknown onchain method"):
         r._build_function(OnChainCall(method="bogus", user=_USER, strategy=_STRAT))
+
+
+# ── Async wrappers don't block the event loop ─────────────────
+
+
+async def test_async_call_does_not_block_event_loop() -> None:
+    """Mirrors `oracle/anchor.py::test_async_post_does_not_block_event_loop`.
+    The blocking submit (`wait_for_transaction_receipt(timeout=30)`)
+    runs on a worker thread so the async sentinel loop keeps draining
+    other tasks while one tx waits for its receipt. Without this,
+    every WS subscriber and the drawdown poll itself stall for up to
+    30s per emitted call."""
+    r = _live_runner()
+    # Bypass _ensure_live so the test doesn't dial the unreachable RPC.
+    r._send_live = lambda call: time.sleep(0.4) or _stamp(call)  # type: ignore[assignment]
+
+    counter = {"ticks": 0}
+
+    async def background_ticker() -> None:
+        for _ in range(8):
+            await asyncio.sleep(0.05)
+            counter["ticks"] += 1
+
+    ticker = asyncio.create_task(background_ticker())
+    call = await r.allocate_async(_USER, _STRAT, 1_000)
+    await ticker
+
+    assert call.submitted is True
+    assert counter["ticks"] >= 4  # loop drained while submit was running
+
+
+def _stamp(call: OnChainCall) -> None:
+    call.tx_hash = "0x" + "ab" * 32
+    call.submitted = True

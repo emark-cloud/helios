@@ -27,10 +27,12 @@ gives ample headroom.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 import structlog
+from _template.web3_consts import RECEIPT_TIMEOUT_SEC
 from eth_account import Account
 from helios_contracts_abi.abis import IAllocatorVault_ABI
 from web3 import Web3
@@ -39,10 +41,6 @@ from web3.types import TxReceipt
 from sentinel.state import AllocationState
 
 _log = structlog.get_logger(__name__)
-
-# Confirmation timeout per call. Local anvil mines instantly; Kite testnet
-# mines every ~1s. 30s is generous without being silly.
-_RECEIPT_TIMEOUT_SEC = 30
 
 
 @dataclass(slots=True)
@@ -132,6 +130,31 @@ class OnChainRunner:
 
     def settle_fee(self, user: str, strategy: str) -> OnChainCall:
         return self._submit(OnChainCall(method="settleStrategyFee", user=user, strategy=strategy))
+
+    # ── Async wrappers ────────────────────────────────────────
+    # Each `_submit` ends in `wait_for_transaction_receipt(timeout=30)`.
+    # Used directly from the async decision loop, that freezes the event
+    # loop — every WS subscriber and the drawdown-poll cadence stall for
+    # up to 30s per emitted call. The async variants run the sync path
+    # on a worker thread (mirroring `oracle/anchor.AnchorPoster.post_async`)
+    # so the loop keeps draining while a single tx waits for its receipt.
+
+    async def allocate_async(self, user: str, strategy: str, amount: int) -> OnChainCall:
+        return await asyncio.to_thread(self.allocate, user, strategy, amount)
+
+    async def defund_async(self, user: str, strategy: str, reason: str) -> OnChainCall:
+        return await asyncio.to_thread(self.defund, user, strategy, reason)
+
+    async def rebalance_async(
+        self,
+        user: str,
+        strategies: list[str],
+        weights_bps: list[int],
+    ) -> OnChainCall:
+        return await asyncio.to_thread(self.rebalance, user, strategies, weights_bps)
+
+    async def settle_fee_async(self, user: str, strategy: str) -> OnChainCall:
+        return await asyncio.to_thread(self.settle_fee, user, strategy)
 
     async def read_allocation(self, user: str, strategy: str) -> AllocationState | None:
         """Mirror current on-chain allocation state.
@@ -231,7 +254,7 @@ class OnChainRunner:
         tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
         call.tx_hash = tx_hash.hex()
         receipt: TxReceipt = self._w3.eth.wait_for_transaction_receipt(
-            tx_hash, timeout=_RECEIPT_TIMEOUT_SEC
+            tx_hash, timeout=RECEIPT_TIMEOUT_SEC
         )
         if receipt["status"] != 1:
             raise RuntimeError(f"tx reverted: {call.tx_hash}")
