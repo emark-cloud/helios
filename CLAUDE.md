@@ -133,7 +133,21 @@ Secrets never go in the repo. Use `.env` for local, Vercel/VPS env for prod.
 
 Deployed contract addresses per chain live in `contracts/deployments/*.json`, auto-written by deploy scripts. Frontend and services read from these files — no hardcoded addresses elsewhere. Current snapshot:
 
-- **Kite testnet (2368)**: *(scaffolded in Phase 0, populated in Phase 1)*
+- **Kite testnet (2368)** — Phase 2 deployed; full set in `contracts/deployments/kite-testnet.json`. Pinned references:
+  - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f`
+  - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d`
+  - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d`
+  - `allocatorRegistry` `0xbfeba025ca32324a87c620a5c7c110c7666f417c`
+  - `tradeAttestationVerifier` `0x743e1bd7e9795e78b10965eaeaa93bf215476c96` (TAV; class map rotated 2026-05-05 to the priority-2 verifier adapters below)
+  - Verifier adapters (current, post-priority-2 redeploy):
+    - momentum_v1 → `0xfd03cc2cfcb688d7f92b5c4d61ca83d7a400c805` (raw `0x243f148043067aa405def7420351a50ec15b7551`)
+    - mean_reversion_v1 → `0x9ea786e6dc8afeb016d0b8a1c5f6f5512808a171` (raw `0x37b8fb60e2333834d604d1f5cec965094c025529`)
+    - yield_rotation_v1 → `0xbd300b35f824ec2586b36113025d511ed07434d7` (raw `0xf42daa10f5105ae6dd8b138ff655d8c09c8574b1`)
+  - `reputationAnchor` (V1, registry-bound) `0x51c07adf596b1e72697a9b8232d061ed006943dc`
+  - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
+  - `oraclePriceAnchor` `0x90e7a456404e73466e71a190dbb5a5a3490776a8`
+  - `oracleYieldAnchor` `0x1e458d57f9fe0cf50f82366c258b05a254d8fa6f`
+  - Three deployed strategy vaults per class (base + Variant2 + Variant3); see JSON for the full nine.
 - **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
