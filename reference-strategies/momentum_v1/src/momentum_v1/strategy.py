@@ -76,14 +76,20 @@ class MomentumStrategy(StrategyAgent):
 
     # ── Internal sizing ───────────────────────────────────────
     def _size(self) -> float:
+        # PR4: scale entries against current NAV (cash + mark-to-market
+        # of held positions) — the prior `available_capital`-only sizing
+        # collapsed to a tiny slice of the real footprint once the
+        # strategy was already deployed. `size_trade` still clamps the
+        # result to free cash so we never spend what we don't have.
         return min(
             float(self.max_position_size_usd),
-            self.available_capital * self._position_fraction,
+            self.nav * self._position_fraction,
         )
 
     # ── Test/runtime helpers ──────────────────────────────────
     def set_capital(self, usd: float) -> None:
         self._available_capital_usd = usd
+        self._nav_usd = usd
 
     def set_position(self, asset: str, qty: float, avg_price: float, direction: Direction) -> None:
         self._positions[asset] = Position(

@@ -180,12 +180,10 @@ def simulate(
     fills_by_bar: dict[int, int] = {}
     for f in report.fills:
         fills_by_bar[f.bar] = fills_by_bar.get(f.bar, 0) + 1
-    cum = 0
     for bar in range(0, minutes, 10):
         cum_fills = sum(c for b, c in fills_by_bar.items() if b <= bar)
         nav = report.nav_series[min(bar, len(report.nav_series) - 1)]
-        cum = cum_fills
-        console.print(f"[dim]bar {bar:>4}[/dim]  nav=${nav:>10,.2f}  fills={cum}")
+        console.print(f"[dim]bar {bar:>4}[/dim]  nav=${nav:>10,.2f}  fills={cum_fills}")
     console.print(report.summary())
 
 
@@ -226,21 +224,18 @@ def deploy(
     dockerfile = _DOCKERFILE_TEMPLATE.read_text()
     extra_reqs = requirements.read_text() if requirements and requirements.exists() else ""
 
-    plan = [
-        f"ssh {vps} 'mkdir -p {shlex.quote(remote_dir)}'",
-        f"scp {strategy} {vps}:{remote_dir}/strategy.py",
-        f"scp <(printf %s {shlex.quote(dockerfile)}) {vps}:{remote_dir}/Dockerfile",
-        f"scp <(printf %s {shlex.quote(extra_reqs)}) {vps}:{remote_dir}/requirements.extra.txt",
-        f"ssh {vps} 'cd {shlex.quote(remote_dir)} && "
-        f"docker build -t {shlex.quote(image_tag)} . && "
-        f"docker rm -f {shlex.quote(container_name)} 2>/dev/null; "
-        f"docker run -d --restart unless-stopped --name {shlex.quote(container_name)} "
-        f"{shlex.quote(image_tag)}'",
-    ]
-
+    # PR4: prior versions printed an `ssh/scp` plan that didn't match
+    # `_execute_deploy`'s actual behavior (the real path uses `ssh -- target
+    # 'cat > path'` for file transfer; the preview showed `scp <(printf …)`
+    # which is bash-only and wouldn't work for everyone). Print a concise
+    # description that mirrors what `_execute_deploy` will do.
     console.print("[bold]Deploy plan:[/bold]")
-    for step in plan:
-        console.print(f"  {step}")
+    console.print(f"  target          : {vps}:{remote_dir}")
+    console.print("  uploads         : strategy.py, Dockerfile, requirements.extra.txt")
+    console.print(f"  build           : docker build -t {image_tag} .")
+    console.print(
+        f"  run (--rm prior): docker run -d --restart unless-stopped --name {container_name}"
+    )
 
     if not execute:
         console.print(

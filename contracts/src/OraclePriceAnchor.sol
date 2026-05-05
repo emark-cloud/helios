@@ -13,15 +13,17 @@ import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 ///         of signed price snapshots; the strategy circuits consume one
 ///         such root as their public `oracle_root` input.
 ///
-///         Window semantics: `(start, end]` measured in **block.timestamp
-///         milliseconds** (oracle internal clock) — both fields are
-///         oracle-supplied so the contract is agnostic to wall-clock
-///         drift between the chain and the off-chain process.
+///         Window semantics: `[start, end]` (both bounds inclusive)
+///         measured in **block.timestamp milliseconds** (oracle internal
+///         clock) — both fields are oracle-supplied so the contract is
+///         agnostic to wall-clock drift between the chain and the
+///         off-chain process. Adjacent windows MAY touch
+///         (`newStart == prev.windowEnd`); they MAY NOT overlap.
 ///
 ///         A commit is valid iff:
 ///           1. recovered signer == `oracleSigner`,
 ///           2. `windowEnd > windowStart` (non-empty),
-///           3. `windowStart >= prev.windowEnd` (monotonic, no gaps OK),
+///           3. `windowStart >= prev.windowEnd` (monotonic, touching OK),
 ///           4. `root != bytes32(0)` (sentinel for "no snapshots").
 ///
 ///         The anchor is intentionally immutable — no UUPS proxy. If

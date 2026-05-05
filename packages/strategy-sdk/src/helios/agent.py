@@ -46,6 +46,13 @@ class StrategyAgent(ABC):
             raise RuntimeError(f"{type(self).__name__}.declared_class must be set on the subclass.")
         self._positions: dict[str, Position] = {}
         self._available_capital_usd: float = 0.0
+        # PR4: track mark-to-market NAV alongside free cash so sizing
+        # helpers can scale to the strategy's full footprint, not just
+        # the unspent cash slice. The backtest engine refreshes this
+        # before each bar; live runtimes call `_set_nav` after a fresh
+        # `reportNAV` cycle. Defaults to cash so legacy code paths stay
+        # correct on day-zero.
+        self._nav_usd: float = 0.0
 
     # ── To be overridden by operators ────────────────────────
     @abstractmethod
@@ -93,6 +100,14 @@ class StrategyAgent(ABC):
     def available_capital(self) -> float:
         return self._available_capital_usd
 
+    @property
+    def nav(self) -> float:
+        """Mark-to-market NAV in USD: free cash + held positions valued
+        at the latest tick. Use this (not `available_capital`) when
+        sizing entries — a 90%-deployed strategy reads ~10% from
+        `available_capital` but its real footprint is the full NAV."""
+        return self._nav_usd
+
     def position_for(self, asset: str) -> float:
         pos = self._positions.get(asset)
         return pos.quantity if pos else 0.0
@@ -115,6 +130,9 @@ class StrategyAgent(ABC):
     # ── Internal hooks the SDK uses (backtest, runtime) ──────
     def _set_capital(self, usd: float) -> None:
         self._available_capital_usd = usd
+
+    def _set_nav(self, usd: float) -> None:
+        self._nav_usd = usd
 
     def _set_position(
         self, asset: str, qty: float, avg_entry_price: float, direction: Direction

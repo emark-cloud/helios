@@ -91,7 +91,10 @@ def test_deploy_dry_run_prints_plan(tiny_strategy_file: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert "Dry-run" in result.output
-    assert "ssh user@host" in result.output
+    # PR4: plan now mirrors `_execute_deploy` rather than misleading
+    # `scp <(printf …)` shell strings — assert on the new descriptive
+    # shape (target host:port, build step) instead.
+    assert "user@host:/opt/helios-strategy" in result.output
     assert "docker build" in result.output
 
 

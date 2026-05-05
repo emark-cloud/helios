@@ -127,6 +127,7 @@ contract StrategyVault is
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
     error AllowlistRootMismatch();
+    error ParamsHashNotCommitted();
 
     /// @dev Selector for `IERC20.approve(address,uint256)`. Hardcoded so the
     ///      whitelist is independent of compile-time IERC20 metadata changes.
@@ -556,15 +557,18 @@ contract StrategyVault is
 
     // ── Internal helpers ────────────────────────────────────────────
 
-    /// @notice The currently-binding params hash. WS7.A: prefer the
-    ///         registry-committed value when present so post-rotation
-    ///         proofs validate against the canonical hash; fall back to
-    ///         the manifest value for vaults that haven't yet committed
-    ///         (Phase-1 deployment path).
+    /// @notice The currently-binding params hash. The registry-committed
+    ///         value is the canonical source: operators MUST call
+    ///         `StrategyRegistry.commitInitialParamsHash` after
+    ///         `registerStrategy` and before the vault attempts its first
+    ///         trade. Reverts otherwise. The earlier manifest fallback
+    ///         meant a strategy could trade indefinitely against
+    ///         `_manifest.paramsHash` while never engaging the rotation
+    ///         flow — phase2-review.md item 12.
     function _activeParamsHash() internal view returns (bytes32) {
         bytes32 fromRegistry = IStrategyRegistry(registry).paramsHashOf(address(this));
-        if (fromRegistry != bytes32(0)) return fromRegistry;
-        return _manifest.paramsHash;
+        if (fromRegistry == bytes32(0)) revert ParamsHashNotCommitted();
+        return fromRegistry;
     }
 
     function _navOf(address allocator) internal view returns (uint256) {

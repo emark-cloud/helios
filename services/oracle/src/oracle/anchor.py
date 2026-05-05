@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import structlog
+from _template.web3_consts import RECEIPT_TIMEOUT_SEC
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from helios_contracts_abi.abis import IOracleAnchor_ABI
@@ -35,7 +36,6 @@ from oracle.state import SnapshotStore
 from oracle.yield_state import YieldStore
 
 _log = structlog.get_logger(__name__)
-_RECEIPT_TIMEOUT_SEC = 30
 
 
 AnchorKind = Literal["price", "yield"]
@@ -213,7 +213,7 @@ class AnchorPoster:
         """Async wrapper around `post` — runs the blocking Web3 path
         (`build_transaction` + `wait_for_transaction_receipt`) in a
         worker thread so async callers (oracle `Poller`, FastAPI app)
-        don't stall for up to `_RECEIPT_TIMEOUT_SEC` per commit."""
+        don't stall for up to `RECEIPT_TIMEOUT_SEC` per commit."""
         return await asyncio.to_thread(self.post, payload)
 
     def _submit(self, signed: SignedCommit) -> tuple[str, int]:
@@ -239,7 +239,7 @@ class AnchorPoster:
         signed_tx = self._account.sign_transaction(tx)
         tx_hash = self._w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         receipt: TxReceipt = self._w3.eth.wait_for_transaction_receipt(
-            tx_hash, timeout=_RECEIPT_TIMEOUT_SEC
+            tx_hash, timeout=RECEIPT_TIMEOUT_SEC
         )
         if receipt["status"] != 1:
             raise RuntimeError(f"tx reverted: {tx_hash.hex()}")

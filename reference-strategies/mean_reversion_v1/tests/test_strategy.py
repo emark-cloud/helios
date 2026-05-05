@@ -49,8 +49,9 @@ def test_long_entry_on_n_sigma_down() -> None:
     assert intent.asset_out == "WETH"
     assert intent.amount_in_usd is not None
     assert intent.amount_in_usd <= s.max_position_size_usd
-    assert s.last_is_signal_flip is False
-    assert s.last_is_stop_loss is False
+    # PR4: exit-only flags must remain False on entries.
+    assert intent.is_signal_flip is False
+    assert intent.is_stop_loss is False
 
 
 def test_short_entry_on_n_sigma_up() -> None:
@@ -89,8 +90,8 @@ def test_exit_on_mean_recross_when_long() -> None:
     assert intent.asset_in == "WETH"
     assert intent.asset_out == "USDC"
     assert intent.amount_in_asset == 0.5
-    assert s.last_is_signal_flip is True
-    assert s.last_is_stop_loss is False
+    assert intent.is_signal_flip is True
+    assert intent.is_stop_loss is False
 
 
 def test_exit_on_stop_loss_when_long() -> None:
@@ -103,8 +104,8 @@ def test_exit_on_stop_loss_when_long() -> None:
     intent = s.on_bar("WETH", snap)
     assert intent is not None
     assert intent.direction == Direction.EXIT
-    assert s.last_is_stop_loss is True
-    assert s.last_is_signal_flip is False
+    assert intent.is_stop_loss is True
+    assert intent.is_signal_flip is False
 
 
 def test_no_exit_when_already_flat() -> None:

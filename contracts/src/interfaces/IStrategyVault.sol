@@ -67,7 +67,6 @@ interface IStrategyVault {
     error InvalidProof();
     error NotOperator();
     error NotRegistry();
-    error AssetNotInUniverse();
     error CapacityExceeded();
     error ClassMismatch();
     error VaultMismatch();

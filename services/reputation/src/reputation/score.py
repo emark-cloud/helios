@@ -41,7 +41,10 @@ W_RISK = 0.25
 W_PROOF = 0.15
 W_STAKE = 0.10
 W_AGE = 0.10
-assert (W_PERF + W_RISK + W_PROOF + W_STAKE + W_AGE) == 1.0
+# `math.isclose` rather than `==` because float sums can drift one ULP under
+# future re-tuning. Currently the IEEE-754 sum is exact, so this is purely a
+# hardening guard against silent invariant breaks. phase2-review.md item 17.
+assert math.isclose(W_PERF + W_RISK + W_PROOF + W_STAKE + W_AGE, 1.0, abs_tol=1e-9)
 
 # Performance window weights (sum to 1.0).
 W_PERF_7D = 0.5

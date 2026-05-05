@@ -20,6 +20,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisco
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
+from reputation import score as _score
 from reputation.anchor import AnchorPoster
 from reputation.cohort import CohortStats
 from reputation.engine import EngineUpdate, ReputationEngine
@@ -201,11 +202,11 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "perf_breakdown": _serialize_perf_breakdown(update),
             "cohort": _serialize_cohort_context(update.cohort),
             "weights": {
-                "performance": 0.40,
-                "risk": 0.25,
-                "proof": 0.15,
-                "stake": 0.10,
-                "age": 0.10,
+                "performance": _score.W_PERF,
+                "risk": _score.W_RISK,
+                "proof": _score.W_PROOF,
+                "stake": _score.W_STAKE,
+                "age": _score.W_AGE,
             },
             "inputs": {
                 "stake_e18": str(update.inputs.stake_e18),
@@ -215,6 +216,13 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 "valid_proofs": update.inputs.valid_proofs,
                 "total_proof_attempts": update.inputs.total_proof_attempts,
             },
+            # PR4: surface the soundness caveat from `phase2-review.md` —
+            # `proof` is binary 0/1 in Phase 2 (no rejected proofs are
+            # observable from the subgraph), so a `1.0` value means "no
+            # rejections seen" rather than "100% proof correctness." The
+            # frontend uses this flag to render the caveat next to the
+            # "verified" badge instead of treating it as a clean signal.
+            "proof_score_is_binary": True,
         }
 
     @router.websocket("/scores/stream")
