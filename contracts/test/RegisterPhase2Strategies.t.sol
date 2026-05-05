@@ -16,7 +16,7 @@ import { ReputationAnchor } from "../src/ReputationAnchor.sol";
 import { OraclePriceAnchor } from "../src/OraclePriceAnchor.sol";
 import { OracleYieldAnchor } from "../src/OracleYieldAnchor.sol";
 import { UserVault } from "../src/UserVault.sol";
-import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
+import { MockSwapRouter } from "./mocks/MockSwapRouter.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 

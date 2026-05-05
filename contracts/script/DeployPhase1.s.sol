@@ -14,7 +14,7 @@ import { StrategyVault } from "../src/StrategyVault.sol";
 import { IStrategyVault } from "../src/interfaces/IStrategyVault.sol";
 import { AllocatorVault } from "../src/AllocatorVault.sol";
 import { UserVault } from "../src/UserVault.sol";
-import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
+import { MockSwapRouter } from "../test/mocks/MockSwapRouter.sol";
 import { MockERC20 } from "../test/mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "../test/mocks/MockGroth16Verifier.sol";
 import { ClassIds } from "../src/ClassIds.sol";

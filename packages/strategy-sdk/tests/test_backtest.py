@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from helios import (
     Direction,
     MarketSnapshot,
@@ -114,6 +115,32 @@ def test_no_trades_keeps_nav_flat() -> None:
     assert rep.fills == []
     assert rep.final_nav == 10_000
     assert rep.total_return == 0.0
+
+
+class _NoUniverseStrategy(StrategyAgent):
+    """Stand-in for yield_rotation_v1, which sets `asset_universe = ()`."""
+
+    declared_class = "yield_rotation_v1"
+    # Base class default is `()`; reaffirm here for clarity. Annotation
+    # is intentionally omitted so the ClassVar[Sequence[str]] declared
+    # by `StrategyAgent` continues to apply.
+    asset_universe = ()
+    max_position_size_usd = 1_000
+    fee_rate_bps = 2_000
+
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+        del asset, snapshot
+        return None
+
+
+def test_run_backtest_rejects_strategy_with_no_universe_overlap() -> None:
+    """phase2-review.md: previously yielded a clean zero-trade report."""
+    with pytest.raises(ValueError, match="no overlap"):
+        run_backtest(
+            strategy=_NoUniverseStrategy(),
+            prices={"WETH": [100.0, 101.0]},
+            initial_capital=10_000,
+        )
 
 
 def test_synthesize_random_walk_is_deterministic() -> None:

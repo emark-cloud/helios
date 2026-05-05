@@ -429,4 +429,36 @@ contract StrategyRegistryTest is Test {
         vm.expectRevert(IStrategyRegistry.NotOperator.selector);
         registry.initiateParamsRotation(vault, keccak256("v2"));
     }
+
+    function test_Deactivate_CancelsPendingRotation() public {
+        _registerForRotation();
+        bytes32 v1 = keccak256("params-v1");
+        bytes32 v2 = keccak256("params-v2");
+
+        vm.prank(operator);
+        registry.commitInitialParamsHash(vault, v1);
+        vm.prank(operator);
+        registry.initiateParamsRotation(vault, v2);
+
+        // Deactivation MUST drop the pending hash and emit a cancellation
+        // event so a later `completeParamsRotation` can't ship v2 onto an
+        // already-dead strategy.
+        vm.expectEmit(true, false, false, true);
+        emit IStrategyRegistry.ParamsRotationCancelled(vault, v2);
+        vm.prank(operator);
+        registry.deactivate(vault);
+
+        (bytes32 pending,) = registry.pendingParamsHashOf(vault);
+        assertEq(pending, bytes32(0));
+
+        // No active hash mutation possible post-deactivate (rotation cleared
+        // → completeParamsRotation reverts NoPendingParamsRotation).
+        vm.warp(block.timestamp + COOLDOWN + 1);
+        vm.prank(operator);
+        vm.expectRevert(IStrategyRegistry.NoPendingParamsRotation.selector);
+        registry.completeParamsRotation(vault);
+
+        // Active params hash is unchanged.
+        assertEq(registry.paramsHashOf(vault), v1);
+    }
 }

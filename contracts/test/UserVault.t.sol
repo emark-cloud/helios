@@ -26,9 +26,6 @@ contract UserVaultTest is Test {
     event AllocatorDelegated(
         address indexed user, address indexed allocator, uint64 sessionTTL, bytes32 sessionKey
     );
-    event AllocatorFeeSettled(
-        address indexed user, address indexed allocator, uint256 feeAmount, uint256 newHighWaterMark
-    );
     event Withdrawn(address indexed user, address indexed asset, uint256 amount);
 
     function setUp() public {
@@ -270,22 +267,5 @@ contract UserVaultTest is Test {
         vault.creditFromAllocator(user, 5000e6);
         assertEq(vault.balanceOf(user), DEPOSIT + 5000e6);
         assertEq(vault.highWaterMarkOf(user), DEPOSIT + 5000e6);
-    }
-
-    // ── settleAllocatorFee ──────────────────────────────────────────
-
-    function test_SettleAllocatorFee_RevertsOnWrongAllocator() public {
-        _seedDelegation();
-        vm.prank(user);
-        vm.expectRevert(UserVault.NotDelegatedAllocator.selector);
-        vault.settleAllocatorFee(randomCaller);
-    }
-
-    function test_SettleAllocatorFee_NoOpEmitsZeroFee() public {
-        _seedDelegation();
-        vm.expectEmit(true, true, false, true);
-        emit AllocatorFeeSettled(user, allocator, 0, DEPOSIT);
-        vm.prank(user);
-        vault.settleAllocatorFee(allocator);
     }
 }

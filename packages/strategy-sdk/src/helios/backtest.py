@@ -116,6 +116,19 @@ def run_backtest(
     n_bars = series_lens.pop()
     if n_bars < 2:
         raise ValueError("need at least two bars to backtest")
+    # phase2-review.md: previously a strategy with no overlap between its
+    # `asset_universe` and the supplied prices (yield_rotation_v1 ships
+    # `asset_universe = ()` because rotations don't go through the swap
+    # path) silently produced a clean zero-trade report. Surface it as an
+    # error so operators don't read "0 trades, 0% return" as a benign
+    # backtest. yield_rotation_v1 needs `helios simulate-rotations`,
+    # not `helios backtest`.
+    if not any(asset in prices for asset in strategy.asset_universe):
+        raise ValueError(
+            "strategy.asset_universe has no overlap with `prices` keys; "
+            "this backtest engine only steps swap-class strategies — "
+            "yield_rotation_v1 simulates via the rotation runner instead"
+        )
 
     bars_per_year = max(1, (365 * 24 * 60 * 60) // max(1, bar_interval_sec))
     bars_per_year = bars_per_year if bars_per_year > 0 else BARS_PER_YEAR_1M
