@@ -9,6 +9,23 @@
  */
 
 const BASE = (process.env.NEXT_PUBLIC_SENTINEL_URL ?? "http://localhost:8001").replace(/\/$/, "");
+const HELIX_BASE = (process.env.NEXT_PUBLIC_HELIX_URL ?? "http://localhost:8006").replace(/\/$/, "");
+
+/// Two reference allocator base URLs. The onboard `AllocatorPicker`
+/// stores the user's pick in localStorage as `"sentinel" | "helix"`;
+/// `postMetaStrategyTo` reads that and routes the POST.
+///
+/// Helix exposes the *same* REST surface as Sentinel (`POST
+/// /v1/users/{user}/meta-strategy`, `GET /users/{user}/dashboard`,
+/// etc.) — both services are built on top of `helios-allocator-sdk`'s
+/// `AllocatorRuntime`, so the only thing that differs cross-service
+/// is the base URL.
+export type AllocatorChoice = "sentinel" | "helix";
+
+export const ALLOCATOR_BASES: Record<AllocatorChoice, string> = {
+  sentinel: BASE,
+  helix: HELIX_BASE,
+};
 
 export type SentinelEventKind =
   | "META_STRATEGY_SET"
@@ -99,8 +116,13 @@ export class SentinelError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${BASE}/v1${path}`, {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  signal?: AbortSignal,
+  base: string = BASE,
+): Promise<T> {
+  const res = await fetch(`${base}/v1${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
     signal,
@@ -118,6 +140,22 @@ export function postMetaStrategy(payload: MetaStrategyPayload, signal?: AbortSig
     method: "POST",
     body: JSON.stringify(payload),
   }, signal);
+}
+
+/// Route the meta-strategy POST to a specific allocator's REST
+/// surface. The allocator-picker step calls this with the user's
+/// choice; `lib/onboard-storage.ts` persists the pick.
+export function postMetaStrategyTo(
+  choice: AllocatorChoice,
+  payload: MetaStrategyPayload,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return request(
+    `/users/${payload.user_address}/meta-strategy`,
+    { method: "POST", body: JSON.stringify(payload) },
+    signal,
+    ALLOCATOR_BASES[choice],
+  );
 }
 
 export function fetchSentinelStrategies(
