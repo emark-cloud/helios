@@ -130,6 +130,53 @@ type ReputationSnapshot @entity(immutable: true) {
   proofValidityRateBps: Int!
   timestamp: BigInt!
   blockNumber: BigInt!
+  # Anchor source — "V1" or "V2". V2 emits the typehash-v2 EIP-712
+  # signature with `componentsHash` (paired `ComponentsAnchor` entity).
+  source: String
+}
+
+# Phase 2 / WS3.A — `ReputationAnchorV2.ComponentsAnchored`. V2 emits
+# this paired with each `ReputationPosted` so the audit page can verify
+# the per-component breakdown (§8.2 sub-scores) the engine signed off
+# matches what the UI re-derives. Joined to ReputationSnapshot by
+# (actor, timestamp).
+type ComponentsAnchor @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  actor: Bytes!
+  componentsHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 / WS1.A — `OraclePriceAnchor.Committed`. EIP-712-signed
+# append-only ledger of price-snapshot Poseidon roots. Circuits consume
+# `root` directly via `priceAnchor.isKnownRoot(root)`. The audit page
+# renders the timeline so an operator can prove the root used at trade
+# time was committed before the trade landed.
+type OraclePriceCommit @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  index: BigInt!                  # monotonic on-chain index
+  root: Bytes!
+  windowStart: BigInt!
+  windowEnd: BigInt!
+  signer: Bytes!                  # recovered EIP-712 signer
+  committedAt: BigInt!            # block timestamp at write
+  txHash: Bytes!
+}
+
+# Phase 2 / WS1.A — `OracleYieldAnchor.Committed`. Mirrors
+# OraclePriceCommit; YR circuit consumes the yield root via
+# `yieldAnchor.isKnownRoot(root)`.
+type OracleYieldCommit @entity(immutable: true) {
+  id: Bytes!
+  index: BigInt!
+  root: Bytes!
+  windowStart: BigInt!
+  windowEnd: BigInt!
+  signer: Bytes!
+  committedAt: BigInt!
+  txHash: Bytes!
 }
 
 type DefundEvent @entity(immutable: true) {
