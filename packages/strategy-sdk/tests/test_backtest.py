@@ -121,7 +121,10 @@ class _NoUniverseStrategy(StrategyAgent):
     """Stand-in for yield_rotation_v1, which sets `asset_universe = ()`."""
 
     declared_class = "yield_rotation_v1"
-    asset_universe: tuple[str, ...] = ()
+    # Base class default is `()`; reaffirm here for clarity. Annotation
+    # is intentionally omitted so the ClassVar[Sequence[str]] declared
+    # by `StrategyAgent` continues to apply.
+    asset_universe = ()
     max_position_size_usd = 1_000
     fee_rate_bps = 2_000
 
