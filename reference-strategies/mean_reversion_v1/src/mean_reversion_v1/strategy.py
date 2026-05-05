@@ -30,7 +30,6 @@ from __future__ import annotations
 import math
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
-from helios.types import Position
 
 LOOKBACK_BARS = 16
 
@@ -144,17 +143,18 @@ class MeanReversionStrategy(StrategyAgent):
         )
 
     # ── Test/runtime helpers ──────────────────────────────────
+    # `set_capital` / `set_position` delegate to the SDK base hooks. They
+    # exist as public test-harness aliases so tests can seed state without
+    # importing the underscore-prefixed internals; they don't add new
+    # behaviour beyond resetting NAV alongside capital (a fresh allocation
+    # has no holdings, so cash == NAV — which keeps `_size()` (NAV-backed
+    # since PR4) bit-compatible with the prior cash-backed shape).
     def set_capital(self, usd: float) -> None:
-        self._available_capital_usd = usd
-        # Tests use this helper to simulate a fresh allocation; with no
-        # held positions cash == NAV, which keeps `_size()` (now NAV-
-        # backed) bit-compatible with the prior cash-backed shape.
-        self._nav_usd = usd
+        self._set_capital(usd)
+        self._set_nav(usd)
 
     def set_position(self, asset: str, qty: float, avg_price: float, direction: Direction) -> None:
-        self._positions[asset] = Position(
-            asset=asset, quantity=qty, avg_entry_price=avg_price, direction=direction
-        )
+        self._set_position(asset, qty, avg_price, direction)
 
     @property
     def n_sigma_x100(self) -> int:

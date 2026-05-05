@@ -21,7 +21,6 @@ operator's IP.
 from __future__ import annotations
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
-from helios.types import Position
 
 
 class MomentumStrategy(StrategyAgent):
@@ -70,6 +69,7 @@ class MomentumStrategy(StrategyAgent):
                 amount_in_asset=position,
                 direction=Direction.EXIT,
                 max_slippage_bps=self._max_slippage_bps,
+                is_signal_flip=True,
             )
 
         return None
@@ -87,14 +87,17 @@ class MomentumStrategy(StrategyAgent):
         )
 
     # ── Test/runtime helpers ──────────────────────────────────
+    # `set_capital` / `set_position` delegate to the SDK base hooks. They
+    # exist as public test-harness aliases so tests can seed state without
+    # importing the underscore-prefixed internals; they don't add new
+    # behaviour beyond resetting NAV alongside capital (a fresh allocation
+    # has no holdings, so cash == NAV).
     def set_capital(self, usd: float) -> None:
-        self._available_capital_usd = usd
-        self._nav_usd = usd
+        self._set_capital(usd)
+        self._set_nav(usd)
 
     def set_position(self, asset: str, qty: float, avg_price: float, direction: Direction) -> None:
-        self._positions[asset] = Position(
-            asset=asset, quantity=qty, avg_entry_price=avg_price, direction=direction
-        )
+        self._set_position(asset, qty, avg_price, direction)
 
     @property
     def signal_threshold(self) -> float:

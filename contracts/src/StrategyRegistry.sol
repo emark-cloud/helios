@@ -152,6 +152,19 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
         if (!s.active) revert StrategyInactive();
 
         s.active = false;
+
+        // phase2-review.md: cancel any pending params rotation alongside the
+        // deactivation so a subsequent `completeParamsRotation` can't mutate
+        // the active hash on a strategy whose vault is no longer accepting
+        // capital. Without this, op could `initiateParamsRotation` →
+        // `deactivate` → wait cooldown → `completeParamsRotation` and ship a
+        // new params hash that the rest of the system thinks is dead.
+        bytes32 pendingHash = _pendingParamsRotation[strategyId].newHash;
+        if (pendingHash != bytes32(0)) {
+            delete _pendingParamsRotation[strategyId];
+            emit ParamsRotationCancelled(strategyId, pendingHash);
+        }
+
         emit StrategyDeactivated(strategyId);
     }
 

@@ -170,19 +170,6 @@ contract UserVault is
         emit AllocatorDelegated(msg.sender, allocator, sessionTTL, sessionKey);
     }
 
-    /// @notice Settle a notional allocator fee against the user's HWM. Phase
-    ///         1 keeps this as a HWM-only update — the allocator's actual
-    ///         per-strategy fees are accrued inside AllocatorVault during
-    ///         settleStrategyFee. This entry point exists so the front-end
-    ///         can mark a snapshot and so the interface is honored.
-    function settleAllocatorFee(address allocator) external {
-        UserState storage u = _users[msg.sender];
-        if (u.allocator != allocator) revert NotDelegatedAllocator();
-        // No movement in Phase 1; bump HWM to the current idle balance.
-        if (u.balance > u.highWaterMark) u.highWaterMark = u.balance;
-        emit AllocatorFeeSettled(msg.sender, allocator, 0, u.highWaterMark);
-    }
-
     // ── AllocatorVault privileged hooks ─────────────────────────────
 
     function transferToAllocator(address user, uint256 amount) external nonReentrant {

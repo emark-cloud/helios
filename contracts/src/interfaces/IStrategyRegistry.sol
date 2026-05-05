@@ -32,6 +32,7 @@ interface IStrategyRegistry {
         address indexed strategyId, bytes32 oldHash, bytes32 newHash, uint64 unlockAt
     );
     event ParamsRotated(address indexed strategyId, bytes32 oldHash, bytes32 newHash);
+    event ParamsRotationCancelled(address indexed strategyId, bytes32 cancelledNewHash);
 
     error StakeCooldownActive();
     error NotReputationAnchor();

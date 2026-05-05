@@ -27,7 +27,7 @@ from typing import Any
 import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from helios.types import Direction, TradeIntent
+from helios.types import TradeIntent
 
 from momentum_v1.executor import ExecutionRecord, TradeExecutor
 from momentum_v1.oracle_client import OracleClient, OracleEmptyError, SnapshotBundle
@@ -218,8 +218,12 @@ class MomentumRuntime:
                 signal_threshold_bps=int(self._strategy.signal_threshold * 10_000),
                 position_state_e18=int(self._strategy.position_for(asset) * 10**18),
                 stop_loss_price_e18=0,
-                is_signal_flip=intent.direction == Direction.EXIT,
-                is_stop_loss=False,
+                # Forward the intent's exit-reason flags. Symmetric with the
+                # MR runtime; momentum never raises a stop-loss in practice
+                # but reading the field keeps the witness builder honest if
+                # a subclass extends the strategy.
+                is_signal_flip=intent.is_signal_flip,
+                is_stop_loss=intent.is_stop_loss,
             )
         except ValueError as exc:
             _log.warning("momentum.witness.invalid", asset=asset, err=str(exc))

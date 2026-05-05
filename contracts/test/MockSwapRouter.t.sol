@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
-import { MockSwapRouter } from "../src/mocks/MockSwapRouter.sol";
+import { MockSwapRouter } from "./mocks/MockSwapRouter.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
