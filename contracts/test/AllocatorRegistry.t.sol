@@ -356,4 +356,27 @@ contract AllocatorRegistryTest is Test {
         vm.expectRevert(AllocatorRegistry.SlashExceedsStake.selector);
         registry.slash(vault, STAKE + 1, "x");
     }
+
+    function test_Slash_ToZeroDeactivates() public {
+        _register("Sigma");
+        assertTrue(registry.allocatorOf(vault).active);
+
+        vm.prank(owner);
+        registry.slash(vault, STAKE, "FULL_STAKE");
+
+        IAllocatorRegistry.AllocatorEntry memory a = registry.allocatorOf(vault);
+        assertEq(a.stakeAmount, 0);
+        assertFalse(a.active);
+    }
+
+    function test_Slash_PartialKeepsActive() public {
+        _register("Sigma");
+
+        vm.prank(owner);
+        registry.slash(vault, STAKE - 1, "PARTIAL");
+
+        IAllocatorRegistry.AllocatorEntry memory a = registry.allocatorOf(vault);
+        assertEq(a.stakeAmount, 1);
+        assertTrue(a.active);
+    }
 }

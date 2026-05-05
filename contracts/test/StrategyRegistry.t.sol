@@ -273,6 +273,29 @@ contract StrategyRegistryTest is Test {
         registry.slash(vault, STAKE + 1, "x");
     }
 
+    function test_Slash_ToZeroDeactivates() public {
+        _register();
+        assertTrue(registry.strategyOf(vault).active);
+
+        vm.prank(owner);
+        registry.slash(vault, STAKE, "FULL_STAKE");
+
+        IStrategyRegistry.StrategyEntry memory s = registry.strategyOf(vault);
+        assertEq(s.stakeAmount, 0);
+        assertFalse(s.active);
+    }
+
+    function test_Slash_PartialKeepsActive() public {
+        _register();
+
+        vm.prank(owner);
+        registry.slash(vault, STAKE - 1, "PARTIAL");
+
+        IStrategyRegistry.StrategyEntry memory s = registry.strategyOf(vault);
+        assertEq(s.stakeAmount, 1);
+        assertTrue(s.active);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     function _register() internal {

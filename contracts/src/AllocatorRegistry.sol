@@ -189,6 +189,7 @@ contract AllocatorRegistry is IAllocatorRegistry, Ownable, ReentrancyGuard {
         if (amount > a.stakeAmount) revert SlashExceedsStake();
 
         a.stakeAmount -= amount;
+        if (a.stakeAmount == 0) a.active = false;
         stakeToken.safeTransfer(owner(), amount);
 
         emit AllocatorSlashed(allocatorId, amount, reason);

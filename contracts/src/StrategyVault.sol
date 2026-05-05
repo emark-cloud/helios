@@ -130,6 +130,7 @@ contract StrategyVault is
     error AllocationOverdrawn();
     error StaleNav();
     error NavSignatureInvalid();
+    error NavExceedsCap();
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
@@ -519,6 +520,13 @@ contract StrategyVault is
         (uint256 totalNAV_, uint64 timestamp, bytes memory signature) =
             abi.decode(signedNAV, (uint256, uint64, bytes));
         if (timestamp <= lastNAVTimestamp) revert StaleNav();
+        // Cap NAV at 10× the manifest's maxCapacity. Without this cap, a
+        // compromised navOracle could set _totalNAV near 2^256, after which
+        // every read of _navOf overflows in `_totalNAV * _allocationOf[..]`,
+        // permanently DoS'ing reads on this vault. 10× leaves plenty of
+        // headroom for legitimate gain reporting (Helios.md §6.4 caps strategy
+        // returns well below this) while bounding the attack surface.
+        if (totalNAV_ > 10 * _manifest.maxCapacity) revert NavExceedsCap();
         bytes32 structHash = keccak256(abi.encode(_NAV_UPDATE_TYPEHASH, totalNAV_, timestamp));
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, signature);
