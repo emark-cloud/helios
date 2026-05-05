@@ -12,12 +12,11 @@ import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi.testclient import TestClient
+from helios_allocator.runtime import AllocationState, AllocatorEvent, StrategyDirectoryRow
 from helios_allocator.types import StrategyCandidate
 from sentinel.auth import canonical_digest
-from sentinel.goldsky import StrategyDirectoryRow
 from sentinel.schemas import MetaStrategyPayload
 from sentinel.service import Settings, build_app
-from sentinel.state import AllocationState, SentinelEvent
 
 _TEST_PK = "0x" + "11" * 32
 _TEST_USER = Account.from_key(_TEST_PK).address
@@ -231,7 +230,7 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
         store = app.state.store  # type: ignore[attr-defined]
         # Pre-emit a historical event so the replay path is exercised.
         store.emit_event(
-            SentinelEvent(
+            AllocatorEvent(
                 user_address=user_addr,
                 kind="ALLOCATION_CREATED",
                 strategy_id="0x" + "11" * 20,
@@ -251,7 +250,7 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
             assert replayed["strategy"] == "0x" + "11" * 20
 
             store.emit_event(
-                SentinelEvent(
+                AllocatorEvent(
                     user_address=user_addr,
                     kind="STRATEGY_DEFUNDED",
                     strategy_id="0x" + "11" * 20,
@@ -266,7 +265,7 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
 
 
 def test_candidate_caching_via_seed(app_client: tuple[object, TestClient]) -> None:
-    """`SentinelLoop.seed_candidates` is the test/scenario hook that lets
+    """`AllocatorLoop.seed_candidates` is the test/scenario hook that lets
     the loop run without HTTP. Confirm it bypasses the rank-update gate."""
     app, _ = app_client
     loop = app.state.loop  # type: ignore[attr-defined]
