@@ -409,3 +409,46 @@ All pass → Phase 3 acceptance bar met. Move to Phase 4.
 | **Total (one engineer, sequential)** | **26 days** | |
 | **Wall-clock (one engineer with parallelism)** | **17–19 days** | |
 | **Wall-clock (two engineers)** | **10–11 days** | |
+
+---
+
+## Execution order (Claude Code workflow)
+
+The constraint when driving this with Claude Code is **PR review attention**, not engineer-days. Steps are ordered to keep PRs small, ship a Sentinel-vs-Helix demo by step 11, and defer SDK-author and Phase-2-carryover work until the demo path is wired. Each row = one Claude Code session = one PR.
+
+**Status legend:** `[ ]` not started · `[~]` in progress · `[x]` merged · `[!]` blocked
+
+| # | Status | Step | Gate before merge |
+|---|--------|------|-------------------|
+| 1 | `[ ]` | **WS1.A PR 1/3 — extract** runtime/onchain/goldsky/loop into `helios_allocator.runtime.*` as new modules. Sentinel keeps importing from old paths. | Sentinel tests + Phase 2 e2e green. |
+| 2 | `[ ]` | **WS1.A PR 2/3 — switch** Sentinel to import from the SDK runtime. Old `services/sentinel/{loop,onchain,goldsky,state}.py` become thin re-exports. | `scripts/e2e-scenario.sh` green. |
+| 3 | `[ ]` | **WS1.A PR 3/3 — delete** re-export shims. Sentinel ≤ 50 lines of glue. | Sentinel tests + Phase 2 e2e green. |
+| 4 | `[ ]` | **WS1.B — SDK helpers** (`detect_regime`, `helix_fee_factor`, correlation, BTC vol). | `pytest packages/allocator-sdk` green. |
+| 5 | `[ ]` | **WS5.A — Allocator reputation engine branch** + `docs/reputation-math.md` §"Allocator reputation v1". | `pytest services/reputation` green. |
+| 6 | `[ ]` | **WS5.B — Subgraph allocator entities** + handlers. | `pnpm --filter subgraph build` green. |
+| 7 | `[ ]` | **WS3.A — Helix service** (allocator + service + `__main__` + PM2 entry). Divergence assertion is the gate. | `pytest services/helix` green; divergence-vs-Sentinel test passes. |
+| 8 | `[ ]` | **WS3.B — `DeployPhase3.s.sol`** + `AllocatorRegistry.t.sol` extension + write addresses to `kite-testnet.json`. | `forge test -vv` green. |
+| 9 | `[ ]` | **WS6.A — `/allocators` directory + detail.** | Playwright `allocators.spec` green. |
+| 10 | `[ ]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. | Playwright `onboard.spec` green; localStorage choice round-trips. |
+| 11 | `[ ]` | **WS6.C — Dashboard allocator leaderboard.** | Playwright dashboard spec green; Sentinel + Helix both render. |
+| 12 | `[ ]` | **WS2.A — `helios-allocator init` scaffold + template + SDK README "Build with Claude Code".** | `pytest packages/helios-cli/tests/test_allocator_init.py` green. |
+| 13 | `[ ]` | **WS1.C — Backtest harness** in the SDK. | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |
+| 14 | `[ ]` | **WS2.B — `helios-allocator {backtest, simulate, stake, deploy, logs}`.** | Typer CliRunner smoke tests green. |
+| 15 | `[ ]` | **WS2.C — `helios scaffold-strategy` + Strategy SDK README.** | Scaffold-install-import test green for all three classes. |
+| 16 | `[ ]` | **WS4 — Strategy SDK hardening** (YR backtest driver / position flipping / NAV sizing) split as 3 small PRs. | `pytest packages/strategy-sdk` green; refreshed backtest writeups committed. |
+| 17 | `[ ]` | **WS7 — `scenarios/phase3-divergence.py` + `scripts/e2e-phase3.sh` + GH Action.** | Full divergence scenario green; third-party-init acceptance test green with zero Helios edits. |
+
+### Parallelism via background sub-agents
+
+While reviewing each step's PR, useful background `Agent` work that does **not** compete for the review queue:
+
+- **During steps 1–3 (WS1.A chain)** → draft step 4 (WS1.B helpers + tests) and the three step-16 (WS4) small fixes. They land in the gaps between later steps.
+- **During step 5 (WS5.A)** → draft step 6 subgraph schema so it's ready to commit immediately after.
+- **During step 9 (WS6.A)** → draft steps 10 and 11; all three share the same Goldsky query layer.
+- **Do not background-draft step 7 (WS3.A).** Helix is the load-bearing differentiator and deserves a focused session.
+
+### Hard rules per step
+
+1. Every PR runs `forge test` + relevant `pytest` suite + `scripts/e2e-scenario.sh` (Phase 2 e2e) before merge. **WS1.A is the only step where the Phase 2 e2e is at real risk** — do not skip it there.
+2. No step touches contract ABIs beyond WS3.B. A contract change discovered mid-stream is a phase amendment, not a quiet edit.
+3. Update this table's status column in the same PR that lands the step. The doc is the source of truth for Phase 3 progress.
