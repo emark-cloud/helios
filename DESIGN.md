@@ -22,7 +22,7 @@
 12. [ZK verification — how visible](#12-zk-verification--how-visible)
 13. [Motion philosophy](#13-motion-philosophy)
 14. [Constraints and non-negotiables](#14-constraints-and-non-negotiables)
-15. [Telegram bot](#15-telegram-bot)
+15. [Event message style (activity rail today, Telegram bot post-hackathon)](#15-event-message-style-activity-rail-today-telegram-bot-post-hackathon)
 16. [What I need back from you](#16-what-i-need-back-from-you)
 
 ---
@@ -186,7 +186,7 @@ Helios speaks with **quiet authority**. Every piece of UI copy should read like 
 
 **Professional does not mean cold.** "Welcome back, Maya" is fine. "Hey Maya! 👋 Good to see you!" is not.
 
-No emoji in the product UI. (Telegram bot is a separate question — see §15.)
+No emoji in the product UI proper. The activity rail (and the deferred Telegram bot) is the single exception — see §15 for the restrained ⚡/⚠️/✓ status-marker rule.
 
 ---
 
@@ -416,6 +416,8 @@ The interaction treats this latency as information rather than hiding it. When t
 
 ## 11. The sunburst — our one piece of bespoke visualization
 
+> **v1 scope.** Helios v1 ships a simplified concentric-ring sunburst (hand-rolled SVG or Recharts `Pie` with two layers — user → allocator → strategies; the positions ring + bespoke d3 + mechanical step-animated rebalance are deferred to post-hackathon Phase 1, see `Helios.md §16`/`§17`). The principles below describe the full v2 vision; v1 honors the layout, color, hover, and click-through but not the custom motion physics.
+
 Helios ships one custom visualization: the **sunburst capital-flow diagram**. It appears on the dashboard as the primary portfolio viz, and on allocator detail pages showing the allocator's aggregate capital distribution.
 
 **What it shows:**
@@ -533,9 +535,11 @@ No light mode toggle. The design is optimized for one palette; shipping two half
 
 ---
 
-## 15. Telegram bot
+## 15. Event message style (activity rail today, Telegram bot post-hackathon)
 
-Minimal, text-forward. Not rich cards, not inline buttons. The bot's job is to fire short, informative pings during the demo (and during real operation).
+> **v1 note.** The standalone Telegram bot is deferred to the post-hackathon Phase 1 roadmap (`Helios.md §16`/`§17`). The templates below drive the dashboard activity rail in v1 verbatim — the rail is text-forward, single-event-per-row, and applies the same character/emoji/links rules. When the bot ships, it consumes the same WS feed and reuses these templates with no copy changes.
+
+Minimal, text-forward. Not rich cards, not inline buttons. The job is to fire short, informative pings during the demo (and during real operation).
 
 **Message style:**
 

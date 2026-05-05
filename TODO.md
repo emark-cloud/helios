@@ -315,12 +315,12 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] Helpers: `default_top_k_allocation`, `score_weighted_allocation`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`
 - [ ] SDK handles: onboarding, drawdown monitoring at 60s, fee crystallization, defund/rebalance tx submission via Passport sessions, Goldsky integration, ReputationAnchor integration for allocator reputation, WS event emission, stake management, Docker packaging, local backtest
 - [ ] CLI: `helios-allocator init | backtest | simulate | stake | deploy | logs`
+- [ ] **`packages/allocator-sdk/README.md` "Build with Claude Code" section** (added 2026-05-05 — judging-criteria audit, criterion D novelty). 5-line scaffold prompt + pointer to `CLAUDE.md`; scaffold output (`helios-allocator init`) is the AI-native entry path.
 
-### SX — Helix (second reference allocator)
+### SX — Helix-lite (second reference allocator)
 - [ ] `services/helix/` built **entirely on top of allocator-sdk** — treated as an external consumer for validation purposes
-- [ ] `helix_fee_factor` — regime-adaptive per `Helios.md §11.4.1(a)`
-- [ ] `detect_regime` from BTC realized-vol percentiles
-- [ ] `helix_greedy_pick` — correlation-aware greedy selection with `max_pairwise_correlation = 0.7`
+- [ ] `helix_fee_factor` — fixed-weight fee penalty (regime-adaptive variant deferred — see Deferred §)
+- [ ] `helix_greedy_pick` — top-K greedy selection by reputation × fee factor (correlation-aware variant deferred)
 - [ ] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Helix"`, fee rate 600 bps
 - [ ] Runs alongside Sentinel on the VPS
 
@@ -334,11 +334,12 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] **Position flipping in `_apply_intent`.** Mean-rev signal flips currently stack onto open positions instead of auto-EXITing first; spec'd as a known follow-up in `docs/backtests/mean_reversion_v1_90d.md`. Add a "flip = exit + open" path with explicit tests for LONG→SHORT and SHORT→LONG transitions.
 - [ ] **NAV-based / vol-target sizing helper.** Once flipping is fixed, ship a sizing helper that re-sizes against current NAV (not stale cash) so reference strategies stop over-leveraging across long runs.
 - [ ] **Mirror remaining packages to test-PyPI.** WS6 PR5.B shipped GitHub Releases as the wheel host because PyPI's web UI was down for trusted-publisher registration. When test-PyPI registration is available again, register OIDC trusted publishers for `helios-trader-cli`, `helios-allocator-sdk`, and `helios-contracts-abi` and re-enable `publish-sdk-testpypi.yml` for those three (the GitHub Releases path stays as the install-from-curl fallback).
+- [ ] **`helios scaffold-strategy <class>` CLI** (added 2026-05-05 — judging-criteria audit, criterion D novelty). Mirrors `helios-allocator init` so both SDKs have an AI-native starter path. Output: a runnable subclass of `MomentumStrategy` / `MeanReversionStrategy` / `YieldRotationStrategy` plus `pyproject.toml`, README, and a "next steps for Claude Code" comment block referencing `CLAUDE.md`.
+- [ ] **`packages/strategy-sdk/README.md` "Build with Claude Code" section** (added 2026-05-05 — judging-criteria audit). 5-line scaffold prompt + pointer to `CLAUDE.md`; pairs with `helios scaffold-strategy`.
 
 ### FE — Allocator surface
 - [ ] `/allocators` directory: Sentinel first with "Official Reference" badge, Helix second (same badge), space for third parties below
 - [ ] Each card: name, fee rate, supported classes, ranking function one-sentence + "view code" link, current users, total capital managed, reputation, stake
-- [ ] Side-by-side comparison mode (select 2+)
 - [ ] `/onboard` adds an allocator-picker step
 - [ ] `/allocators/[name]` detail page
 
@@ -349,7 +350,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 
 ---
 
-## Phase 4 — Frontend completion + sunburst + Telegram
+## Phase 4 — Frontend completion + signature interactions
 
 **Goal.** Every DESIGN.md surface implemented. Signature moments land.
 
@@ -357,17 +358,16 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `/` landing — confident headline, live stats band from subgraph (total capital managed, active strategies, attested trades, active allocators), two primary CTAs, secondary links. No feature sections, no testimonials, no FAQ.
 - [ ] `/strategies/[id]` — manifest header, reputation breakdown panel (perf/risk/proof/stake/age), P&L curve with drawdown envelope, recent trades table with shield icons, current allocators, NAV timeline
 - [ ] `/audit/[strategy]` — every trade paginated, proof hash + verification result, "verify this proof yourself" modal, reputation-calculation inputs exposed, JSON dump link. Celebrated ZK treatment per `DESIGN.md §12`.
-- [ ] `/judge` — video link, "Try the demo scenario" button, contract addresses with explorer links, GitHub links, `verify-trade.js` command block, 5-step eval checklist, live transaction counts
-- [ ] `/docs` — embedded operator + allocator guides
+- [ ] `/judge` — video link, "Try the demo scenario" button, contract addresses with explorer links, GitHub links, `verify-trade.js` command block, 5-step eval checklist, live transaction counts. **Self-sufficient even without VPS up** (added 2026-05-05 — judging-criteria audit, criterion C real-world applicability): expose Kite testnet RPC URL, all deployed addresses (auto-read from `contracts/deployments/kite-testnet.json`), Goldsky endpoint, and Kitescan deeplinks for a recent scenario's `TradeAttested` / `Reallocated` / `AutoDefunded` events so judges can verify the system end-to-end before VPS deploys in Phase 6.
+- [ ] `/docs` route deferred — `/judge` instead links out to operator + allocator guides on GitHub (see Deferred §)
 
-### FE — Sunburst viz
-- [ ] Bespoke d3 implementation (not Recharts/Nivo primitive)
-- [ ] Concentric rings: user → allocator → strategies → positions
+### FE — Sunburst viz (v1, simplified)
+- [ ] Concentric-ring viz: user → allocator → strategies (skip positions ring for v1)
+- [ ] Implementation: hand-rolled SVG or Recharts `Pie` with two layers — bespoke d3 + ticked-motion physics deferred to v2 polish (see Deferred §)
 - [ ] Segments sized by capital weight, colored by chain
 - [ ] Amber selected state
 - [ ] Hover reveals strategy name + allocated + NAV + P&L
 - [ ] Click navigates to strategy detail
-- [ ] Mechanical step animation on update (~300ms of ticked motion, not smooth)
 - [ ] Mini-sunburst variant for allocator cards
 
 ### FE — Signature interactions
@@ -398,32 +398,11 @@ Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport w
 - [ ] Re-record the demo voiceover per `Helios.md §14.1` — passkey, no MetaMask popup
 - [ ] Re-run `scripts/e2e-scenario.sh` and confirm the Phase 1 vertical-slice acceptance criteria still pass against the new flow
 
-### FE — x402 paid services (Phase 2 demo polish, layered in Phase 4 — Choice G from integration proposal)
-
-The "Allocator pays prover via x402" headline demo beat. Optional but high-leverage: it makes the agent-economy framing tangible in the live demo.
-
-- [ ] x402-aware FastAPI middleware shared across `services/prover`, `services/oracle`, `services/reputation` (audit endpoint)
-- [ ] Pricing curves per service — per-snapshot, per-proof, per-audit-read; commit defaults in service config
-- [ ] Pieverse facilitator integration (`https://facilitator.pieverse.io`, scheme `gokite-aa`, `POST /v2/verify` + `/v2/settle`)
-- [ ] Sentinel allocator-side: x402 client lib that consumes 402 responses, attaches `X-Payment` header drawn from the allocator's spending session
-- [ ] `/dashboard` activity rail surfaces `X402_SETTLED` events (Allocator → service tx) — small inline badge, Kitescan link to the settle tx
-- [ ] Resolve open questions from `docs/kite-passport-notes.md` §"Open questions": Pieverse mainnet/testnet endpoint split, canonical mainnet USDC for Passport settlement
-- [ ] Demo-script update: add a "0:50 — Allocator pays for the proof" beat showing the x402 settle in real-time
-
-### FE — Telegram bot
-- [ ] `@helios_market_bot` deployed, token in `TELEGRAM_BOT_TOKEN`
-- [ ] Event subscriptions consume the allocator WS stream
-- [ ] Message templates per `DESIGN.md §15`:
-  - [ ] `StrategyAllocated`, `StrategyDefunded`, `RebalanceComplete`, `FeeAccrued`, `WithdrawalReady`
-  - [ ] Each ≤ 200 chars, one event per message, restrained emoji (⚡/⚠️/✓ only), links to Kitescan
-- [ ] User opt-in flow from `/dashboard`
-
 ### Acceptance for Phase 4
 - [ ] All surfaces from `DESIGN.md §9` live
-- [ ] Scenario mode from Phase 1 replays at full visual fidelity — cascade animates staggered, auto-defund lands as thermostat moment, Telegram pings in sync
+- [ ] Scenario mode from Phase 1 replays at full visual fidelity — cascade animates staggered, auto-defund lands as thermostat moment, activity rail prints both events in sync
 - [ ] An external designer reviewing the live app says "Bloomberg meets Vercel v0," not "DeFi app"
 - [ ] Passport onboarding rebuild merged: zero `[PASSPORT-STUB]` tags remain in frontend; `/onboard` is one passkey approval; e2e scenario green
-- [ ] (Optional Choice G) x402 paid services live: prover, oracle, audit endpoints; Sentinel pays via x402 in the activity rail during the demo
 
 ---
 
@@ -469,7 +448,7 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 ### Mainnet promotion (decided 2026-04-25)
 - [ ] Confirm hackathon allows mainnet submission + Passport is live on mainnet (gating questions)
 - [ ] Acquire KITE for deploys + demo capital (~$100–500 demo float)
-- [ ] Slither / Mythril / Echidna **clean** on every Phase 1 contract before any mainnet tx
+- [ ] Slither / Mythril **clean** on every Phase 1 contract before any mainnet tx (Echidna deferred — see Deferred §)
 - [ ] `contracts/script/DeployMainnet.s.sol`; populate `contracts/deployments/kite-mainnet.json`
 - [ ] Swap `MockSwapRouter` calls for real Algebra Integral router on mainnet
 - [ ] Swap `oracle/sources/binance.py` for `oracle/sources/algebra.py` (TWAP from real pools)
@@ -486,16 +465,16 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 ### CX — Security passes
 - [ ] Slither run clean (or all findings triaged + documented)
 - [ ] Mythril run clean
-- [ ] Echidna property tests for: vault solvency, no allocation exceeds meta-strategy bounds, only drawdown-breached strategies can be permissionlessly defunded, reputation never overflows
 - [ ] Circuit unit tests for every class cover: zero inputs, max inputs, boundary conditions, every invariant branch
 - [ ] Internal threat model walkthrough against `Helios.md §15.2` — every row has a test or a documented mitigation
 
 ### OP — Deploy hardening
 - [ ] PM2 ecosystem file for all services with auto-restart, log rotation
-- [ ] Nginx reverse proxy with rate limiting on public endpoints
-- [ ] Health-check endpoints monitored; alerting to a Telegram admin channel
+- [ ] Nginx reverse proxy with rate limiting on public endpoints — **set explicit per-route values** (added 2026-05-05 — judging-criteria audit, criterion A "scoped keys, rate limits"). Read endpoints (e.g. `/v1/strategies`, `/v1/allocators`, `/v1/scores`): 100 req/min per IP. Write endpoints (e.g. `/v1/onboard`, allocator command surfaces): 10 req/min per IP. Document the values in `deploy/README.md` so judges can see the rate-limit story without reading nginx config.
+- [ ] Health-check endpoints monitored; alerting via PM2 logs + email digest (Telegram admin channel deferred with the bot — see Deferred §)
 - [ ] Postgres backups + restore runbook
 - [ ] Secrets in VPS env only, never committed
+- [ ] **VPS pre-deploy ≥ 48h before judging deadline** (added 2026-05-05 — judging-criteria audit, criterion C). Calendar move only — no code change. Ensures `helios.market` (or chosen subdomain) is reachable with valid TLS during evaluation. Falls back to `/judge`'s self-sufficient artifacts list if anything goes wrong day-of.
 
 ### Docs
 - [x] `docs/operator-guide.md` — how to ship a strategy (landed 2026-05-01 with WS4.B)
@@ -505,7 +484,7 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 - [ ] `docs/threat-model.md` — §15 rendered as a standalone doc
 - [ ] `docs/audit-checklist.md` — for external auditors
 - [ ] Backtest reports at `docs/backtests/` for every reference strategy
-- [ ] `README.md` — judge-friendly entry, links to demo video, live URL, /judge page, repo map
+- [ ] `README.md` — judge-friendly entry, links to demo video, live URL, /judge page, repo map. **Includes a "Reproduce the demo in 5 minutes" block at the top** (added 2026-05-05 — judging-criteria audit, success-slide row 7) with the canonical sequence (`pnpm install && uv sync && forge install && pnpm dev`, then `scripts/e2e-scenario.sh`), and a **"Rate limits & scoped permissions" subsection** (criterion A) listing concrete values: per-strategy capital cap (Solidity ACL in `UserVault`), per-route Nginx limits, strategy-agent self-throttle (`min_bar_interval` in `strategy-sdk`).
 
 ### Demo
 - [ ] 3-minute live demo script rehearsed end-to-end
@@ -516,7 +495,7 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 ### Acceptance for Phase 6
 - [ ] A cold judge following `/judge`'s 5-step checklist completes evaluation in under 5 minutes
 - [ ] Judge can verify a ZK proof independently against an on-chain tx and confirm it matches
-- [ ] Slither/Mythril/Echidna all pass (or every finding documented + justified)
+- [ ] Slither/Mythril all pass (or every finding documented + justified)
 - [ ] Cold-start demo succeeds on a machine that has never touched the repo before
 - [ ] Backup video is uploaded and linked
 
@@ -531,3 +510,18 @@ The "Allocator pays prover via x402" headline demo beat. Optional but high-lever
 - [ ] No `any` in TypeScript; no unformatted Solidity; no unlinted Python
 - [ ] `DESIGN.md §4.3` amber budget respected (2–5% of pixels)
 - [ ] `DESIGN.md §13` motion budget respected (smooth motion only in the listed exceptions)
+
+---
+
+## Deferred (post-hackathon)
+
+Cuts taken 2026-05-05 to deliver a working demo faster and let the operator (emark) use the app end-to-end without service-side detours. Each item lands in `Helios.md §17` (post-hackathon roadmap) so the trajectory stays explicit.
+
+- **Telegram bot (`services/bot/`, `@helios_market_bot`).** The 0:50–1:30 and 1:30–2:10 demo beats are carried by the dashboard activity rail (`/dashboard` already streams `SentinelEvent`s over WS). Restoring the bot revives `services/bot/`, the token provisioning flow, the DESIGN.md §15 message templates as bot output, and the `/dashboard` opt-in step. Roadmap: post-hackathon Phase 1 (Months 1–3).
+- **x402 paid services (Choice G).** Pieverse facilitator + per-service pricing curves + `X-Payment` middleware across prover/oracle/reputation. Strong agent-economy demo polish but not in the headline 3-min script. Roadmap: post-hackathon Phase 1.
+- **Helix regime-adaptive fee + correlation-aware greedy.** AllocatorSDK still exposes the hooks (`pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`) so any third party can build a correlation/regime allocator from day one — Helix v1 just doesn't use them. Helix-lite still produces visibly different allocations from Sentinel via fee weighting + greedy pick over reputation. Roadmap: post-hackathon Phase 1.
+- **`/allocators` side-by-side comparison mode (select 2+).** Per-allocator detail pages + the directory list cover the marketplace narrative; the side-by-side compare is polish.
+- **Bespoke d3 sunburst with mechanical step animation.** Phase 4 ships a simpler concentric-ring viz (hand-rolled SVG / Recharts `Pie`). Bespoke d3 + ticked-motion physics on rebalance is v2 polish. Roadmap: post-hackathon Phase 1.
+- **`/docs` embedded operator + allocator guides.** `/judge` links out to the markdown in `docs/` on GitHub instead. Embedded MDX rendering is post-hackathon.
+- **Echidna property tests.** Slither + Mythril clean is the v1 security bar. Echidna for vault solvency / allocation bounds / drawdown-permissionless / reputation overflow is post-audit work. Roadmap: post-hackathon Phase 2 (Months 4–6).
+- **Telegram admin alerting channel.** Replaced by PM2 logs + email digest in v1; revives with the bot.
