@@ -369,9 +369,10 @@ struct MetaStrategy {
     uint256 maxFeeRateBps;          // e.g., 2500 = 25%
     uint256 rebalanceCadenceSec;
     uint64  validUntil;
-    uint16  defundTwapBars;         // §6.3 anti-grief bars (Phase 2 schema; Phase 4 enforcement)
+    uint16  defundTwapBars;         // §6.3 anti-grief bars — schema landed in build phase 2; enforcement in build phase 4 (see TODO.md; distinct from §17 post-hackathon roadmap phases)
     uint16  defundBondBps;          // §6.3 anti-grief bond
     uint32  defundConfirmBlocks;    // §6.3 anti-grief confirmation window
+    uint16  defundRewardCapUsd;     // §6.3 reward cap on permissionless trigger (default 500 USDC, 6 decimals)
     uint16  bootstrapShareBps;      // §8.7 cold-start pool (Sentinel honors)
     uint32  minAttestedTrades;      // §8.7 cold-start eligibility threshold
 }
@@ -526,7 +527,7 @@ function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external on
 - `rotateParams` lets the operator change `manifest.paramsHash` only after a public, observable cooldown (default 24h after the last rotation, enforced by the registry). Rotation emits a `ParamsRotated` event and creates a clean break in the strategy's track record: the reputation engine resets `AgeScore` and `PerformanceScore` on the new params slot, and allocators see the rotation timestamp so they can choose whether to keep or pull capital. This forecloses the "pick a threshold to fit each trade" attack because the threshold is fixed across all trades under a given `paramsHash` and any change is publicly visible before the next trade.
 - `slash` is owner-controlled in the MVP (Helios team multi-sig), with a clear path to community governance post-hackathon.
 - `withdrawStake` has a 7-day cooldown to prevent rug-pulls after taking allocations.
-- `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4).
+- `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4). Owner-only in v1 (Helios multi-sig curates the lending venues for `yield_rotation_v1`); see §15.1 for the centralization implications and the v2 path to per-class governance.
 
 ### 6.6 `AllocatorRegistry`
 
@@ -960,6 +961,17 @@ ReputationScore  = 0.40·0.710 + 0.25·0.700 + 0.15·0.995
 ```
 
 The on-chain `currentScore` is stored as `int256` in e4 fixed point (`score × 10_000`), giving `currentScore = 7038`. The reputation engine also derives `componentsHash = keccak256(abi.encode(int256, uint256, uint256, uint256, uint256))` over the five sub-scores in e4 form — this hash is recorded alongside the aggregate score by `ReputationAnchor` v2 (Phase 2 / WS3.A typehash bump) so allocators can verify the breakdown that produced any score.
+
+**Cold-start variant.** For a freshly-registered strategy of the same class with `TradesAttested = 0` and the same `$5,000` stake, the §8.7 stake-only floor zeroes every component except `StakeScore`:
+
+```
+PerformanceScore = 0     RiskScore = 0     ProofScore = 0     AgeScore = 0
+StakeScore       = log(1 + 5000/1000) / log(1 + 50000/1000) ≈ 0.4557
+
+ReputationScore  = w_stake · StakeScore = 0.10 · 0.4557 ≈ 0.0456 → currentScore = 456
+```
+
+Bounded above by `w_stake = 0.10` regardless of stake size — a richer cold-start operator with `$50,000` stake floors at `0.10 · 1.0 = 0.1000`. This is the floor that makes the score monotonically non-decreasing as proofs accumulate (no "score went down because I have proofs now" surprises, per §8.7).
 
 This example is the canonical reference for `services/reputation/tests/test_score_822.py`. Any change to the formulas above must update the test in lockstep (and vice versa).
 
@@ -1436,7 +1448,9 @@ helios-allocator logs                       # Live tail of operational events
 
 ### 11.4 Helios Helix — the second reference allocator
 
-For the hackathon demo, the Helios team ships **Helios Helix** alongside Sentinel as a second reference allocator. Helix uses correlation-aware allocation and a regime-adaptive fee weight, demonstrating that the AllocatorSDK is real and the marketplace mechanism functions even within the hackathon submission.
+> **v1 scope (Helix-lite).** Helix v1 ships only `helix_fee_factor` (continuous fee-fit, regime-fixed at NORMAL) over `score_weighted_allocation` from the AllocatorSDK. The full feature set described in §11.4.1 (regime detection from BTC realized vol, correlation-aware greedy pick, regime-adaptive fee weighting) is post-hackathon Phase 1 — see §16. The AllocatorSDK still ships the `detect_regime`, `pairwise_correlation_from_goldsky`, and `btc_realized_vol_30d` hooks in v1 so any third-party allocator can adopt them earlier than Helix does. The §11.4.1 code blocks below show the *target* implementation; treat them as the v2 spec, not v1 shipping code.
+
+For the hackathon demo, the Helios team ships **Helios Helix** alongside Sentinel as a second reference allocator. The v1 differentiation from Sentinel is a continuous fee-fit factor and `score_weighted_allocation` over a top-K-by-rank pick — enough to produce visibly different allocations on the same user's onboard, which is the demo bar. The full v2 picture (correlation awareness + regime adaptation) is the post-hackathon target.
 
 Helix is also a branded reference name (like Sentinel) — the `AllocatorRegistry` reserves "Helios Helix" and the Helios team multi-sig holds the assignment. Third-party allocators cannot register under the `Helios *` namespace.
 
@@ -1781,7 +1795,7 @@ Defense: An attacker who steals the user's passkey + email recovers the AA walle
 Defense: The on-chain ACL bounds the attacker to the meta-strategy — they cannot exceed `maxCapital`, allocate to disallowed asset classes, or change the user's drawdown threshold. The user revokes by calling `delegateToAllocator(address(0))`.
 
 **Threat: Smart contract bug.**
-Defense: The Solidity surface is intentionally small (~2,430 LoC). Audit-friendly. Pre-launch we run static analysis (Slither, Mythril) and aim for a community audit pass; Echidna property fuzz suites are scheduled alongside the Phase 1 external audit (see §16, §17).
+Defense: The Solidity surface is intentionally small (~2,830 LoC, per the §6.1 inventory). Audit-friendly. Pre-launch we run static analysis (Slither, Mythril) and aim for a community audit pass; Echidna property fuzz suites are scheduled alongside the Phase 1 external audit (see §16, §17).
 
 **Threat: ZK circuit bug.**
 Defense: Each circuit is small and reviewed. Unit tests cover edge cases (zero amounts, max amounts, boundary conditions). The trusted setup is a known limitation requiring future ceremony.
