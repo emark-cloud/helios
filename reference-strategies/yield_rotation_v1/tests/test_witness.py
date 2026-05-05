@@ -36,13 +36,14 @@ FIXTURE_STRATEGY_VAULT = "0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee"
 FIXTURE_ALLOCATOR = "0xa11ca7"
 FIXTURE_NONCE = 7
 FIXTURE_BLOCK_END = 200
+FIXTURE_BLOCK_START = 150
 FIXTURE_THRESHOLD = 80
 FIXTURE_BRIDGING = 30
 
-# Computed by `circuits/scripts/gen-fixture-yr.js` against the new
-# 12-PI circuit (PR2). The witness builder must reproduce these
-# bit-for-bit.
-EXPECTED_TRADE_HASH = 15551756236772019655813087469555871888267725882019474839636640940768167973683
+# Computed by `circuits/scripts/gen-fixture-yr.js` against the 13-PI
+# circuit (followup #5 — block_window_start added). Re-run the
+# generator script to refresh after any PI / params_hash change.
+EXPECTED_TRADE_HASH = 3723609009985288208521441901558949253503109140460325761007469747154611652486
 EXPECTED_YIELD_ROOT = 19617008100108992903905573385623852931387633461552456891295159462318722212376
 
 
@@ -56,6 +57,7 @@ def _build_fixture_witness():
         allocator_address=FIXTURE_ALLOCATOR,
         nonce=FIXTURE_NONCE,
         block_window_end=FIXTURE_BLOCK_END,
+        block_window_start=FIXTURE_BLOCK_START,
         signal_threshold_bps=FIXTURE_THRESHOLD,
         bridging_cost_bps=FIXTURE_BRIDGING,
     )
@@ -81,7 +83,7 @@ def test_witness_yield_root_matches_js_fixture() -> None:
 def test_witness_input_keys_complete() -> None:
     req = _build_fixture_witness()
     expected_keys = {
-        # 12 public
+        # 13 public
         "trade_hash",
         "declared_class",
         "strategy_vault",
@@ -94,6 +96,7 @@ def test_witness_input_keys_complete() -> None:
         "allocator_address",
         "nonce",
         "block_window_end",
+        "block_window_start",
         # private
         "apy_from",
         "apy_to",
@@ -141,6 +144,7 @@ def test_witness_rejects_below_threshold_differential() -> None:
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
+            block_window_start=50,
             signal_threshold_bps=80,
             bridging_cost_bps=30,
         )
@@ -158,6 +162,7 @@ def test_witness_rejects_non_allowlisted_market() -> None:
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
+            block_window_start=50,
             signal_threshold_bps=80,
             bridging_cost_bps=30,
         )
@@ -179,6 +184,7 @@ def test_witness_rejects_missing_snapshot() -> None:
             allocator_address="0x" + "0" * 40,
             nonce=1,
             block_window_end=100,
+            block_window_start=50,
             signal_threshold_bps=80,
             bridging_cost_bps=30,
         )

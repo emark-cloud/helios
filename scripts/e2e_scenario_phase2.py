@@ -674,6 +674,7 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
         allocator_vault=ctx.allocator_vault.address,
         nonce=0,
         block_window_end=ctx.w3.eth.block_number + 100,
+        block_window_start=ctx.w3.eth.block_number,
     )
     allowlist_root_bytes = seed_witness.markets_allowlist_root.to_bytes(32, "big")
     print(f"    setMarketAllowlistRoot(YR, {allowlist_root_bytes.hex()[:10]}…)")
@@ -693,6 +694,7 @@ def step_emit_yield_rotation_trades(ctx: Ctx) -> None:
             allocator_vault=ctx.allocator_vault.address,
             nonce=nonce_offset,
             block_window_end=block + 100,
+            block_window_start=block,
             from_market=from_m,
             to_market=to_m,
         )

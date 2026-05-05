@@ -193,7 +193,6 @@ class YieldRotationRuntime:
         ticks: dict[int, YieldTick],
     ) -> ExecutionRecord | None:
         block_start, block_end = self._block_provider.window(self._cfg.block_window_size)
-        del block_start  # YR circuit only uses block_window_end
         self._nonce += 1
         nonce = self._nonce
 
@@ -208,6 +207,7 @@ class YieldRotationRuntime:
                 allocator_address=self._allocator_address,
                 nonce=nonce,
                 block_window_end=block_end,
+                block_window_start=block_start,
                 signal_threshold_bps=self._strategy.signal_threshold_bps,
                 bridging_cost_bps=self._strategy.bridging_cost_bps,
             )

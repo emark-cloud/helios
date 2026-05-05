@@ -770,7 +770,8 @@ contract StrategyVaultTest is Test {
         //  [9]  allocator
         //  [10] nonce
         //  [11] block_window_end
-        pi = new uint256[](12);
+        //  [12] block_window_start
+        pi = new uint256[](13);
         pi[0] = uint256(keccak256("yr-trade-1"));
         pi[1] = uint256(CLASS);
         pi[2] = uint256(uint160(address(vault)));
@@ -783,6 +784,7 @@ contract StrategyVaultTest is Test {
         pi[9] = uint256(uint160(allocatorVault));
         pi[10] = 7; // nonce
         pi[11] = block.number + 10;
+        pi[12] = block.number;
     }
 
     function test_ExecuteYieldRotationWithProof_HappyPath() public {
@@ -799,6 +801,7 @@ contract StrategyVaultTest is Test {
             pi[6],
             pi[7],
             bytes32(pi[8]),
+            uint64(pi[12]),
             uint64(pi[11])
         );
         vm.prank(operator);
@@ -806,7 +809,7 @@ contract StrategyVaultTest is Test {
     }
 
     function test_ExecuteYieldRotationWithProof_RevertsOnShortInputs() public {
-        uint256[] memory pi = new uint256[](11);
+        uint256[] memory pi = new uint256[](12);
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.prank(operator);
         vm.expectRevert(StrategyVault.PublicInputsTooShort.selector);

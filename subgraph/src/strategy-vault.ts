@@ -80,6 +80,7 @@ export function handleYieldRotationAttested(event: YieldRotationAttested): void 
   yr.mTo = event.params.mTo;
   yr.amountRotating = event.params.amountRotating;
   yr.yieldOracleRoot = event.params.yieldOracleRoot;
+  yr.blockWindowStart = event.params.blockWindowStart;
   yr.blockWindowEnd = event.params.blockWindowEnd;
   yr.timestamp = event.block.timestamp;
   yr.txHash = event.transaction.hash;
@@ -99,7 +100,7 @@ export function handleYieldRotationAttested(event: YieldRotationAttested): void 
   trade.amountIn = event.params.amountRotating;
   trade.minAmountOut = BigInt.zero();
   trade.direction = 0;
-  trade.blockWindowStart = BigInt.zero();
+  trade.blockWindowStart = event.params.blockWindowStart;
   trade.blockWindowEnd = event.params.blockWindowEnd;
   trade.timestamp = event.block.timestamp;
   trade.txHash = event.transaction.hash;

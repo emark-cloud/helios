@@ -61,6 +61,7 @@ interface IStrategyVault {
         uint256 mTo,
         uint256 amountRotating,
         bytes32 yieldOracleRoot,
+        uint64 blockWindowStart,
         uint64 blockWindowEnd
     );
 

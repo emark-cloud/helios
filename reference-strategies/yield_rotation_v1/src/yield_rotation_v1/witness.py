@@ -59,6 +59,7 @@ def build_yield_rotation_witness(
     allocator_address: str,
     nonce: int,
     block_window_end: int,
+    block_window_start: int,
     signal_threshold_bps: int,
     bridging_cost_bps: int,
 ) -> WitnessRequest:
@@ -118,7 +119,7 @@ def build_yield_rotation_witness(
     # `_activeParamsHash()`.
     params_hash = poseidon_hash([signal_threshold_bps, bridging_cost_bps])
 
-    # trade_hash binds the 11 non-trade-hash PIs into one Poseidon; the
+    # trade_hash binds the 12 non-trade-hash PIs into one Poseidon; the
     # on-chain side checks each PI independently against an authoritative
     # source so a substitution attack fails on either layer (circuit
     # constraint 9 + the per-PI checks in `_validateAndVerifyYR`).
@@ -135,11 +136,12 @@ def build_yield_rotation_witness(
             allocator_field,
             nonce,
             block_window_end,
+            block_window_start,
         ]
     )
 
     inputs: dict[str, Any] = {
-        # Public (12)
+        # Public (13)
         "trade_hash": str(trade_hash),
         "declared_class": str(declared_class_field),
         "strategy_vault": str(strategy_vault_field),
@@ -152,6 +154,7 @@ def build_yield_rotation_witness(
         "allocator_address": str(allocator_field),
         "nonce": str(nonce),
         "block_window_end": str(block_window_end),
+        "block_window_start": str(block_window_start),
         # Private witness
         "apy_from": str(apy_from),
         "apy_to": str(apy_to),

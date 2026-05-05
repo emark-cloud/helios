@@ -107,6 +107,7 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     signal input allocator_address;
     signal input nonce;
     signal input block_window_end;
+    signal input block_window_start;
 
     // ── Private witness ─────────────────────────────────────────────
     signal input apy_from;
@@ -223,13 +224,27 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     paramsPoseidon.inputs[1] <== bridging_cost;
     params_hash === paramsPoseidon.out;
 
+    // ── Constraint 8b: block-window bound ───────────────────────────
+    // Mirror momentum/MR: cap the [start, end] interval to ≤100 blocks
+    // so a pre-attested proof cannot remain replayable across an
+    // arbitrarily wide window. Without `block_window_start` as a PI,
+    // any proof minted before the registered yield-oracle root could
+    // be replayed for the entire pre-attestation lifetime — review
+    // followup #5.
+    signal yrWindowDelta;
+    yrWindowDelta <== block_window_end - block_window_start;
+    component yrWindowOk = LessEqThan(64);
+    yrWindowOk.in[0] <== yrWindowDelta;
+    yrWindowOk.in[1] <== 100;
+    yrWindowOk.out === 1;
+
     // ── Constraint 9: trade_hash binding ────────────────────────────
-    // trade_hash = Poseidon(11) over the canonical public-input tuple
+    // trade_hash = Poseidon(12) over the canonical public-input tuple
     // (everything but trade_hash itself). Each component is also checked
     // independently on-chain (vault, allocator, params, allowlist, …) so
     // the prover cannot substitute a fresh proof for a different vault
     // while keeping the same trade_hash.
-    component tradePoseidon = Poseidon(11);
+    component tradePoseidon = Poseidon(12);
     tradePoseidon.inputs[0] <== declared_class;
     tradePoseidon.inputs[1] <== strategy_vault;
     tradePoseidon.inputs[2] <== params_hash;
@@ -241,6 +256,7 @@ template YieldRotationV1(YIELD_DEPTH, ALLOW_DEPTH) {
     tradePoseidon.inputs[8] <== allocator_address;
     tradePoseidon.inputs[9] <== nonce;
     tradePoseidon.inputs[10] <== block_window_end;
+    tradePoseidon.inputs[11] <== block_window_start;
     trade_hash === tradePoseidon.out;
 }
 
@@ -256,5 +272,6 @@ component main { public [
     yield_oracle_root,
     allocator_address,
     nonce,
-    block_window_end
+    block_window_end,
+    block_window_start
 ] } = YieldRotationV1(6, 4);

@@ -42,9 +42,9 @@ contract YieldRotationV1VerifierTest is Test {
 
     function test_RawVerifier_AcceptsRealProof() public view {
         (Proof memory p, uint256[] memory pubInputs) = _loadFixture();
-        require(pubInputs.length == 12, "fixture: bad pub input count");
-        uint256[12] memory fixedInputs;
-        for (uint256 i = 0; i < 12; i++) {
+        require(pubInputs.length == 13, "fixture: bad pub input count");
+        uint256[13] memory fixedInputs;
+        for (uint256 i = 0; i < 13; i++) {
             fixedInputs[i] = pubInputs[i];
         }
         assertTrue(raw.verifyProof(p.a, p.b, p.c, fixedInputs));
@@ -71,7 +71,7 @@ contract YieldRotationV1VerifierTest is Test {
             abi.encodeWithSelector(
                 YieldRotationV1VerifierAdapter.WrongPublicInputCount.selector,
                 shortInputs.length,
-                12
+                13
             )
         );
         adapter.verifyProof(p.a, p.b, p.c, shortInputs);
