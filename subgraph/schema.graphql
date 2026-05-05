@@ -52,9 +52,13 @@ type Strategy @entity {
   totalAttestedTrades: Int!
   maxDrawdownBps: Int!
   trades: [Trade!]! @derivedFrom(field: "strategy")
+  yieldRotations: [YieldRotation!]! @derivedFrom(field: "strategy")
   navSnapshots: [NAVSnapshot!]! @derivedFrom(field: "strategy")
   allocations: [Allocation!]! @derivedFrom(field: "strategy")
   paramsRotations: [ParamsRotation!]! @derivedFrom(field: "strategy")
+  paramsCommitments: [ParamsCommitment!]! @derivedFrom(field: "strategy")
+  paramsRotationProposals: [ParamsRotationProposal!]! @derivedFrom(field: "strategy")
+  paramsRotationCancellations: [ParamsRotationCancellation!]! @derivedFrom(field: "strategy")
 }
 
 # Emitted by `StrategyRegistry.completeParamsRotation` — the only path
@@ -155,5 +159,78 @@ type VerifierRegistration @entity(immutable: true) {
   declaredClass: Bytes!           # bytes32 class id
   verifier: Bytes!                # adapter address
   registeredAt: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 / WS3.A — yield_rotation_v1 attestation. Distinct from `Trade`
+# because the YR event surfaces market-rotation fields (mFrom/mTo,
+# yieldOracleRoot, amountRotating) that don't fit the swap-shaped Trade
+# entity. The reputation engine still gets a `Trade` row written
+# alongside this so YR strategies count toward §8.2 trade volume — see
+# `subgraph/src/strategy-vault.ts::handleYieldRotationAttested`.
+type YieldRotation @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  strategy: Strategy!
+  allocator: Allocator!
+  declaredClass: Bytes!           # bytes32
+  tradeHash: Bytes!
+  mFrom: BigInt!                  # source market id (uint256)
+  mTo: BigInt!                    # destination market id (uint256)
+  amountRotating: BigInt!
+  yieldOracleRoot: Bytes!
+  blockWindowEnd: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 — `StrategyRegistry.MarketAllowlistRootSet`. One row per
+# class-level allowlist update. The audit page renders the timeline so
+# operators can prove the allowlist used at trade-time matches the
+# circuit's private witness. Keyed by tx + log to allow re-publishes.
+type MarketAllowlistRoot @entity(immutable: true) {
+  id: Bytes!
+  declaredClass: Bytes!           # bytes32 class id
+  root: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 — `StrategyRegistry.ParamsHashCommitted`. Append-only history
+# of `paramsHash` commits per strategy. The most-recent row reflects
+# the canonical hash that proofs must bind through `trade_hash`.
+type ParamsCommitment @entity(immutable: true) {
+  id: Bytes!
+  strategy: Strategy!
+  paramsHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 — `StrategyRegistry.ParamsRotationInitiated`. The cooldown
+# slot is open between this event and either `ParamsRotated`
+# (completed → existing `ParamsRotation` entity) or
+# `ParamsRotationCancelled`. UI uses `unlockAt` to render a countdown.
+type ParamsRotationProposal @entity(immutable: true) {
+  id: Bytes!
+  strategy: Strategy!
+  oldHash: Bytes!
+  newHash: Bytes!
+  unlockAt: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+# Phase 2 — `StrategyRegistry.ParamsRotationCancelled`. Pairs with a
+# preceding `ParamsRotationProposal` (same `newHash`); the audit page
+# joins them by `(strategy, newHash)`.
+type ParamsRotationCancellation @entity(immutable: true) {
+  id: Bytes!
+  strategy: Strategy!
+  cancelledNewHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
   txHash: Bytes!
 }

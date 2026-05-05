@@ -13,10 +13,21 @@ schema:
 # `contracts/broadcast/DeployPhase1.s.sol/2368/run-latest.json`). When
 # redeploying, regenerate from the deployments file and bump startBlock.
 #
-# StrategyVault datasource binds the *momentum* vault only — Phase 1
-# allocates exclusively to momentum; mean_reversion + yield_rotation
-# vaults exist on-chain (deploy script registers them) but are not
-# indexed until their reference strategies ship in Phase 2.
+# StrategyVault datasources bind the three Phase-1 vaults (momentum,
+# mean_reversion, yield_rotation). All three were deployed in the
+# 2026-04-27 Track B run; expanded to all three in the Phase-2 followup
+# (Critical #3) so the reputation engine sees mr + yr trades. Each
+# datasource references the same `./src/strategy-vault.ts` mapping file
+# — graph-codegen produces a per-datasource generated namespace, but
+# the WASM handlers are structurally identical and dispatch on
+# `event.params.strategy`.
+#
+# Phase 2's second-variant + fresh-momentum vaults, OraclePriceAnchor /
+# OracleYieldAnchor, and ReputationAnchorV2 are *not* bound here yet —
+# they only exist on local anvil (see `anvil-kite-phase2.json`). When
+# `RegisterPhase2Strategies.s.sol` runs against Kite testnet (TODO.md
+# row 231), drop those addresses into kite-testnet.json and add the
+# datasources in a follow-up PR.
 #
 # Phase 5 will add `kite-mainnet`, `base-sepolia`, `arbitrum-sepolia`
 # copies of each datasource plus the cross-chain `HeliosOApp` entry.
@@ -49,6 +60,14 @@ dataSources:
           handler: handleStrategyReputationUpdated
         - event: ParamsRotated(indexed address,bytes32,bytes32)
           handler: handleParamsRotated
+        - event: MarketAllowlistRootSet(indexed bytes32,bytes32)
+          handler: handleMarketAllowlistRootSet
+        - event: ParamsHashCommitted(indexed address,bytes32)
+          handler: handleParamsHashCommitted
+        - event: ParamsRotationInitiated(indexed address,bytes32,bytes32,uint64)
+          handler: handleParamsRotationInitiated
+        - event: ParamsRotationCancelled(indexed address,bytes32)
+          handler: handleParamsRotationCancelled
 
   - kind: ethereum
     name: AllocatorRegistry
@@ -102,6 +121,8 @@ dataSources:
         - event: CrossChainReputationPosted(indexed address,indexed uint8,uint32,int256)
           handler: handleCrossChainReputationPosted
 
+  # Momentum vault (Phase 1). Datasource name kept as `StrategyVault`
+  # to avoid renaming the existing generated namespace consumers.
   - kind: ethereum
     name: StrategyVault
     network: kite-ai-testnet
@@ -128,6 +149,68 @@ dataSources:
           handler: handleNAVReported
         - event: Slashed(indexed address,uint256,string)
           handler: handleSlashed
+
+  # Mean-reversion vault (Phase 1). Same ABI / same handlers as the
+  # momentum datasource — codegen produces a sibling namespace and the
+  # WASM handlers dispatch on `event.params.strategy`.
+  - kind: ethereum
+    name: StrategyVaultMeanReversion
+    network: kite-ai-testnet
+    source:
+      address: "0x6c1f9466db7bc2364b0bac051e73421d5b75354b"
+      abi: StrategyVault
+      startBlock: 21074384
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  # Yield-rotation vault (Phase 1). Adds the YR-specific
+  # `YieldRotationAttested` handler in addition to the standard set.
+  - kind: ethereum
+    name: StrategyVaultYieldRotation
+    network: kite-ai-testnet
+    source:
+      address: "0xbfbf9fa82b5df3b080be27f64d650101ee69c36f"
+      abi: StrategyVault
+      startBlock: 21074384
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64)
+          handler: handleYieldRotationAttested
 
   - kind: ethereum
     name: AllocatorVault

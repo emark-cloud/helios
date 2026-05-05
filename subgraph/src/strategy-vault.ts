@@ -1,11 +1,20 @@
-import { BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
   TradeAttested,
   NAVReported,
   Slashed,
+  YieldRotationAttested,
 } from "../generated/StrategyVault/StrategyVault";
-import { Trade, NAVSnapshot } from "../generated/schema";
+import { Trade, NAVSnapshot, YieldRotation } from "../generated/schema";
 import { getOrCreateAllocator, getOrCreateStrategy, logEventId, PHASE1_CHAIN_ID } from "./helpers";
+
+// YR events surface a market-rotation rather than a swap, so the
+// directional `Trade.assetIn` / `Trade.assetOut` slots have no
+// counterpart. We still write a `Trade` row so the §8.2 reputation
+// engine sees YR attestations toward `totalAttestedTrades`; the
+// dedicated `YieldRotation` entity holds the YR-specific surface
+// (mFrom/mTo, yieldOracleRoot, amountRotating).
+const ZERO_ADDRESS = Address.zero() as Bytes;
 
 export function handleTradeAttested(event: TradeAttested): void {
   // The verify call has already passed if this event fires (StrategyVault
@@ -55,4 +64,50 @@ export function handleSlashed(event: Slashed): void {
   // ordering correctly. A dedicated SlashEvent entity lands in Phase 2 if the
   // dashboard surfaces a slashing timeline.
   getOrCreateStrategy(event.params.strategy as Bytes, event.block.timestamp).save();
+}
+
+export function handleYieldRotationAttested(event: YieldRotationAttested): void {
+  const strategyId = event.params.strategy as Bytes;
+  const allocatorId = event.params.allocator as Bytes;
+
+  // YR-specific surface for the audit page.
+  const yr = new YieldRotation(logEventId(event));
+  yr.strategy = strategyId;
+  yr.allocator = allocatorId;
+  yr.declaredClass = event.params.declaredClass;
+  yr.tradeHash = event.params.tradeHash;
+  yr.mFrom = event.params.mFrom;
+  yr.mTo = event.params.mTo;
+  yr.amountRotating = event.params.amountRotating;
+  yr.yieldOracleRoot = event.params.yieldOracleRoot;
+  yr.blockWindowEnd = event.params.blockWindowEnd;
+  yr.timestamp = event.block.timestamp;
+  yr.txHash = event.transaction.hash;
+  yr.save();
+
+  // Mirror as a `Trade` so reputation engine §8.2 trade volume picks
+  // up YR attestations alongside momentum / mean-reversion. Fields the
+  // YR event doesn't carry are zeroed — see helpers comment above.
+  const trade = new Trade(logEventId(event));
+  trade.strategy = strategyId;
+  trade.allocator = allocatorId;
+  trade.declaredClass = (event.params.declaredClass as Bytes).toHexString();
+  trade.tradeHash = event.params.tradeHash;
+  trade.proofValid = true;
+  trade.assetIn = ZERO_ADDRESS;
+  trade.assetOut = ZERO_ADDRESS;
+  trade.amountIn = event.params.amountRotating;
+  trade.minAmountOut = BigInt.zero();
+  trade.direction = 0;
+  trade.blockWindowStart = BigInt.zero();
+  trade.blockWindowEnd = event.params.blockWindowEnd;
+  trade.timestamp = event.block.timestamp;
+  trade.txHash = event.transaction.hash;
+  trade.chainId = PHASE1_CHAIN_ID;
+  trade.save();
+
+  const strategy = getOrCreateStrategy(strategyId, event.block.timestamp);
+  strategy.totalAttestedTrades = strategy.totalAttestedTrades + 1;
+  strategy.save();
+  getOrCreateAllocator(allocatorId, event.block.timestamp).save();
 }
