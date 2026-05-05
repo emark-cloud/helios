@@ -188,6 +188,7 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
         if (amount > s.stakeAmount) revert SlashExceedsStake();
 
         s.stakeAmount -= amount;
+        if (s.stakeAmount == 0) s.active = false;
         stakeToken.safeTransfer(owner(), amount);
 
         emit StrategySlashed(strategyId, amount, reason);

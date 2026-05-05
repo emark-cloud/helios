@@ -225,6 +225,66 @@ contract AllocatorVaultTest is Test {
         allocatorVault.allocateToStrategy(user, address(stratA), 60_001e6);
     }
 
+    function test_AllocateToStrategy_RevertsOnAggregateCap() public {
+        // maxCapital = USER_DEPOSIT (100k). Per-strategy cap is 60k. Two
+        // strategies summed at the per-strategy cap (60k+60k = 120k) should
+        // breach the aggregate cap before the per-strategy cap fires.
+        vm.startPrank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 60_000e6);
+        vm.expectRevert(AllocatorVault.MetaCapacityExceeded.selector);
+        allocatorVault.allocateToStrategy(user, address(stratB), 40_001e6);
+        vm.stopPrank();
+    }
+
+    function test_AllocateToStrategy_RevertsOnMaxStrategiesCount() public {
+        // Tighten the meta to allow only one open strategy slot.
+        bytes32[] memory classes = new bytes32[](2);
+        classes[0] = CLASS_MOM;
+        classes[1] = CLASS_MR;
+        userVault.setMeta(
+            user,
+            MetaStrategyLib.MetaStrategy({
+                metaStrategyHash: bytes32(uint256(3)),
+                allowedStrategyClasses: classes,
+                allowedAssets: new address[](0),
+                allowedChains: new uint32[](0),
+                maxCapital: USER_DEPOSIT,
+                maxPerStrategyBps: 6000,
+                maxStrategiesCount: 1,
+                drawdownThresholdBps: DD_THRESHOLD_BPS,
+                maxFeeRateBps: 2500,
+                rebalanceCadenceSec: 0,
+                validUntil: uint64(block.timestamp + 30 days),
+                defundTwapBars: MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS,
+                defundBondBps: MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS,
+                defundConfirmBlocks: MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS
+            })
+        );
+
+        vm.startPrank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        // Top-up to the same strategy must still be allowed (no new slot).
+        allocatorVault.allocateToStrategy(user, address(stratA), 5000e6);
+        // Opening a second strategy must revert.
+        vm.expectRevert(AllocatorVault.MetaMaxStrategiesExceeded.selector);
+        allocatorVault.allocateToStrategy(user, address(stratB), 1000e6);
+        vm.stopPrank();
+    }
+
+    function test_AllocateToStrategy_DefundReleasesSlotAndCapacity() public {
+        // Open both strategies to fill the per-strategy slots, defund stratA,
+        // then verify the slot + capacity is freed for stratB to grow.
+        vm.startPrank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 30_000e6);
+        allocatorVault.allocateToStrategy(user, address(stratB), 30_000e6);
+        // Aggregate now 60k of 100k. Defund A → frees 30k + 1 slot.
+        allocatorVault.defundStrategy(user, address(stratA), "test");
+        // Top-up stratB up to its 60% per-strategy cap; aggregate cap is fine.
+        allocatorVault.allocateToStrategy(user, address(stratB), 30_000e6);
+        vm.stopPrank();
+        assertEq(allocatorVault.allocationOf(user, address(stratB)).capitalDeployed, 60_000e6);
+    }
+
     function test_AllocateToStrategy_RevertsOnUnregisteredStrategy() public {
         // Brand-new strategy never staked in registry.
         StrategyVault rogue = _deployStrategy(makeAddr("rogueOp"), CLASS_MOM);

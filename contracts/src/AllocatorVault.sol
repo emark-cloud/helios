@@ -66,9 +66,18 @@ contract AllocatorVault is
         _strategyDeployed_deprecated;
     uint256 internal _accruedFees;
 
+    /// @dev Sum of `_allocations[user][*].capitalDeployed` over all *active*
+    ///      (non-defunded) strategies. Maintained at allocate/rebalance/defund
+    ///      so `_checkMetaStrategyBounds` can enforce `meta.maxCapital` in O(1).
+    mapping(address user => uint256) internal _userTotalDeployed;
+    /// @dev Count of *active* (non-defunded) strategies a user is allocated
+    ///      across. Decremented on first defund, incremented on first allocate.
+    ///      Drives `meta.maxStrategiesCount` enforcement.
+    mapping(address user => uint256) internal _userActiveStrategyCount;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[50] private __gap;
+    uint256[48] private __gap;
 
     error ZeroAddress();
     error ZeroAmount();
@@ -146,6 +155,9 @@ contract AllocatorVault is
         rec.capitalDeployed += amount;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);
         rec.lastRebalanceTimestamp = uint64(block.timestamp);
+
+        _userTotalDeployed[user] += amount;
+        if (isNew) _userActiveStrategyCount[user] += 1;
 
         if (isNew) {
             emit AllocationCreated(user, strategy, amount, chainId);
@@ -305,6 +317,9 @@ contract AllocatorVault is
         rec.capitalDeployed += amount;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);
 
+        _userTotalDeployed[user] += amount;
+        if (isNew) _userActiveStrategyCount[user] += 1;
+
         if (isNew) emit AllocationCreated(user, strategy, amount, chainId);
         else emit AllocationIncreased(user, strategy, amount);
     }
@@ -314,6 +329,7 @@ contract AllocatorVault is
         if (amount > rec.capitalDeployed) revert AllocationOutOfBounds();
         IStrategyVault(strategy).withdrawToAllocator(address(this), amount);
         rec.capitalDeployed -= amount;
+        _userTotalDeployed[user] -= amount;
         baseAsset.forceApprove(userVault, amount);
         IUserVaultForAllocator(userVault).creditFromAllocator(user, amount);
         emit AllocationDecreased(user, strategy, amount);
@@ -330,7 +346,9 @@ contract AllocatorVault is
         uint256 principal = rec.capitalDeployed;
         if (principal > 0) {
             IStrategyVault(strategy).withdrawToAllocator(address(this), principal);
+            _userTotalDeployed[user] -= principal;
         }
+        if (rec.strategy != address(0)) _userActiveStrategyCount[user] -= 1;
 
         rec.capitalDeployed = 0;
 
@@ -357,9 +375,22 @@ contract AllocatorVault is
             IUserVaultForAllocator(userVault).metaStrategyOf(user);
         if (meta.validUntil != 0 && block.timestamp > meta.validUntil) revert MetaExpired();
 
+        AllocationRecord storage rec = _allocations[user][strategy];
+
+        // Aggregate cap: total deployed across all active strategies + newAmount <= maxCapital
+        if (_userTotalDeployed[user] + newAmount > meta.maxCapital) revert MetaCapacityExceeded();
+
+        // Max-strategies cap: opening a new slot must not exceed meta.maxStrategiesCount.
+        // A top-up to an existing active allocation does not consume a new slot.
+        if (rec.strategy == address(0) || rec.defundedAt != 0) {
+            if (_userActiveStrategyCount[user] + 1 > uint256(meta.maxStrategiesCount)) {
+                revert MetaMaxStrategiesExceeded();
+            }
+        }
+
         // Per-strategy cap: capitalDeployed + newAmount <= maxCapital * maxPerStrategyBps / 10_000
         uint256 perStratCap = (uint256(meta.maxCapital) * meta.maxPerStrategyBps) / 10_000;
-        uint256 prospective = _allocations[user][strategy].capitalDeployed + newAmount;
+        uint256 prospective = rec.capitalDeployed + newAmount;
         if (prospective > perStratCap) revert MetaPerStrategyExceeded();
 
         // Class-allowed check

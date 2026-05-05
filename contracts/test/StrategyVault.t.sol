@@ -601,6 +601,22 @@ contract StrategyVaultTest is Test {
         vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
     }
 
+    function test_ReportNAV_RevertsAboveCap() public {
+        uint64 ts = uint64(block.timestamp + 1);
+        // 10× MAX_CAPACITY is the bound; one wei above must revert.
+        uint256 over = 10 * MAX_CAPACITY + 1;
+        bytes memory sig = _signNAV(vault, over, ts);
+        vm.expectRevert(StrategyVault.NavExceedsCap.selector);
+        vault.reportNAV(abi.encode(over, ts, sig));
+    }
+
+    function test_ReportNAV_AcceptsAtCap() public {
+        uint64 ts = uint64(block.timestamp + 1);
+        uint256 atCap = 10 * MAX_CAPACITY;
+        _reportNAV(atCap, ts);
+        assertEq(vault.totalNAV(), atCap);
+    }
+
     function test_ReportNAV_RevertsOnLegacyRawDigest() public {
         // Pre-PR1b raw signing format must be rejected — proves cross-vault
         // and cross-chain replay protection now hangs off the EIP-712 domain
