@@ -103,12 +103,10 @@ contract RegisterPhase2Strategies is Script {
         vm.startBroadcast(i.deployerPk);
         v.strategyVaultMomentumVariant2 =
             _deployVariant(i, deployer, CLASS_MOM, PARAMS_HASH_MOM_V2, "momentum_v1.variant2");
-        v.strategyVaultMeanReversionVariant2 = _deployVariant(
-            i, deployer, CLASS_MR, PARAMS_HASH_MR_V2, "mean_reversion_v1.variant2"
-        );
-        v.strategyVaultYieldRotationVariant2 = _deployVariant(
-            i, deployer, CLASS_YR, PARAMS_HASH_YR_V2, "yield_rotation_v1.variant2"
-        );
+        v.strategyVaultMeanReversionVariant2 =
+            _deployVariant(i, deployer, CLASS_MR, PARAMS_HASH_MR_V2, "mean_reversion_v1.variant2");
+        v.strategyVaultYieldRotationVariant2 =
+            _deployVariant(i, deployer, CLASS_YR, PARAMS_HASH_YR_V2, "yield_rotation_v1.variant2");
 
         MockERC20(i.usdc).approve(i.strategyRegistry, type(uint256).max);
         StrategyRegistry sr = StrategyRegistry(i.strategyRegistry);

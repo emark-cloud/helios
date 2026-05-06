@@ -9,6 +9,9 @@ import {
     OwnableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {
     ReentrancyGuardTransient
 } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -40,6 +43,7 @@ contract UserVault is
     IUserVault,
     Initializable,
     OwnableUpgradeable,
+    PausableUpgradeable,
     ReentrancyGuardTransient,
     UUPSUpgradeable
 {
@@ -99,11 +103,24 @@ contract UserVault is
             revert ZeroAddress();
         }
         __Ownable_init(owner_);
+        __Pausable_init();
         baseAsset = baseAsset_;
         maxSessionTTL = maxSessionTTL_;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner { }
+
+    /// @notice Owner-only emergency stop. Halts deposits, allocator
+    ///         delegation, and `transferToAllocator`. Defunds and
+    ///         withdrawals of idle balance remain open so users can
+    ///         exit. HIGH #10 in `docs/phase-3-review.md`.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     // ── Meta-strategy ───────────────────────────────────────────────
 
@@ -175,7 +192,7 @@ contract UserVault is
 
     // ── Deposit / Withdraw ──────────────────────────────────────────
 
-    function deposit(address asset, uint256 amount) external nonReentrant {
+    function deposit(address asset, uint256 amount) external nonReentrant whenNotPaused {
         if (asset != address(baseAsset)) revert UnsupportedAsset();
         if (amount == 0) revert ZeroAmount();
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
@@ -198,7 +215,7 @@ contract UserVault is
 
     // ── Allocator delegation ────────────────────────────────────────
 
-    function delegateToAllocator(address allocator, uint64 sessionTTL) external {
+    function delegateToAllocator(address allocator, uint64 sessionTTL) external whenNotPaused {
         if (allocator == address(0)) revert ZeroAddress();
         if (sessionTTL == 0 || sessionTTL > maxSessionTTL) revert SessionTTLTooLong();
         if (!_users[msg.sender].metaSet) revert MetaNotSet();
@@ -214,7 +231,7 @@ contract UserVault is
 
     // ── AllocatorVault privileged hooks ─────────────────────────────
 
-    function transferToAllocator(address user, uint256 amount) external nonReentrant {
+    function transferToAllocator(address user, uint256 amount) external nonReentrant whenNotPaused {
         UserState storage u = _users[user];
         if (msg.sender != u.allocator) revert NotDelegatedAllocator();
         if (block.timestamp > u.sessionExpiry) revert SessionExpired();

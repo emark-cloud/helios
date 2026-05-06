@@ -13,6 +13,10 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 contract StrategyVaultTest is Test {
     StrategyVault internal impl;
@@ -300,6 +304,36 @@ contract StrategyVaultTest is Test {
         assertEq(vault.allocationOf(allocatorVault), 300e6);
         assertEq(vault.totalNAV(), 300e6);
         assertEq(usdc.balanceOf(allocatorVault), balBefore + 200e6);
+    }
+
+    function test_WithdrawToAllocator_RevertsAboveNAVShare() public {
+        // HIGH #8 — vault is in unrealized loss (NAV < principal) so the
+        // allocator's NAV share is below their `_allocationOf`. Asking
+        // for the full principal must refuse at source rather than clamp.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        // Strategy lost 200 — reportNAV says 800, principal is still 1000.
+        _reportNAV(800e6, uint64(block.timestamp + 1));
+
+        vm.prank(allocatorVault);
+        vm.expectRevert(StrategyVault.WithdrawExceedsNAVShare.selector);
+        vault.withdrawToAllocator(allocatorVault, 1000e6);
+    }
+
+    function test_WithdrawToAllocator_AcceptsAtNAVShare() public {
+        // The cap is `<= navShare`. Pulling exactly the share must work
+        // and zero the strategy out.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        _reportNAV(800e6, uint64(block.timestamp + 1));
+
+        uint256 balBefore = usdc.balanceOf(allocatorVault);
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 800e6);
+
+        assertEq(usdc.balanceOf(allocatorVault) - balBefore, 800e6);
+        assertEq(vault.totalNAV(), 0);
+        assertEq(vault.allocationOf(allocatorVault), 200e6); // residual principal
     }
 
     // ── distributeRealized ──────────────────────────────────────────
@@ -1221,5 +1255,60 @@ contract StrategyVaultTest is Test {
         vm.prank(operator);
         vm.expectRevert(IStrategyVault.YRTradesNotSupported.selector);
         vault.executeYieldRotationWithProof(_proofBytes(), pi, trades);
+    }
+
+    // ── HIGH #10: Pausable ──────────────────────────────────────────
+
+    function test_Pause_OnlyOwner() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        vault.pause();
+    }
+
+    function test_Pause_BlocksAllocateFrom() public {
+        vm.prank(owner);
+        vault.pause();
+        vm.prank(allocatorVault);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.allocateFrom(1000e6);
+    }
+
+    function test_Pause_BlocksExecuteWithProof() public {
+        vm.prank(owner);
+        vault.pause();
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
+    function test_Pause_LeavesWithdrawToAllocatorOpen() public {
+        // Withdraw is the rescue path. Pause must NOT block AllocatorVault
+        // pulling principal back to the user.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        vm.prank(owner);
+        vault.pause();
+        uint256 balBefore = usdc.balanceOf(allocatorVault);
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 500e6);
+        assertEq(usdc.balanceOf(allocatorVault) - balBefore, 500e6);
+    }
+
+    function test_Pause_LeavesReportNAVOpen() public {
+        // Oracle continues posting NAV during a halt — otherwise the
+        // on-chain NAV goes stale and any post-resume settle uses bad
+        // numbers.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        vm.prank(owner);
+        vault.pause();
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes memory sig = _signNAV(vault, 1100e6, ts);
+        vm.prank(navOracle);
+        vault.reportNAV(abi.encode(uint256(1100e6), ts, sig));
+        assertEq(vault.totalNAV(), 1100e6);
     }
 }

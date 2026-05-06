@@ -12,6 +12,9 @@ import {
     EIP712Upgradeable
 } from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {
     ReentrancyGuardTransient
 } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -33,6 +36,7 @@ contract StrategyVault is
     Initializable,
     OwnableUpgradeable,
     EIP712Upgradeable,
+    PausableUpgradeable,
     ReentrancyGuardTransient,
     UUPSUpgradeable
 {
@@ -135,6 +139,7 @@ contract StrategyVault is
     error NavTooOld();
     error NotOperatorOrNavOracle();
     error OracleRootStale();
+    error WithdrawExceedsNAVShare();
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
@@ -197,6 +202,7 @@ contract StrategyVault is
 
         __Ownable_init(p.owner);
         __EIP712_init("HeliosStrategyVault", "1");
+        __Pausable_init();
 
         _manifest = p.manifest;
         baseAsset = p.baseAsset;
@@ -233,10 +239,30 @@ contract StrategyVault is
 
     function _authorizeUpgrade(address) internal override onlyOwner { }
 
+    /// @notice Owner-only emergency stop. Halts new allocations + trade
+    ///         execution. Defunds (`withdrawToAllocator`,
+    ///         `distributeRealized`) remain open so the AllocatorVault
+    ///         can rescue capital. NAV reporting also stays open so the
+    ///         on-chain NAV doesn't go stale during the halt.
+    ///         HIGH #10 in `docs/phase-3-review.md`.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     // ── Capital flow (allocator vault entry/exit) ───────────────────
 
     /// @notice Pull base-asset capital in from the paired allocator vault.
-    function allocateFrom(uint256 amount) external onlyAllocatorVault notHalted nonReentrant {
+    function allocateFrom(uint256 amount)
+        external
+        onlyAllocatorVault
+        notHalted
+        whenNotPaused
+        nonReentrant
+    {
         if (amount == 0) revert AmountInMismatch();
         baseAsset.safeTransferFrom(msg.sender, address(this), amount);
         _allocationOf[msg.sender] += amount;
@@ -249,21 +275,19 @@ contract StrategyVault is
         onlyAllocatorVault
         nonReentrant
     {
+        // HIGH #8 in `docs/phase-3-review.md` — cap withdraw at the
+        // allocator's prorated NAV share. Previously the contract clamped
+        // `_totalNAV` to 0 and let the caller drain up to its principal,
+        // which under multi-allocator state lets one allocator drain past
+        // its fair share when the strategy is in unrealized loss; the
+        // asset-balance check would then revert *for the next allocator*
+        // instead of the over-drawer. Refusing the over-pull at source
+        // forces the AllocatorVault to request `min(principal, navShare)`
+        // — see `_unwindAndCredit`.
         if (amount > _allocationOf[allocator]) revert AllocationOverdrawn();
+        if (amount > _navOf(allocator)) revert WithdrawExceedsNAVShare();
         _allocationOf[allocator] -= amount;
-        // NAV is tracked off-chain via signed reportNAV updates; the on-chain
-        // base-asset balance is the hard truth. When the reported NAV signals
-        // unrealized losses (NAV < principal), an unwind/defund still needs
-        // to repatriate whatever underlying the strategy actually holds, so
-        // we clamp _totalNAV to 0 rather than reverting. The asset transfer
-        // below enforces the real constraint — if the strategy lacks the
-        // base-asset balance, safeTransfer reverts.
-        if (amount > _totalNAV) {
-            emit NavClampedOnWithdraw(address(this), allocator, _totalNAV, amount);
-            _totalNAV = 0;
-        } else {
-            _totalNAV -= amount;
-        }
+        _totalNAV -= amount;
         baseAsset.safeTransfer(msg.sender, amount);
     }
 
@@ -287,7 +311,7 @@ contract StrategyVault is
         bytes calldata proof,
         uint256[] calldata publicInputs,
         Call[] calldata trades
-    ) external onlyOperator notHalted nonReentrant {
+    ) external onlyOperator notHalted whenNotPaused nonReentrant {
         _validateAndVerify(proof, publicInputs);
         _runSwapTrades(publicInputs, trades);
         _emitTradeAttested(publicInputs);
@@ -311,7 +335,7 @@ contract StrategyVault is
         bytes calldata proof,
         uint256[] calldata publicInputs,
         Call[] calldata trades
-    ) external onlyOperator notHalted nonReentrant {
+    ) external onlyOperator notHalted whenNotPaused nonReentrant {
         _validateAndVerifyYR(proof, publicInputs);
         // YR rotation execution is a cross-chain bridge call — the binding
         // circuit for that calldata is Phase-5 work. Until then, the proof's
@@ -369,7 +393,9 @@ contract StrategyVault is
         _seenTradeHash[tradeHash] = true;
 
         if (!ITradeAttestationVerifier(verifier)
-                .verify(_manifest.declaredClass, proof, publicInputs)) revert InvalidProof();
+                .verify(_manifest.declaredClass, proof, publicInputs)) {
+            revert InvalidProof();
+        }
     }
 
     function _validateAndVerifyYR(bytes calldata proof, uint256[] calldata publicInputs) internal {
@@ -419,7 +445,9 @@ contract StrategyVault is
         _seenTradeHash[tradeHash] = true;
 
         if (!ITradeAttestationVerifier(verifier)
-                .verify(_manifest.declaredClass, proof, publicInputs)) revert InvalidProof();
+                .verify(_manifest.declaredClass, proof, publicInputs)) {
+            revert InvalidProof();
+        }
     }
 
     function _emitYieldRotationAttested(uint256[] calldata publicInputs) internal {
