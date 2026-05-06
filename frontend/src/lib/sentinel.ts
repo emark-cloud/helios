@@ -96,6 +96,16 @@ export type MetaStrategyPayload = {
   rebalance_cadence_sec: number;
   valid_until: number;
   /**
+   * Replay-protection nonce. A fresh 64-bit value minted per signing
+   * attempt by the frontend; the server records (user, nonce) and
+   * rejects duplicates within the `valid_until` window. Without this
+   * a captured signature could be re-submitted indefinitely up to
+   * `valid_until`. JS numbers safely represent up to 2^53 — we mint
+   * within that range to keep JSON round-tripping exact across both
+   * the digest path and the wire payload.
+   */
+  nonce: number;
+  /**
    * Reputation cold-start (Helios.md §8.7 / WS7.B). `bootstrap_share_bps` of
    * total capital is reserved for strategies with `trades_attested <
    * min_attested_trades`, allocated stake-weighted with a flat performance

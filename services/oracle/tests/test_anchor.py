@@ -266,6 +266,61 @@ async def test_async_post_does_not_block_event_loop() -> None:
     assert counter["ticks"] >= 4  # loop drained while submit was running
 
 
+def test_scheduler_resyncs_nonce_after_dry_run_to_live_transition() -> None:
+    """After a dry-run rehearsal advances the scheduler's `_nonce`, a
+    live submit reads on-chain `nonce()` and overrides the payload — so
+    `record.nonce` reflects the on-chain value, not the scheduler's
+    drifted counter. The scheduler must reconcile to that observed
+    value so subsequent records (dry-run inspection or live retry)
+    don't emit nonces the contract will never accept.
+
+    Regression for `docs/phase-3-review.md` CRITICAL #2."""
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    sched = PriceAnchorScheduler(store=store, poster=poster, interval_bars=2, chain_depth=2)
+
+    # Phase 1: dry-run (poster.live is False because rpc/signer/anchor are stub).
+    # Force the dry-run path via a temporary stub `live` view: leave fields as
+    # set, then drive two bars to advance the scheduler counter past 0.
+    sched._nonce = 50  # simulate a long dry-run rehearsal
+
+    # Flip to live mode. On-chain nonce starts at 7 (independent of the
+    # scheduler's drifted 50).
+    poster._ensure_live = lambda: None  # type: ignore[assignment]
+    nonce_holder = {"value": 7}
+    poster._read_onchain_nonce = lambda: nonce_holder["value"]  # type: ignore[assignment]
+
+    def fake_submit(signed):  # type: ignore[no-untyped-def]
+        nonce_holder["value"] += 1
+        return ("0x" + "ab" * 32, 1)
+
+    poster._submit = fake_submit  # type: ignore[assignment]
+    # Make `live` True by populating the gating fields.
+    object.__setattr__(poster, "rpc_url", "http://stub")
+    object.__setattr__(poster, "signer_pk", _TEST_PK)
+    object.__setattr__(poster, "anchor_address", _ANCHOR_ADDR)
+    assert poster.live
+
+    # Two bars at interval_bars=2 → one commit.
+    rec = None
+    for i in range(2):
+        store.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 * (i + 1), source="t")
+        r = sched.on_bar("KITE/USDT")
+        if r is not None:
+            rec = r
+    assert rec is not None
+    assert rec.submitted is True
+    assert rec.nonce == 7  # on-chain nonce, not scheduler's drifted 50.
+    # Scheduler must now track the next-expected on-chain nonce (8).
+    assert sched._nonce == 8
+
+
 def test_yield_scheduler_emits_for_market() -> None:
     store = YieldStore(signer=LocalSigner(""), capacity_per_market=64)
     poster = AnchorPoster(

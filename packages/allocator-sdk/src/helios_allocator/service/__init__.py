@@ -15,6 +15,7 @@ the verifier.
 
 from helios_allocator.service.auth import (
     MetaStrategySignatureError,
+    NonceStore,
     canonical_digest,
     verify_meta_strategy_signature,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "DashboardPayload",
     "MetaStrategyPayload",
     "MetaStrategySignatureError",
+    "NonceStore",
     "StrategyDirectoryRow",
     "canonical_digest",
     "verify_meta_strategy_signature",

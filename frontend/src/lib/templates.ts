@@ -14,7 +14,10 @@ import type { MetaStrategyPayload } from "./sentinel";
 
 export type TemplateKey = "conservative" | "balanced" | "aggressive";
 
-export type TemplateForm = Omit<MetaStrategyPayload, "user_address" | "valid_until" | "signature">;
+export type TemplateForm = Omit<
+  MetaStrategyPayload,
+  "user_address" | "valid_until" | "nonce" | "signature"
+>;
 
 export type Template = {
   key: TemplateKey;

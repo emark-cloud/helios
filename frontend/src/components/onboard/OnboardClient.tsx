@@ -13,7 +13,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 
 import { AllocatorPicker } from "@/components/onboard/AllocatorPicker";
@@ -60,17 +60,17 @@ export function OnboardClient(): JSX.Element {
     setForm(TEMPLATES[next].form);
   }
 
-  const validUntil = useMemo(
-    () => Math.floor(Date.now() / 1000) + VALID_FOR_DAYS * 86_400,
-    [],
-  );
-
   async function onSign(): Promise<void> {
     if (!address) return;
+    // Compute valid_until + nonce at sign time, not at mount time:
+    // a user who idles for hours before signing should get a fresh
+    // window/nonce, not one stamped when the page loaded.
+    const validUntil = Math.floor(Date.now() / 1000) + VALID_FOR_DAYS * 86_400;
     const payload: MetaStrategyPayload = {
       ...form,
       user_address: address,
       valid_until: validUntil,
+      nonce: mintNonce(),
       signature: "0x",
     };
     const digest = canonicalDigest(payload);
@@ -206,6 +206,26 @@ function SignPanel({
       </button>
     </div>
   );
+}
+
+/**
+ * Mint a fresh 53-bit replay-protection nonce. Bounded to
+ * `Number.MAX_SAFE_INTEGER` so the value JSON-round-trips exactly
+ * across the digest and the wire payload — JS numbers above 2^53
+ * silently lose precision, which would corrupt the digest the server
+ * computes. The server-side `NonceStore` is bounded by `valid_until`
+ * eviction so this bit-width is plenty.
+ */
+function mintNonce(): number {
+  const buf = new Uint32Array(2);
+  crypto.getRandomValues(buf);
+  // Compose into a 53-bit non-negative integer:
+  // (high 21 bits << 32) | low 32 bits, masked to 53 bits total.
+  // Non-null assertions are safe — `Uint32Array(2)` has exactly two
+  // populated slots after `getRandomValues`.
+  const high = buf[0]! & 0x1f_ffff; // keep 21 bits
+  const low = buf[1]!;
+  return high * 0x1_0000_0000 + low;
 }
 
 /**

@@ -290,14 +290,34 @@ class PriceAnchorScheduler:
     def on_bar(self, asset: str) -> CommitRecord | None:
         """Sync entry point — convenient for tests + scenario replay."""
         payload = self._prepare(asset)
-        return self.poster.post(payload) if payload is not None else None
+        if payload is None:
+            return None
+        rec = self.poster.post(payload)
+        self._sync_nonce(rec)
+        return rec
 
     async def on_bar_async(self, asset: str) -> CommitRecord | None:
         """Async entry point. Used in production from `Poller._on_snapshot`
         so the up-to-30s receipt wait runs on a worker thread, not the
         event loop. Same payload-building semantics as `on_bar`."""
         payload = self._prepare(asset)
-        return await self.poster.post_async(payload) if payload is not None else None
+        if payload is None:
+            return None
+        rec = await self.poster.post_async(payload)
+        self._sync_nonce(rec)
+        return rec
+
+    def _sync_nonce(self, rec: CommitRecord) -> None:
+        """Re-align the scheduler counter with the on-chain nonce after a
+        successful live submit. The poster overrides `payload.nonce`
+        with `_read_onchain_nonce()` before signing, so the
+        scheduler-local `_nonce` would otherwise drift permanently
+        across any dry-run → live transition (or a long dry-run
+        rehearsal followed by a real deploy). Without this, subsequent
+        dry-run inspection records emit nonces that don't match what
+        the contract will accept on the next live submit."""
+        if rec.submitted:
+            self._nonce = rec.nonce + 1
 
     def _prepare(self, asset: str) -> CommitPayload | None:
         c = self._bar_counter.get(asset, 0) + 1
@@ -350,11 +370,24 @@ class YieldAnchorScheduler:
 
     def on_bar(self, market_id: str) -> CommitRecord | None:
         payload = self._prepare(market_id)
-        return self.poster.post(payload) if payload is not None else None
+        if payload is None:
+            return None
+        rec = self.poster.post(payload)
+        self._sync_nonce(rec)
+        return rec
 
     async def on_bar_async(self, market_id: str) -> CommitRecord | None:
         payload = self._prepare(market_id)
-        return await self.poster.post_async(payload) if payload is not None else None
+        if payload is None:
+            return None
+        rec = await self.poster.post_async(payload)
+        self._sync_nonce(rec)
+        return rec
+
+    def _sync_nonce(self, rec: CommitRecord) -> None:
+        """See `PriceAnchorScheduler._sync_nonce` — same rationale."""
+        if rec.submitted:
+            self._nonce = rec.nonce + 1
 
     def _prepare(self, market_id: str) -> CommitPayload | None:
         c = self._bar_counter.get(market_id, 0) + 1

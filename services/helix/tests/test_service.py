@@ -39,6 +39,7 @@ def _signed_payload(**overrides: Any) -> dict[str, Any]:
         "max_fee_rate_bps": 2_500,
         "rebalance_cadence_sec": 900,
         "valid_until": 2_000_000_000,
+        "nonce": 1,
     }
     base.update(overrides)
     payload = MetaStrategyPayload.model_validate(base)
