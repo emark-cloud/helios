@@ -29,6 +29,7 @@ app.command()(strategy.simulate)
 app.command()(strategy.deploy)
 app.command(name="test-proof")(strategy.test_proof)
 app.command()(strategy.stake)
+app.command(name="scaffold-strategy")(strategy.scaffold_strategy)
 
 
 def app_main() -> None:

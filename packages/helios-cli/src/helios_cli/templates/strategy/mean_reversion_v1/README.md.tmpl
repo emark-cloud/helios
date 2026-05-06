@@ -1,0 +1,73 @@
+# {{NAME}}
+
+A Helios `mean_reversion_v1` strategy built on [`helios-strategy-sdk`](https://pypi.org/project/helios-strategy-sdk/). Scaffolded by `helios scaffold-strategy mean_reversion_v1`.
+
+## Quickstart
+
+```bash
+# 1. Install the package + the SDK from PyPI.
+pip install -e .
+
+# 2. Backtest your signal against synthetic prices (no env vars required).
+helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d
+
+# 3. Copy and fill in the on-chain environment.
+cp .env.example .env
+$EDITOR .env
+
+# 4. Register on Kite testnet + deploy to your VPS.
+helios stake top-up --strategy src/{{NAME_SNAKE}}/strategy.py
+helios deploy --strategy src/{{NAME_SNAKE}}/strategy.py --target user@host
+```
+
+The whole point of writing your own strategy is the signal — open
+`src/{{NAME_SNAKE}}/strategy.py` and edit `on_bar`. The runtime layer
+(oracle polling, Groth16 proof generation, `executeWithProof` submission)
+is in the SDK and does not need to change.
+
+## What the circuit enforces
+
+`mean_reversion_v1.circom` (`Helios.md §10.3`) commits each trade to:
+
+  * `asset_in`, `asset_out` ∈ `asset_universe`
+  * `amount_in_usd ≤ max_position_size_usd`
+  * `min_amount_out` respects `max_slippage_bps`
+  * Direction matches *some* n-sigma threshold (LONG on N-sigma DOWN,
+    SHORT on N-sigma UP, EXIT on mean re-cross or stop-loss)
+  * `block_window_end - block_window_start ≤ 100`
+
+The **16-bar lookback is fixed** — the circuit's `price_observations[16]`
+hard-codes it. Tune `n_sigma_x100`, sizing, and the stop-loss instead.
+
+`n_sigma_x100` and `stop_loss_price_usd` are private witness inputs.
+The chain only sees that *some* threshold / stop pair makes the trade
+consistent.
+
+## Build with Claude Code
+
+This scaffold is set up so an AI coding agent can iterate on the
+signal and ship to the marketplace without changing any Helios code.
+
+In your terminal:
+
+```bash
+claude "Open src/{{NAME_SNAKE}}/strategy.py and add a hard stop-loss \
+that exits when price drops 4% below entry on a long. Then run \
+'helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d' \
+and report Sharpe + max drawdown vs. the previous run."
+```
+
+The repo's [`CLAUDE.md`](https://github.com/emark-cloud/helios/blob/main/CLAUDE.md) is the canonical operational guide for AI agents working on Helios; class invariants live in `Helios.md §10.3`.
+
+## Layout
+
+```
+{{NAME_KEBAB}}/
+├── pyproject.toml
+├── Dockerfile               # produced by `helios deploy`
+├── .env.example
+└── src/
+    └── {{NAME_SNAKE}}/
+        ├── __init__.py
+        └── strategy.py      # your signal logic
+```

@@ -1,0 +1,97 @@
+"""{{NAME_PASCAL}}Strategy — your mean_reversion_v1 signal logic.
+
+The SDK runtime polls the price oracle, calls `on_bar` once per asset
+per bar, generates the Groth16 proof for each `TradeIntent` you
+return, and submits `executeWithProof` on chain. Your job is the
+ranker: when has the price strayed far enough from its 16-bar mean
+that a reversion bet is worth it?
+
+Class invariants enforced by `mean_reversion_v1.circom` (Helios.md §10.3):
+  * `asset_in`, `asset_out` ∈ `asset_universe`
+  * `amount_in_usd ≤ max_position_size_usd`
+  * `min_amount_out` respects `max_slippage_bps`
+  * Direction matches *some* operator-declared n-sigma threshold:
+      LONG entry on N-sigma DOWN (price ≤ mean - Nσ)
+      SHORT entry on N-sigma UP (price ≥ mean + Nσ)
+      EXIT on mean re-cross or stop-loss
+  * `block_window_end - block_window_start ≤ 100`
+
+The 16-bar lookback is a **hard requirement** of the circuit
+(`price_observations[16]`). Operators tune `n_sigma_x100`, sizing, and
+the stop-loss — never the window length.
+
+`n_sigma_x100` and `stop_loss_price_usd` are private witness inputs.
+The chain only sees that *some* (threshold, stop-loss) pair makes the
+trade consistent. That's your IP.
+"""
+
+from __future__ import annotations
+
+import math
+
+from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
+
+LOOKBACK_BARS = 16  # Pinned by the circuit — do not change.
+
+
+class {{NAME_PASCAL}}Strategy(StrategyAgent):
+    declared_class = "mean_reversion_v1"
+    asset_universe = ("USDC", "WKITE", "WETH")
+    max_position_size_usd = 10_000
+    fee_rate_bps = 2_000  # 20% perf fee on PnL above HWM
+
+    def __init__(
+        self,
+        n_sigma_x100: int = 200,
+        stop_loss_price_usd: float = 0.0,
+        max_slippage_bps: int = 30,
+        position_fraction: float = 0.5,
+    ) -> None:
+        super().__init__()
+        self._n_sigma_x100 = n_sigma_x100
+        self._stop_loss_price_usd = stop_loss_price_usd
+        self._max_slippage_bps = max_slippage_bps
+        self._position_fraction = position_fraction
+
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+        if asset == "USDC":
+            return None  # base asset never the signal subject
+        if len(snapshot.prices) < LOOKBACK_BARS:
+            return None  # circuit needs exactly 16 observations
+
+        prices = snapshot.prices[-LOOKBACK_BARS:]
+        last_price = prices[-1]
+        mean = sum(prices) / LOOKBACK_BARS
+        # Population variance — matches the circuit's in-circuit
+        # `sum_sq_devs` computation (`Σ(16·p_i − Σp)²`).
+        variance = sum((p - mean) ** 2 for p in prices) / LOOKBACK_BARS
+        sigma = math.sqrt(variance)
+        if sigma == 0.0:
+            return None  # degenerate flat history
+        z = (last_price - mean) / sigma
+        n_sigma = self._n_sigma_x100 / 100.0
+        position = self.position_for(asset)
+
+        # LONG entry: price ≤ mean - Nσ, flat-or-short.
+        if z <= -n_sigma and position <= 0:
+            return TradeIntent(
+                asset_in="USDC",
+                asset_out=asset,
+                amount_in_usd=self._size(),
+                direction=Direction.LONG,
+                max_slippage_bps=self._max_slippage_bps,
+            )
+
+        # EXIT on mean re-cross while we hold long.
+        if z >= 0 and position > 0:
+            return TradeIntent(
+                asset_in=asset,
+                asset_out="USDC",
+                amount_in_asset=position,
+                direction=Direction.EXIT,
+                max_slippage_bps=self._max_slippage_bps,
+            )
+        return None
+
+    def _size(self) -> float:
+        return min(self.max_position_size_usd, self.available_capital * self._position_fraction)

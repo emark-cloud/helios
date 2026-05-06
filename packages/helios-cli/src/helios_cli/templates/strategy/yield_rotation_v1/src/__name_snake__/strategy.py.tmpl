@@ -1,0 +1,77 @@
+"""{{NAME_PASCAL}}Strategy — your yield_rotation_v1 rotation logic.
+
+The SDK runtime polls the yield oracle and drives `propose_rotation`
+once per yield-snapshot tick — a different cadence from price bars,
+which is why YR strategies do not implement `on_bar`. Your job is the
+ranker: when has APY divergence between two markets exceeded
+`signal_threshold + bridging_cost` enough to justify rotating
+capital?
+
+Class invariants enforced by `yield_rotation_v1.circom` (Helios.md §10.4):
+  * Both `m_from` and `m_to` are in the operator-declared allowlist
+  * Both APY snapshots are members of the canonical yield-oracle root
+  * `apy_to − apy_from ≥ signal_threshold + bridging_cost` (all in bps)
+  * `m_from ≠ m_to` and `amount_rotating > 0`
+  * `block.number ≤ block_window_end`
+
+`signal_threshold_bps` and `bridging_cost_bps` are private witness
+inputs — the chain only sees that *some* threshold + budget exist for
+which the rotation is consistent. That's your IP.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import ClassVar
+
+from helios import MarketSnapshot, StrategyAgent, TradeIntent
+
+
+class {{NAME_PASCAL}}Strategy(StrategyAgent):
+    declared_class = "yield_rotation_v1"
+    # YR has no asset universe — markets are identified by integer
+    # market IDs, allowlisted at construction time.
+    asset_universe: ClassVar[Sequence[str]] = ()
+    max_position_size_usd = 25_000
+    fee_rate_bps = 1_500  # 15% perf fee — tighter than directional classes
+
+    def __init__(
+        self,
+        *,
+        allowlisted_markets: Sequence[int] = (1, 2, 3),
+        signal_threshold_bps: int = 80,
+        bridging_cost_bps: int = 30,
+        position_fraction: float = 0.5,
+    ) -> None:
+        super().__init__()
+        self._allowlisted_markets = tuple(allowlisted_markets)
+        self._signal_threshold_bps = signal_threshold_bps
+        self._bridging_cost_bps = bridging_cost_bps
+        self._position_fraction = position_fraction
+
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+        # YR is yield-driven; the runtime never calls `on_bar` for this
+        # strategy class. Override `propose_rotation` instead.
+        return None
+
+    def propose_rotation(self, apys_bps: dict[int, int]) -> dict[str, int] | None:
+        """Return `{"m_from": id, "m_to": id, "amount_usd": int}` to
+        rotate, or `None` to hold. The SDK runtime drives this hook with
+        the latest signed APY snapshot per allowlisted market.
+
+        Default implementation: take the largest divergence above the
+        `signal_threshold + bridging_cost` floor. Edit me — that's the
+        whole point.
+        """
+        floor_bps = self._signal_threshold_bps + self._bridging_cost_bps
+        eligible = {m: apys_bps[m] for m in self._allowlisted_markets if m in apys_bps}
+        if len(eligible) < 2:
+            return None
+        m_from = min(eligible, key=lambda m: eligible[m])
+        m_to = max(eligible, key=lambda m: eligible[m])
+        if eligible[m_to] - eligible[m_from] < floor_bps or m_from == m_to:
+            return None
+        amount = int(min(self.max_position_size_usd, self.available_capital * self._position_fraction))
+        if amount <= 0:
+            return None
+        return {"m_from": m_from, "m_to": m_to, "amount_usd": amount}
