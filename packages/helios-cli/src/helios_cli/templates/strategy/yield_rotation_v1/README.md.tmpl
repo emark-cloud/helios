@@ -1,0 +1,73 @@
+# {{NAME}}
+
+A Helios `yield_rotation_v1` strategy built on [`helios-strategy-sdk`](https://pypi.org/project/helios-strategy-sdk/). Scaffolded by `helios scaffold-strategy yield_rotation_v1`.
+
+## Quickstart
+
+```bash
+# 1. Install the package + the SDK from PyPI.
+pip install -e .
+
+# 2. Backtest your rotation logic against synthetic APY traces. The
+#    YR backtest driver lands in WS4 — until then, run the unit test
+#    that exercises propose_rotation directly.
+pytest
+
+# 3. Copy and fill in the on-chain environment.
+cp .env.example .env
+$EDITOR .env
+
+# 4. Register on Kite testnet + deploy to your VPS.
+helios stake top-up --strategy src/{{NAME_SNAKE}}/strategy.py
+helios deploy --strategy src/{{NAME_SNAKE}}/strategy.py --target user@host
+```
+
+The whole point of writing your own strategy is the rotation rule —
+open `src/{{NAME_SNAKE}}/strategy.py` and edit `propose_rotation`.
+The runtime layer (yield-oracle polling, Groth16 proof generation,
+`executeWithProof` submission) is in the SDK and does not need to
+change.
+
+## What the circuit enforces
+
+`yield_rotation_v1.circom` (`Helios.md §10.4`) commits each rotation to:
+
+  * Both `m_from` and `m_to` are in your allowlist
+  * Both APY snapshots are members of the canonical yield-oracle root
+  * `apy_to − apy_from ≥ signal_threshold + bridging_cost` (all bps)
+  * `m_from ≠ m_to` and `amount_rotating > 0`
+  * `block.number ≤ block_window_end`
+
+`signal_threshold_bps` and `bridging_cost_bps` are private witness
+inputs. The chain only sees that *some* threshold + budget makes the
+rotation consistent.
+
+## Build with Claude Code
+
+This scaffold is set up so an AI coding agent can iterate on the
+rotation rule and ship to the marketplace without changing any Helios
+code.
+
+In your terminal:
+
+```bash
+claude "Open src/{{NAME_SNAKE}}/strategy.py and rewrite propose_rotation \
+to favour rotations where the destination market's APY has been above \
+its 7-day mean. Add a unit test that pins the choice on a fixed APY \
+sequence."
+```
+
+The repo's [`CLAUDE.md`](https://github.com/emark-cloud/helios/blob/main/CLAUDE.md) is the canonical operational guide for AI agents working on Helios; class invariants live in `Helios.md §10.4`.
+
+## Layout
+
+```
+{{NAME_KEBAB}}/
+├── pyproject.toml
+├── Dockerfile               # produced by `helios deploy`
+├── .env.example
+└── src/
+    └── {{NAME_SNAKE}}/
+        ├── __init__.py
+        └── strategy.py      # your rotation logic
+```

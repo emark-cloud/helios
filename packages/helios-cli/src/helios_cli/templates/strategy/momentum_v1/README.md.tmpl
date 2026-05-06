@@ -1,0 +1,69 @@
+# {{NAME}}
+
+A Helios `momentum_v1` strategy built on [`helios-strategy-sdk`](https://pypi.org/project/helios-strategy-sdk/). Scaffolded by `helios scaffold-strategy momentum_v1`.
+
+## Quickstart
+
+```bash
+# 1. Install the package + the SDK from PyPI.
+pip install -e .
+
+# 2. Backtest your signal against synthetic prices (no env vars required).
+helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d
+
+# 3. Copy and fill in the on-chain environment.
+cp .env.example .env
+$EDITOR .env
+
+# 4. Register on Kite testnet + deploy to your VPS.
+helios stake top-up --strategy src/{{NAME_SNAKE}}/strategy.py
+helios deploy --strategy src/{{NAME_SNAKE}}/strategy.py --target user@host
+```
+
+The whole point of writing your own strategy is the signal — open
+`src/{{NAME_SNAKE}}/strategy.py` and edit `on_bar`. The runtime layer
+(oracle polling, Groth16 proof generation, `executeWithProof` submission)
+is in the SDK and does not need to change.
+
+## What the circuit enforces
+
+`momentum_v1.circom` (`Helios.md §10.2`) commits each trade to:
+
+  * `asset_in`, `asset_out` ∈ `asset_universe`
+  * `amount_in_usd ≤ max_position_size_usd`
+  * `min_amount_out` respects `max_slippage_bps`
+  * Direction matches *some* operator-declared threshold (LONG entry,
+    EXIT on flip, SHORT entry symmetric)
+  * `block_window_end - block_window_start ≤ 100`
+
+Your `signal_threshold` and `lookback_bars` are private witness inputs.
+The chain only sees that *some* threshold makes the trade consistent.
+
+## Build with Claude Code
+
+This scaffold is set up so an AI coding agent can iterate on the
+signal and ship to the marketplace without changing any Helios code.
+
+In your terminal:
+
+```bash
+claude "Open src/{{NAME_SNAKE}}/strategy.py and rewrite on_bar to use \
+a 20-bar lookback and a 2.5% threshold. Then run \
+'helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d' \
+and report the Sharpe ratio + max drawdown."
+```
+
+The repo's [`CLAUDE.md`](https://github.com/emark-cloud/helios/blob/main/CLAUDE.md) is the canonical operational guide for AI agents working on Helios; class invariants live in `Helios.md §10.2`.
+
+## Layout
+
+```
+{{NAME_KEBAB}}/
+├── pyproject.toml
+├── Dockerfile               # produced by `helios deploy`
+├── .env.example
+└── src/
+    └── {{NAME_SNAKE}}/
+        ├── __init__.py
+        └── strategy.py      # your signal logic
+```

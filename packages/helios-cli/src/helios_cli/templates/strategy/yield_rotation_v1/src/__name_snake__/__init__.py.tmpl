@@ -1,0 +1,11 @@
+"""{{NAME_PASCAL}} — Helios momentum_v1 strategy scaffold.
+
+Editable signal logic lives in `strategy.py`. The package exposes its
+strategy class so `helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py`
+and `helios deploy` can find and instantiate it.
+"""
+
+from {{NAME_SNAKE}}.strategy import {{NAME_PASCAL}}Strategy
+
+__all__ = ["{{NAME_PASCAL}}Strategy"]
+__version__ = "0.1.0"

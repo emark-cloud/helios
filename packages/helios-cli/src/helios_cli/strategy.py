@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -506,6 +508,127 @@ def test_proof(
         raise typer.Exit(code=1)
 
 
+# ─── helios scaffold-strategy ─────────────────────────────────────
+
+
+_STRATEGY_TEMPLATES_DIR = _TEMPLATES_DIR / "strategy"
+_KNOWN_CLASSES = ("momentum_v1", "mean_reversion_v1", "yield_rotation_v1")
+
+
+@app.command(name="scaffold-strategy")
+def scaffold_strategy(
+    strategy_class: str = typer.Argument(
+        ...,
+        metavar="CLASS",
+        help=f"Strategy class. One of: {', '.join(_KNOWN_CLASSES)}",
+    ),
+    name: str = typer.Option(
+        ...,
+        help="Strategy name. Becomes the package name and the on-chain manifest name.",
+    ),
+    target_dir: Path = typer.Option(
+        Path("./my-strategy"),
+        help="Directory to scaffold into. Created if missing.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite the target directory if it already exists."
+    ),
+) -> None:
+    """Scaffold a new strategy project from the SDK template.
+
+    Mirrors `helios-allocator init`: a single `pip install -e .` away from
+    a runnable backtest, and a `helios deploy` away from a live VPS
+    deployment. The SDK is the only runtime dependency — there are no
+    workspace imports, so the scaffold installs from public PyPI.
+    """
+    if strategy_class not in _KNOWN_CLASSES:
+        raise typer.BadParameter(
+            f"unknown class {strategy_class!r}; pick one of {list(_KNOWN_CLASSES)}.",
+            param_hint="CLASS",
+        )
+
+    name = name.strip()
+    if not name:
+        raise typer.BadParameter("--name must be a non-empty string.", param_hint="--name")
+
+    name_snake = _to_snake(name)
+    name_pascal = _to_pascal(name)
+    name_kebab = name_snake.replace("_", "-")
+    if not name_snake or not name_snake.isidentifier():
+        raise typer.BadParameter(
+            f"--name {name!r} produces snake_case {name_snake!r} which is not a "
+            "valid Python identifier. Use ASCII letters, digits, and spaces.",
+            param_hint="--name",
+        )
+
+    src = _STRATEGY_TEMPLATES_DIR / strategy_class
+    if not src.exists():
+        raise typer.BadParameter(
+            f"template missing at {src}; reinstall helios-cli.",
+        )
+
+    target = target_dir.resolve()
+    if target.exists():
+        if not force:
+            raise typer.BadParameter(
+                f"target {target} already exists; pass --force to overwrite.",
+                param_hint="--target-dir",
+            )
+        shutil.rmtree(target)
+
+    substitutions = {
+        "{{NAME}}": name,
+        "{{NAME_PASCAL}}": name_pascal,
+        "{{NAME_SNAKE}}": name_snake,
+        "{{NAME_KEBAB}}": name_kebab,
+    }
+    _render_template_tree(src, target, substitutions, name_snake)
+
+    console.print(f"[green]Scaffolded[/green] [bold]{name}[/bold] ({strategy_class}) at {target}")
+    console.print(
+        f"Next: `pip install -e {target}` then "
+        f"`helios backtest --strategy {target}/src/{name_snake}/strategy.py --period 90d`."
+    )
+
+
+def _render_template_tree(
+    src: Path,
+    dst: Path,
+    substitutions: dict[str, str],
+    name_snake: str,
+) -> None:
+    """Walk `src`, render each file/dir into `dst`. Mirrors the
+    allocator scaffold renderer but kept local so the strategy and
+    allocator commands don't reach into each other's modules."""
+    for entry in sorted(src.rglob("*")):
+        rel = entry.relative_to(src)
+        rendered_parts = [name_snake if part == "__name_snake__" else part for part in rel.parts]
+        out = dst.joinpath(*rendered_parts)
+        if entry.is_dir():
+            out.mkdir(parents=True, exist_ok=True)
+            continue
+        if out.suffix == ".tmpl":
+            out = out.with_suffix("")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        text = entry.read_text(encoding="utf-8")
+        for needle, replacement in substitutions.items():
+            text = text.replace(needle, replacement)
+        out.write_text(text, encoding="utf-8")
+
+
+def _to_snake(name: str) -> str:
+    """`"My Momentum"` → `"my_momentum"`."""
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    parts = re.split(r"[^A-Za-z0-9]+", spaced)
+    return "_".join(p.lower() for p in parts if p)
+
+
+def _to_pascal(name: str) -> str:
+    """`"my momentum-v1"` → `"MyMomentumV1"`."""
+    parts = re.split(r"[^A-Za-z0-9]+", name)
+    return "".join(p[:1].upper() + p[1:] for p in parts if p)
+
+
 # ─── shared ───────────────────────────────────────────────────────
 
 
@@ -517,7 +640,15 @@ def _load(strategy: Path) -> Any:
         raise typer.Exit(code=2) from exc
 
 
-__all__ = ["app", "backtest", "deploy", "simulate", "stake", "test_proof"]
+__all__ = [
+    "app",
+    "backtest",
+    "deploy",
+    "scaffold_strategy",
+    "simulate",
+    "stake",
+    "test_proof",
+]
 
 
 if __name__ == "__main__":  # pragma: no cover
