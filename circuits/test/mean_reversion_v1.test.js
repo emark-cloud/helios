@@ -314,3 +314,12 @@ test("mean_reversion_v1: exit with neither flip nor stop-loss reason rejected", 
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
 });
+
+// HIGH #12 — self-swap (asset_in_idx == asset_out_idx) must fail.
+test("mean_reversion_v1: self-swap rejected", async () => {
+  const input = buildLongEntryInput();
+  input.asset_in_idx = "3";
+  input.asset_out_idx = "3";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
+});

@@ -65,6 +65,12 @@ template MomentumV1(UNIVERSE_SIZE) {
     // Exit-reason selector witness (one-hot when is_exit, else both 0).
     signal input is_signal_flip;
     signal input is_stop_loss;
+    // Side of the position being exited. 1 = the prover is unwinding a
+    // long; 0 = unwinding a short. Only consulted when is_signal_flip=1
+    // — closes HIGH #11 in `docs/phase-3-review.md` (the previous circuit
+    // only modelled long→down reversals, so a short position could not
+    // ever exit via flip; completeness bug).
+    signal input was_long;
 
     // ── Constraint A: params_hash binds operator-declared parameters ─
     // On-chain StrategyVault asserts publicInputs[PI_PARAMS_HASH] equals
@@ -120,6 +126,30 @@ template MomentumV1(UNIVERSE_SIZE) {
     outIdxLt.in[1] <== UNIVERSE_SIZE;
     inIdxLt.out  === 1;
     outIdxLt.out === 1;
+
+    // HIGH #12 — explicitly forbid self-swaps. Without this, a prover
+    // could pass asset_in == asset_out and the circuit would happily
+    // attest a no-op trade that bypasses the strategy's intended risk
+    // bounds (slippage / signal logic). yield_rotation_v1 has this
+    // already; momentum + MR didn't.
+    component sameIdx = IsEqual();
+    sameIdx.in[0] <== asset_in_idx;
+    sameIdx.in[1] <== asset_out_idx;
+    sameIdx.out === 0;
+
+    // HIGH #13 — explicit width on amount_in / min_amount_out /
+    // max_position_size before they enter any quadratic constraint.
+    // 128 bits is plenty of headroom for any realistic token amount
+    // (uint128 ~ 3.4e38, vs USDC 6-decimal cap of ~1e30) but keeps
+    // amount_in × (10000 - max_slippage_bps) well below the BN254
+    // field size so a near-field-size witness can no longer wrap the
+    // multiplication and still pass GreaterEqThan(160).
+    component amountInBits = Num2Bits(128);
+    amountInBits.in <== amount_in;
+    component minOutBits = Num2Bits(128);
+    minOutBits.in <== min_amount_out;
+    component maxPosBits = Num2Bits(128);
+    maxPosBits.in <== max_position_size;
 
     // ── Constraint 1: amount_in <= max_position_size ────────────────
     component sizeOk = LessEqThan(128);
@@ -210,8 +240,25 @@ template MomentumV1(UNIVERSE_SIZE) {
     // When exit: exactly one reason. When not exit: both 0.
     is_exit === is_signal_flip + is_stop_loss;
 
+    // HIGH #11 — signal-flip exit must work for BOTH long and short
+    // positions. The previous circuit only checked `down_delta -
+    // threshold` which by construction can only justify exiting a
+    // long; a short was uncloseable via flip. `was_long` (private,
+    // boolean) selects the right delta direction at exit time. When
+    // is_signal_flip = 0 the entire excess term is masked out and
+    // was_long is unconstrained, so it doesn't add a witness burden
+    // on entry / stop-loss tickets.
+    was_long * (1 - was_long) === 0;
+    signal sf_long_raw;
+    signal sf_short_raw;
+    sf_long_raw  <== down_delta_x10k - threshold_x_pf;
+    sf_short_raw <== up_delta_x10k - threshold_x_pf;
+    signal sf_long_term;
+    signal sf_short_term;
+    sf_long_term  <== was_long * sf_long_raw;
+    sf_short_term <== (1 - was_long) * sf_short_raw;
     signal sf_excess_raw;
-    sf_excess_raw <== down_delta_x10k - threshold_x_pf;
+    sf_excess_raw <== sf_long_term + sf_short_term;
     signal sf_excess;
     sf_excess <== is_signal_flip * sf_excess_raw;
     component sfNonNeg = Num2Bits(192);
