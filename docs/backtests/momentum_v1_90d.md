@@ -47,19 +47,28 @@ Initial capital `$10,000`, fees default `2 bps` round-trip.
 
 ## Results across five seeds
 
+Refreshed for WS4 (NAV-target sizing, position-flip realisation, YR
+backtest driver — see `docs/phase3-plan.md` step 16).
+
 | Seed | Final NAV | Total return | Sharpe (ann.) | Max DD | Trades | Win rate |
 |---:|---:|---:|---:|---:|---:|---:|
-| 17   | $8,446.18 | -15.54% | -3.24 | 17.15% | 150 | 37.3% |
-| 42   | $8,212.68 | -17.87% | -3.87 | 20.92% | 151 | 32.0% |
-| 101  | $7,682.22 | -23.18% | -5.61 | 26.08% | 141 | 31.4% |
-| 314  | $8,861.91 | -11.38% | -2.28 | 13.97% | 155 | 31.2% |
-| 7331 | $7,827.19 | -21.73% | -4.92 | 25.46% | 167 | 27.7% |
-| **median** | **$8,212.68** | **-17.87%** | **-3.87** | **20.92%** | **151** | **31.4%** |
+| 17   | $8,365.98 | -16.34% | -2.80 | 18.65% | 150 | 37.3% |
+| 42   | $7,796.05 | -22.04% | -4.03 | 24.89% | 151 | 32.0% |
+| 101  | $7,021.16 | -29.79% | -6.37 | 32.66% | 141 | 31.4% |
+| 314  | $8,279.76 | -17.20% | -2.99 | 21.12% | 155 | 31.2% |
+| 7331 | $7,499.30 | -25.01% | -4.69 | 28.62% | 167 | 27.7% |
+| **median** | **$7,796.05** | **-22.04%** | **-4.03** | **24.89%** | **151** | **31.2%** |
 
-Across all five seeds the trade count clusters at **150 ± 13** with a
-**31% win rate**, confirming the signal logic fires consistently and
+Across all five seeds the trade count clusters at **152 ± 13** with a
+**~31% win rate**, confirming the signal logic fires consistently and
 exits on flip-overs as designed. Negative aggregate return is the
-expected fee-adjusted outcome on zero-drift series.
+expected fee-adjusted outcome on zero-drift series; WS4's NAV-target
+sizing keeps each entry at the same fraction of NAV across the run
+even after drawdowns, so a long losing streak compounds slightly more
+loss than the prior cash-bounded sizing did (the PR4 writeup, before
+NAV-target was wired through `size_trade`, under-sized re-entries
+once the strategy was deployed and cash had been reduced — that
+under-sizing was hiding a larger negative carry).
 
 ## Representative NAV path (seed 42, median)
 

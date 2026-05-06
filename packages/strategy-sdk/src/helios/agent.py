@@ -86,14 +86,24 @@ class StrategyAgent(ABC):
         del ticks
         return None
 
-    def size_trade(self, intent: TradeIntent, available_capital: float) -> float:
+    def size_trade(
+        self,
+        intent: TradeIntent,
+        available_capital: float,
+        *,
+        nav_target: bool = False,
+    ) -> float:
         """Translate a TradeIntent into a notional USD amount.
 
         Default policy: prefer the intent's own `amount_in_usd` when
         present; otherwise convert `amount_in_asset` using the price
         embedded in the snapshot if the strategy attached one
         (operators usually inline this in `on_bar`). Always clamps to
-        `max_position_size_usd` and `available_capital`.
+        `max_position_size_usd`. Headroom is `available_capital` by
+        default; pass `nav_target=True` (or set
+        `TradeIntent.is_nav_targeted=True`) to clamp against
+        mark-to-market NAV instead — the right cap for "target X% of
+        NAV per trade" sizing on a half-deployed strategy.
 
         Operators with custom sizing (Kelly, vol-target, …) override
         this and ignore the intent's `amount_in_usd`."""
@@ -108,7 +118,8 @@ class StrategyAgent(ABC):
             notional = 0.0
         else:
             notional = 0.0
-        return max(0.0, min(notional, cap, available_capital))
+        headroom = self._nav_usd if nav_target else available_capital
+        return max(0.0, min(notional, cap, headroom))
 
     def should_exit(self, asset: str, snapshot: MarketSnapshot, position: Position) -> bool:
         """Supplemental exit hook the backtest engine consults each bar.

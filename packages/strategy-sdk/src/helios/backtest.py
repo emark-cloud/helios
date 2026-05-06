@@ -353,7 +353,11 @@ def _apply_intent(
     )
     realized += flip_realized
 
-    notional = strategy.size_trade(intent, available_capital=cash)
+    notional = strategy.size_trade(
+        intent,
+        available_capital=cash,
+        nav_target=intent.is_nav_targeted,
+    )
     if notional <= 0:
         return cash, realized
     fee = notional * fee_bps / 10_000

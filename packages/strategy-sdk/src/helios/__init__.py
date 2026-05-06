@@ -15,6 +15,7 @@ from helios.backtest import (
     synthesize_random_walk,
 )
 from helios.nav import NAVTracker, max_drawdown, sharpe_ratio
+from helios.sizing import nav_target_notional
 from helios.types import (
     Direction,
     MarketSnapshot,
@@ -40,6 +41,7 @@ __all__ = [
     "YieldBacktestReport",
     "YieldTick",
     "max_drawdown",
+    "nav_target_notional",
     "run_backtest",
     "run_yield_backtest",
     "sharpe_ratio",
