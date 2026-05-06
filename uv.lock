@@ -1090,7 +1090,6 @@ source = { editable = "reference-strategies/mean_reversion_v1" }
 dependencies = [
     { name = "eth-account" },
     { name = "eth-utils" },
-    { name = "helios-service-template" },
     { name = "helios-strategy-sdk" },
     { name = "httpx" },
     { name = "structlog" },
@@ -1104,12 +1103,15 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+service = [
+    { name = "helios-service-template" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "eth-utils", specifier = ">=4.1" },
-    { name = "helios-service-template", editable = "services/_template" },
+    { name = "helios-service-template", marker = "extra == 'service'", editable = "services/_template" },
     { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
@@ -1119,7 +1121,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.4" },
     { name = "web3", specifier = ">=7.4" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "service"]
 
 [[package]]
 name = "helios-reference-momentum-v1"
@@ -1128,7 +1130,6 @@ source = { editable = "reference-strategies/momentum_v1" }
 dependencies = [
     { name = "eth-account" },
     { name = "eth-utils" },
-    { name = "helios-service-template" },
     { name = "helios-strategy-sdk" },
     { name = "httpx" },
     { name = "structlog" },
@@ -1142,12 +1143,15 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+service = [
+    { name = "helios-service-template" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "eth-utils", specifier = ">=4.1" },
-    { name = "helios-service-template", editable = "services/_template" },
+    { name = "helios-service-template", marker = "extra == 'service'", editable = "services/_template" },
     { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
@@ -1157,7 +1161,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.4" },
     { name = "web3", specifier = ">=7.4" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "service"]
 
 [[package]]
 name = "helios-reference-yield-rotation-v1"
@@ -1166,7 +1170,6 @@ source = { editable = "reference-strategies/yield_rotation_v1" }
 dependencies = [
     { name = "eth-account" },
     { name = "eth-utils" },
-    { name = "helios-service-template" },
     { name = "helios-strategy-sdk" },
     { name = "httpx" },
     { name = "structlog" },
@@ -1180,12 +1183,15 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+service = [
+    { name = "helios-service-template" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "eth-utils", specifier = ">=4.1" },
-    { name = "helios-service-template", editable = "services/_template" },
+    { name = "helios-service-template", marker = "extra == 'service'", editable = "services/_template" },
     { name = "helios-strategy-sdk", editable = "packages/strategy-sdk" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
@@ -1195,7 +1201,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.4" },
     { name = "web3", specifier = ">=7.4" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "service"]
 
 [[package]]
 name = "helios-reputation"

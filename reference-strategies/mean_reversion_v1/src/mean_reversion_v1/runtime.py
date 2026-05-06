@@ -257,7 +257,7 @@ class MeanReversionRuntime:
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.nav_interval_sec)
             except TimeoutError:
-                self.tick_nav(self._strategy.available_capital)
+                self.tick_nav(self._strategy.nav)
 
     def tick_nav(self, total_nav_usd: float, *, timestamp: int | None = None) -> ExecutionRecord:
         """Sign + submit one NAV report. StrategyVault verifies an

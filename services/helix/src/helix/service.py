@@ -43,7 +43,9 @@ from helios_allocator.service import (
     MetaStrategySignatureError,
     NonceStore,
     StrategyDirectoryRow,
+    WSSubscribeSignatureError,
     verify_meta_strategy_signature,
+    verify_ws_subscribe_signature,
 )
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
@@ -196,6 +198,21 @@ def _make_router(
 
     @router.websocket("/users/{user}/events")
     async def user_events(ws: WebSocket, user: str) -> None:
+        # WS auth (HIGH #18 — see sentinel.service.user_events for the
+        # full rationale; both allocators MUST run identical checks
+        # since one frontend signature serves both wire surfaces).
+        try:
+            valid_until = int(ws.query_params.get("valid_until", "0"))
+        except ValueError:
+            await ws.close(code=4401, reason="invalid valid_until")
+            return
+        signature = ws.query_params.get("signature", "")
+        try:
+            verify_ws_subscribe_signature(user, valid_until, signature)
+        except WSSubscribeSignatureError as exc:
+            await ws.close(code=4401, reason=str(exc)[:120])
+            return
+
         await ws.accept()
         q = store.subscribe(user)
         try:

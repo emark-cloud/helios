@@ -36,7 +36,13 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from sentinel.allocator import SentinelAllocator
-from sentinel.auth import MetaStrategySignatureError, NonceStore, verify_meta_strategy_signature
+from sentinel.auth import (
+    MetaStrategySignatureError,
+    NonceStore,
+    WSSubscribeSignatureError,
+    verify_meta_strategy_signature,
+    verify_ws_subscribe_signature,
+)
 from sentinel.schemas import (
     AllocationView,
     DashboardPayload,
@@ -195,6 +201,27 @@ def _make_router(
 
     @router.websocket("/users/{user}/events")
     async def user_events(ws: WebSocket, user: str) -> None:
+        # WS auth (HIGH #18 from `docs/phase-3-review.md`). The frontend
+        # signs `ws_subscribe_digest(user, valid_until)` via personal_sign
+        # right before opening the socket and passes the result on the
+        # query string. We close with code 4401 ("application-level
+        # unauthorized") instead of accepting and immediately closing —
+        # that lets the client distinguish auth failure from network
+        # noise without having to send a frame.
+        try:
+            valid_until = int(ws.query_params.get("valid_until", "0"))
+        except ValueError:
+            await ws.close(code=4401, reason="invalid valid_until")
+            return
+        signature = ws.query_params.get("signature", "")
+        try:
+            verify_ws_subscribe_signature(user, valid_until, signature)
+        except WSSubscribeSignatureError as exc:
+            # `reason` is shown in browser devtools; the message is
+            # static enough to be safe (no signer-controlled echo).
+            await ws.close(code=4401, reason=str(exc)[:120])
+            return
+
         await ws.accept()
         q = store.subscribe(user)
         try:

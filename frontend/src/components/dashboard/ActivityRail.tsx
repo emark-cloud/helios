@@ -13,6 +13,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSignMessage } from "wagmi";
 
 import { Numeric } from "@/components/atoms/Numeric";
 import { ProofBadge } from "@/components/atoms/ProofBadge";
@@ -27,22 +28,48 @@ type ConnState = "connecting" | "open" | "closed" | "error";
 export function ActivityRail({ user }: { user: string }): JSX.Element {
   const [events, setEvents] = useState<SentinelEvent[]>([]);
   const [conn, setConn] = useState<ConnState>("connecting");
+  // HIGH #18: Sentinel WS now requires an EIP-191 signature recovering
+  // to `user`. Triggers a wallet prompt the first time the rail mounts;
+  // the signed token is good for 5 minutes (see `subscribeUserEvents`).
+  const { signMessageAsync } = useSignMessage();
 
   useEffect(() => {
     setConn("connecting");
     setEvents([]);
-    const unsub = subscribeUserEvents(
-      user,
-      (evt) => {
-        setEvents((prev) => {
-          const next = [evt, ...prev];
-          return next.length > MAX_ENTRIES ? next.slice(0, MAX_ENTRIES) : next;
-        });
-      },
-      (status) => setConn(status),
-    );
-    return unsub;
-  }, [user]);
+    let teardown: (() => void) | undefined;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const unsub = await subscribeUserEvents(
+          user,
+          (digest) => signMessageAsync({ message: digest }),
+          (evt) => {
+            setEvents((prev) => {
+              const next = [evt, ...prev];
+              return next.length > MAX_ENTRIES ? next.slice(0, MAX_ENTRIES) : next;
+            });
+          },
+          (status) => setConn(status),
+        );
+        if (cancelled) {
+          unsub();
+        } else {
+          teardown = unsub;
+        }
+      } catch {
+        // The user denied the signature prompt or wagmi failed before
+        // the socket opened — surface as an error rather than silently
+        // sitting in "connecting" forever.
+        if (!cancelled) setConn("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      teardown?.();
+    };
+  }, [user, signMessageAsync]);
 
   return (
     <aside className="flex h-full flex-col rounded-md border border-surface-line bg-surface-panel">

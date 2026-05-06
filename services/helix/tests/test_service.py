@@ -18,12 +18,19 @@ from eth_account.messages import encode_defunct
 from fastapi.testclient import TestClient
 from helios_allocator.runtime import AllocationState, AllocatorEvent, StrategyDirectoryRow
 from helios_allocator.service import MetaStrategyPayload
-from helios_allocator.service.auth import canonical_digest
+from helios_allocator.service.auth import canonical_digest, ws_subscribe_digest
 from helios_allocator.types import StrategyCandidate
 from helix.service import Settings, build_app
+from starlette.websockets import WebSocketDisconnect as StarletteDisconnect
 
 _TEST_PK = "0x" + "11" * 32
 _TEST_USER = Account.from_key(_TEST_PK).address
+
+
+def _ws_query(user: str, *, valid_until: int = 4_000_000_000, pk: str = _TEST_PK) -> str:
+    digest = ws_subscribe_digest(user, valid_until)
+    sig = Account.sign_message(encode_defunct(text=digest), pk).signature.hex()
+    return f"?valid_until={valid_until}&signature={sig}"
 
 
 def _signed_payload(**overrides: Any) -> dict[str, Any]:
@@ -215,7 +222,7 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
                 timestamp=1_000,
             )
         )
-        with client.websocket_connect(f"/v1/users/{user_addr}/events") as ws:
+        with client.websocket_connect(f"/v1/users/{user_addr}/events{_ws_query(user_addr)}") as ws:
             meta = ws.receive_json()
             assert meta["kind"] == "META_STRATEGY_SET"
             replayed = ws.receive_json()
@@ -234,6 +241,21 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
             )
             live = ws.receive_json()
             assert live["kind"] == "STRATEGY_DEFUNDED"
+
+
+def test_websocket_rejects_unsigned_connection(
+    app_client: tuple[object, TestClient],
+) -> None:
+    """HIGH #18 hardening — Helix must enforce the same WS auth as
+    Sentinel since both consume the byte-identical verifier."""
+    _app, client = app_client
+    with (
+        client,
+        pytest.raises(StarletteDisconnect) as info,
+        client.websocket_connect(f"/v1/users/{_TEST_USER}/events"),
+    ):
+        pass
+    assert info.value.code == 4401
 
 
 def test_candidate_caching_via_seed(app_client: tuple[object, TestClient]) -> None:

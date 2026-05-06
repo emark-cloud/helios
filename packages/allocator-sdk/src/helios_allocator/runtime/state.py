@@ -15,12 +15,19 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Literal
 
 from helios_allocator.types import MetaStrategy
+
+# Cap on the global event ring. `recent_events` returns at most 50
+# per-user, so a 16k-entry ring covers ~hundreds of users at a few
+# events per minute. The dashboard WS path pulls from `recent_events`,
+# never the raw deque, so old entries fall off silently.
+_EVENT_RING_CAP = 16_384
 
 EventKind = Literal[
     "META_STRATEGY_SET",
@@ -97,7 +104,7 @@ class AllocatorStore:
     def __init__(self) -> None:
         self._lock = Lock()
         self._users: dict[str, UserState] = {}
-        self._events: list[AllocatorEvent] = []
+        self._events: deque[AllocatorEvent] = deque(maxlen=_EVENT_RING_CAP)
         self._subscribers: dict[str, set[asyncio.Queue[AllocatorEvent]]] = {}
 
     # ── Users ─────────────────────────────────────────────────

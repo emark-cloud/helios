@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Reference yield_rotation_v1 strategy. Built on helios-strategy-sdk; ships the runtime that polls the yield oracle, builds Merkle witnesses, calls the prover, and submits executeYieldRotationWithProof."
 requires-python = ">=3.11"
 dependencies = [
-    "helios-service-template",
+    # NOTE: `helios-service-template` is intentionally NOT a runtime dep —
+    # it's a workspace-internal FastAPI scaffold (services/_template) that
+    # never publishes to PyPI. `yield_rotation_v1.service` imports it
+    # lazily, so only in-repo runs that have the workspace installed need
+    # it. See `services/_template/pyproject.toml` for the package itself.
     "helios-strategy-sdk",
     "eth-account>=0.13",
     "eth-utils>=4.1",
@@ -15,6 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1"]
+# Pulls in the workspace-only `helios-service-template` for the
+# FastAPI runner (`python -m yield_rotation_v1`). Library use of
+# `yield_rotation_v1.runtime` / `yield_rotation_v1.strategy` does not
+# need it.
+service = ["helios-service-template"]
 
 [project.scripts]
 yield-rotation-v1 = "yield_rotation_v1.__main__:main"

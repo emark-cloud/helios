@@ -595,6 +595,7 @@ def deploy(
     image_tag: str = typer.Option("helios-allocator:latest", help="Docker image tag."),
 ) -> None:
     """Build the project's Docker image and run it on a VPS over SSH."""
+    _validate_ssh_target(vps)
     project = project.resolve()
     if not (project / "Dockerfile").is_file():
         raise typer.BadParameter(
@@ -615,15 +616,30 @@ def deploy(
     tarball = project / ".dist" / f"{image_tag.replace(':', '_')}.tar"
     tarball.parent.mkdir(parents=True, exist_ok=True)
     _run(["docker", "save", "-o", str(tarball), image_tag])
-    _run(["scp", str(tarball), f"{vps}:/tmp/{tarball.name}"])
+    # `--` after scp/ssh stops option parsing — combined with the leading-
+    # dash check in `_validate_ssh_target`, this neutralizes
+    # `-oProxyCommand=` and similar option-injection via `--vps`.
+    _run(["scp", "--", str(tarball), f"{vps}:/tmp/{tarball.name}"])
     remote_cmd = (
         f"docker load -i /tmp/{tarball.name} && "
         f"docker rm -f helios-allocator || true && "
         f"docker run -d --name helios-allocator --restart unless-stopped "
         f"--env-file ~/.helios/allocator.env {image_tag}"
     )
-    _run(["ssh", vps, remote_cmd])
+    _run(["ssh", "--", vps, remote_cmd])
     console.print(f"[green]deployed[/green] {image_tag} → {vps}")
+
+
+def _validate_ssh_target(target: str) -> None:
+    """Reject targets that begin with `-`, which OpenSSH/scp would parse
+    as a flag (`-oProxyCommand=...`). `--` after the binary makes the
+    option parser stop, but we also fail-fast with a clearer error.
+    Mirrors `helios_cli.strategy._validate_ssh_target`."""
+    if target.startswith("-"):
+        raise typer.BadParameter(
+            f"--vps target {target!r} starts with '-'; refusing to invoke ssh "
+            "(would be parsed as an OpenSSH flag, not a hostname)."
+        )
 
 
 def _run(cmd: list[str]) -> None:
@@ -655,7 +671,8 @@ def logs(
     if vps is None:
         _run(base)
     else:
-        _run(["ssh", vps, " ".join(base)])
+        _validate_ssh_target(vps)
+        _run(["ssh", "--", vps, " ".join(base)])
 
 
 def app_main() -> None:

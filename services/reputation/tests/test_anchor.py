@@ -40,7 +40,7 @@ def test_dry_run_records_without_submitting() -> None:
     assert result.score_e4 == 1234
     assert result.tx_hash == ""
     assert result.submitted is False
-    assert poster.pending == [result]
+    assert list(poster.pending) == [result]
 
 
 def test_live_encoding_uses_postReputationUpdate_selector() -> None:

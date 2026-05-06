@@ -6,7 +6,7 @@ import os
 
 import httpx
 import pytest
-from reputation.goldsky import NavEvent, StrategyState, TradeEvent
+from reputation.goldsky import AllocatorState, NavEvent, StrategyState, TradeEvent
 from reputation.service import Settings, build_app
 from reputation.windows import DAY_SEC
 
@@ -125,3 +125,71 @@ async def test_audit_endpoint_returns_full_breakdown() -> None:
 
         missing = await client.get("/v1/audit/0xdead")
         assert missing.status_code == 404
+
+
+class _StubAllocatorGoldsky:
+    """Goldsky stub that satisfies both the strategy and allocator
+    fetchers `ReputationEngine` consumes from `_run`."""
+
+    def __init__(self, states: list[AllocatorState]) -> None:
+        self._states = states
+
+    async def fetch_strategy_states(self, since_unix: int) -> list[StrategyState]:
+        return []
+
+    async def fetch_allocator_states(self, window_start_unix: int) -> list[AllocatorState]:
+        return list(self._states)
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _allocator_state(allocator_id: str) -> AllocatorState:
+    """Mid-range allocator state — non-zero P&L, one breach handled,
+    stable user count. Confirms the audit endpoint surfaces all four
+    components without hitting the cold-start floor."""
+    return AllocatorState(
+        allocator_id=allocator_id,
+        declared_class="momentum_v1",
+        stake_e18=10_000 * 10**18,
+        max_stake_in_class_e18=20_000 * 10**18,
+        aggregate_pnl_above_hwm_e18=500 * 10**18,
+        aggregate_capital_e18=100_000 * 10**18,
+        breach_total_count=2,
+        breach_response_count=2,
+        users_at_window_start=10,
+        users_at_window_end=11,
+    )
+
+
+@pytest.mark.asyncio
+async def test_audit_endpoint_returns_allocator_breakdown() -> None:
+    """WS5.A regression — the previous /v1/audit handler only read
+    `engine.latest`, so any allocator that scored 404'd. The endpoint
+    must now fall back to `engine.latest_allocators` and surface the
+    four-component allocator shape."""
+    settings = Settings()  # type: ignore[call-arg]
+    app = build_app(settings)
+    engine = app.state.engine
+
+    allocator_id = "0x" + "ab" * 20
+    engine._goldsky = _StubAllocatorGoldsky([_allocator_state(allocator_id)])  # type: ignore[attr-defined]
+    await engine.tick_allocators_once(now_unix=_NOW)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(f"/v1/audit/{allocator_id}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["actor"] == allocator_id
+        assert body["actorType"] == 1
+        assert body["components"].keys() == {"pnl", "drawdown", "retention", "stake"}
+        assert body["weights"] == {
+            "pnl": 0.55,
+            "drawdown": 0.20,
+            "retention": 0.15,
+            "stake": 0.10,
+        }
+        assert body["inputs"]["breach_total_count"] == 2
+        assert body["inputs"]["breach_response_count"] == 2
+        assert body["components_hash"].startswith("0x") and len(body["components_hash"]) == 66

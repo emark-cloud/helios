@@ -41,12 +41,18 @@ from eth_account.messages import encode_defunct
 from helios_allocator.service.schemas import MetaStrategyPayload
 
 _DIGEST_PREFIX = "Helios meta-strategy v1\n"
+_WS_DIGEST_PREFIX = "Helios ws subscribe v1\n"
 
 
 class MetaStrategySignatureError(ValueError):
     """Raised when a meta-strategy payload's signature doesn't match
     `user_address` under the Phase 1 canonical digest, or when the
     payload is expired or replayed."""
+
+
+class WSSubscribeSignatureError(ValueError):
+    """Raised when a WebSocket subscribe signature doesn't recover to
+    the path-bound user address, is malformed, or is expired."""
 
 
 @dataclass
@@ -161,9 +167,69 @@ def verify_meta_strategy_signature(
     return recovered
 
 
+def ws_subscribe_digest(user_address: str, valid_until: int) -> str:
+    """The frontend signs the same string before opening
+    `WS /v1/users/{user}/events`. Sorted-key JSON keeps the digest
+    deterministic across the JS/Python boundary the way the
+    meta-strategy digest does.
+    """
+    body = json.dumps(
+        {"user": user_address.lower(), "valid_until": int(valid_until)},
+        separators=(",", ":"),
+    )
+    return _WS_DIGEST_PREFIX + body
+
+
+def verify_ws_subscribe_signature(
+    user_address: str,
+    valid_until: int,
+    signature: str,
+    *,
+    now: int | None = None,
+) -> str:
+    """Authorize a WS subscriber for `/v1/users/{user}/events`.
+
+    The endpoint streams a user's allocation rotations and capital
+    movements; without this check anyone can subscribe to any address
+    and watch their portfolio in real time (HIGH #18 in
+    `docs/phase-3-review.md`).
+
+    Verifies, in order:
+      1. `signature` recovers to a non-empty address.
+      2. The recovered address matches `user_address` (case-insensitive).
+      3. `valid_until > now` so a captured signature can only open a
+         socket inside its short window — there's no nonce because the
+         only post-accept attack is "open another socket," and the
+         expiry already bounds that.
+
+    `now` is injected for deterministic tests. Returns the recovered
+    checksum address on success; raises `WSSubscribeSignatureError`
+    otherwise.
+    """
+    if not signature or signature == "0x":
+        raise WSSubscribeSignatureError("missing signature")
+    digest = ws_subscribe_digest(user_address, valid_until)
+    encoded = encode_defunct(text=digest)
+    try:
+        recovered = Account.recover_message(encoded, signature=signature)
+    except Exception as exc:
+        raise WSSubscribeSignatureError(f"signature recovery failed: {exc}") from None
+    if recovered.lower() != user_address.lower():
+        raise WSSubscribeSignatureError(f"signer {recovered} does not match user {user_address}")
+    current = int(time.time()) if now is None else now
+    if int(valid_until) <= current:
+        raise WSSubscribeSignatureError(
+            f"signature expired: valid_until={valid_until} <= now={current}"
+        )
+    return recovered
+
+
 __all__ = [
     "MetaStrategySignatureError",
     "NonceStore",
+    "WSSubscribeSignatureError",
     "canonical_digest",
     "verify_meta_strategy_signature",
+    "verify_ws_subscribe_signature",
+    "ws_subscribe_digest",
 ]

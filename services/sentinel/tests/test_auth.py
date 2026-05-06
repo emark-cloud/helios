@@ -15,8 +15,11 @@ from eth_account.messages import encode_defunct
 from sentinel.auth import (
     MetaStrategySignatureError,
     NonceStore,
+    WSSubscribeSignatureError,
     canonical_digest,
     verify_meta_strategy_signature,
+    verify_ws_subscribe_signature,
+    ws_subscribe_digest,
 )
 from sentinel.schemas import MetaStrategyPayload
 
@@ -143,3 +146,55 @@ def test_nonce_store_evicts_expired_entries() -> None:
     # for honest clients — they mint random nonces — but the eviction
     # path keeps the store bounded.)
     assert store.claim("0xabc", 1, valid_until=200, now=150) is True
+
+
+# ─── WS subscribe auth (HIGH #18) ──────────────────────────
+
+
+def _ws_sign(user: str, valid_until: int, *, pk: str = _PK) -> str:
+    digest = ws_subscribe_digest(user, valid_until)
+    encoded = encode_defunct(text=digest)
+    return Account.sign_message(encoded, pk).signature.hex()
+
+
+def test_ws_subscribe_round_trip() -> None:
+    user = Account.from_key(_PK).address
+    sig = _ws_sign(user, _NOW + 60)
+    recovered = verify_ws_subscribe_signature(user, _NOW + 60, sig, now=_NOW)
+    assert recovered.lower() == user.lower()
+
+
+def test_ws_subscribe_rejects_missing_signature() -> None:
+    user = Account.from_key(_PK).address
+    with pytest.raises(WSSubscribeSignatureError, match="missing"):
+        verify_ws_subscribe_signature(user, _NOW + 60, "0x", now=_NOW)
+
+
+def test_ws_subscribe_rejects_signer_mismatch() -> None:
+    """A signature recovering to address A cannot subscribe to B's
+    socket — closes the cross-user-snoop hole HIGH #18 exposed."""
+    user = Account.from_key(_PK).address
+    other_pk = "0x" + "22" * 32
+    sig = _ws_sign(user, _NOW + 60, pk=other_pk)
+    with pytest.raises(WSSubscribeSignatureError, match="does not match"):
+        verify_ws_subscribe_signature(user, _NOW + 60, sig, now=_NOW)
+
+
+def test_ws_subscribe_rejects_expired_signature() -> None:
+    """Captured signatures must not open new sockets past `valid_until`.
+    The narrow window is the only replay defence (no per-socket nonce
+    — see `verify_ws_subscribe_signature` docstring)."""
+    user = Account.from_key(_PK).address
+    sig = _ws_sign(user, _NOW + 60)
+    with pytest.raises(WSSubscribeSignatureError, match="expired"):
+        verify_ws_subscribe_signature(user, _NOW + 60, sig, now=_NOW + 120)
+
+
+def test_ws_subscribe_rejects_tampered_valid_until() -> None:
+    """If a forwarded query string carries a different `valid_until`
+    than what was signed, recovery yields a different address and the
+    server rejects with the same `signer ... does not match` message."""
+    user = Account.from_key(_PK).address
+    sig = _ws_sign(user, _NOW + 60)
+    with pytest.raises(WSSubscribeSignatureError, match="does not match"):
+        verify_ws_subscribe_signature(user, _NOW + 9999, sig, now=_NOW)
