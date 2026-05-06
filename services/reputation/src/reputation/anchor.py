@@ -19,13 +19,6 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-# Cap for the in-memory `pending` ring. The reputation engine ticks every
-# few minutes and the anchor records one entry per submit; 4096 keeps
-# ~weeks of history visible to /v1/audit while bounding RSS for the
-# always-on engine. Older entries fall off silently — they're already
-# durable on-chain.
-_PENDING_RING_CAP = 4096
-
 import structlog
 from _template.web3_consts import RECEIPT_TIMEOUT_SEC
 from eth_account import Account
@@ -34,6 +27,13 @@ from web3 import Web3
 from web3.types import TxReceipt
 
 from reputation.signer import SignedUpdate
+
+# Cap for the in-memory `pending` ring. The reputation engine ticks every
+# few minutes and the anchor records one entry per submit; 4096 keeps
+# ~weeks of history visible to /v1/audit while bounding RSS for the
+# always-on engine. Older entries fall off silently — they're already
+# durable on-chain.
+_PENDING_RING_CAP = 4096
 
 _log = structlog.get_logger(__name__)
 

@@ -215,9 +215,7 @@ def verify_ws_subscribe_signature(
     except Exception as exc:
         raise WSSubscribeSignatureError(f"signature recovery failed: {exc}") from None
     if recovered.lower() != user_address.lower():
-        raise WSSubscribeSignatureError(
-            f"signer {recovered} does not match user {user_address}"
-        )
+        raise WSSubscribeSignatureError(f"signer {recovered} does not match user {user_address}")
     current = int(time.time()) if now is None else now
     if int(valid_until) <= current:
         raise WSSubscribeSignatureError(

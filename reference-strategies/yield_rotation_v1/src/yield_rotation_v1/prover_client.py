@@ -50,9 +50,7 @@ class ProverClient:
         strategy_class: str,
         witness_inputs: dict[str, Any],
     ) -> ProofResult:
-        headers = (
-            {"Authorization": f"Bearer {self._auth_token}"} if self._auth_token else None
-        )
+        headers = {"Authorization": f"Bearer {self._auth_token}"} if self._auth_token else None
         resp = await self._client.post(
             f"{self._endpoint}/prove",
             json={"strategyClass": strategy_class, "witnessInputs": witness_inputs},

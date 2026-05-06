@@ -25,13 +25,6 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-# `pending` holds one CommitRecord per minute-bar (price) or per
-# 5-minute-bar (yield). 4096 keeps roughly 2-3 days of price commits and
-# ~14 days of yield commits available for /v1/audit introspection while
-# bounding RSS for the always-on schedulers. Older entries fall off
-# silently — they're already durable on-chain.
-_PENDING_RING_CAP = 4096
-
 import structlog
 from _template.web3_consts import RECEIPT_TIMEOUT_SEC
 from eth_account import Account
@@ -42,6 +35,13 @@ from web3.types import TxReceipt
 
 from oracle.state import SnapshotStore
 from oracle.yield_state import YieldStore
+
+# `pending` holds one CommitRecord per minute-bar (price) or per
+# 5-minute-bar (yield). 4096 keeps roughly 2-3 days of price commits and
+# ~14 days of yield commits available for /v1/audit introspection while
+# bounding RSS for the always-on schedulers. Older entries fall off
+# silently — they're already durable on-chain.
+_PENDING_RING_CAP = 4096
 
 _log = structlog.get_logger(__name__)
 
@@ -154,9 +154,7 @@ class AnchorPoster:
     anchor_address: str
     chain_id: int
 
-    pending: deque[CommitRecord] = field(
-        default_factory=lambda: deque(maxlen=_PENDING_RING_CAP)
-    )
+    pending: deque[CommitRecord] = field(default_factory=lambda: deque(maxlen=_PENDING_RING_CAP))
     _w3: Any = field(default=None, init=False, repr=False)
     _account: Any = field(default=None, init=False, repr=False)
     _contract: Any = field(default=None, init=False, repr=False)

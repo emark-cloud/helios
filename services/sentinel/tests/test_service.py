@@ -17,6 +17,7 @@ from helios_allocator.types import StrategyCandidate
 from sentinel.auth import canonical_digest, ws_subscribe_digest
 from sentinel.schemas import MetaStrategyPayload
 from sentinel.service import Settings, build_app
+from starlette.websockets import WebSocketDisconnect as StarletteDisconnect
 
 _TEST_PK = "0x" + "11" * 32
 _TEST_USER = Account.from_key(_TEST_PK).address
@@ -249,9 +250,7 @@ def test_websocket_streams_events(app_client: tuple[object, TestClient]) -> None
                 timestamp=1_000,
             )
         )
-        with client.websocket_connect(
-            f"/v1/users/{user_addr}/events{_ws_query(user_addr)}"
-        ) as ws:
+        with client.websocket_connect(f"/v1/users/{user_addr}/events{_ws_query(user_addr)}") as ws:
             # The POST above also emits a META_STRATEGY_SET event so the
             # activity rail shows delegation on reconnect-replay; drain it
             # first, then assert on the manually pre-emitted ALLOCATION_CREATED.
@@ -281,12 +280,13 @@ def test_websocket_rejects_unsigned_connection(
 ) -> None:
     """HIGH #18 hardening — without a valid signature the server must
     close with code 4401 instead of streaming events."""
-    from starlette.websockets import WebSocketDisconnect as StarletteDisconnect
-
     _app, client = app_client
-    with client, pytest.raises(StarletteDisconnect) as info:
-        with client.websocket_connect(f"/v1/users/{_TEST_USER}/events"):
-            pass
+    with (
+        client,
+        pytest.raises(StarletteDisconnect) as info,
+        client.websocket_connect(f"/v1/users/{_TEST_USER}/events"),
+    ):
+        pass
     assert info.value.code == 4401
 
 
@@ -295,29 +295,31 @@ def test_websocket_rejects_signature_for_other_user(
 ) -> None:
     """A signature recovering to address A cannot subscribe to B's
     events stream — the recovered address must match the path user."""
-    from starlette.websockets import WebSocketDisconnect as StarletteDisconnect
-
     other_user = "0x" + "ab" * 20
     _app, client = app_client
     # `_ws_query` signs over `_TEST_USER`; targeting `other_user` mints
     # a fresh digest that the captured signature doesn't satisfy.
     qs = _ws_query(_TEST_USER)
-    with client, pytest.raises(StarletteDisconnect) as info:
-        with client.websocket_connect(f"/v1/users/{other_user}/events{qs}"):
-            pass
+    with (
+        client,
+        pytest.raises(StarletteDisconnect) as info,
+        client.websocket_connect(f"/v1/users/{other_user}/events{qs}"),
+    ):
+        pass
     assert info.value.code == 4401
 
 
 def test_websocket_rejects_expired_signature(
     app_client: tuple[object, TestClient],
 ) -> None:
-    from starlette.websockets import WebSocketDisconnect as StarletteDisconnect
-
     _app, client = app_client
     qs = _ws_query(_TEST_USER, valid_until=1)  # expired in 1970
-    with client, pytest.raises(StarletteDisconnect) as info:
-        with client.websocket_connect(f"/v1/users/{_TEST_USER}/events{qs}"):
-            pass
+    with (
+        client,
+        pytest.raises(StarletteDisconnect) as info,
+        client.websocket_connect(f"/v1/users/{_TEST_USER}/events{qs}"),
+    ):
+        pass
     assert info.value.code == 4401
 
 
