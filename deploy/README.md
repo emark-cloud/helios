@@ -8,6 +8,7 @@ Everything needed to bring up Helios on a fresh Ubuntu 24.04 LTS VPS. Target box
 deploy/
 ├── README.md                  # this file
 ├── bootstrap.sh               # one-shot provisioner — run once on a fresh box
+├── setup-tls.sh               # provision Let's Encrypt cert + rewrite helios.conf
 ├── docker-compose.prod.yml    # production stack (Postgres, Redis, prover, services)
 ├── ecosystem.config.cjs       # PM2 — supervises `docker compose up`, log rotation, boot-on-restart
 ├── env.prod.example           # production env template (NEVER commit a real .env)
@@ -15,7 +16,7 @@ deploy/
 │   ├── python.Dockerfile      # generic Python service (parameterized via build args)
 │   └── node.Dockerfile        # generic Node service (used by prover today)
 └── nginx/
-    ├── helios.conf            # reverse proxy + per-route rate limits
+    ├── helios.conf            # reverse proxy + TLS + per-route rate limits
     └── snippets/
         └── security-headers.conf
 ```
@@ -66,4 +67,15 @@ This is **Phase 0 scaffolding** — the templates are in place and parameterized
 - per-service Dockerfile shims under `services/<name>/Dockerfile` extending `python.Dockerfile` with the right `SERVICE_PACKAGE` and entrypoint
 - compose entries un-commented as each service has real behavior
 - nginx upstream config validated against the actual ports
-- TLS via Let's Encrypt + certbot (Phase 6 polish)
+
+## TLS
+
+`helios.conf` is HTTPS-by-default — the HTTP server block exists only to serve the ACME challenge and 301 every other request to HTTPS. Provision a Let's Encrypt cert by pointing `<fqdn>` at the box and running:
+
+```bash
+sudo deploy/setup-tls.sh helios.example.com admin@example.com
+```
+
+The script installs `certbot` (via snap), runs the `webroot` HTTP-01 challenge, rewrites the cert paths and `server_name` in `helios.conf`, and reloads nginx. It is idempotent — re-running it with an unchanged FQDN is a no-op once the cert is provisioned, and certbot's systemd timer handles renewal automatically.
+
+The HTTPS block enables HSTS with a 2-year `max-age` + `preload` flag. **Do not** roll the deploy back to HTTP after the first browser sees this header — the cached HSTS will refuse plaintext requests until it expires. Confirm the cert is healthy before merging the change live.

@@ -160,7 +160,13 @@ class AllocatorLoop:
         for alloc in list(user.allocations.values()):
             if alloc.defunded or alloc.capital_deployed_usd == 0:
                 continue
-            if alloc.drawdown_bps >= threshold > 0:
+            # Record the current NAV in the TWAP ring even when no chain
+            # mirror has happened this tick — otherwise a defund decision
+            # taken seconds after a flash bar would still see only the
+            # spike value. AllocatorStore preserves the ring across mirror
+            # updates (HIGH #14 in `docs/phase-3-review.md`).
+            alloc.nav_samples.append((ts, alloc.nav_usd))
+            if alloc.twap_drawdown_bps >= threshold > 0:
                 # Async wrapper keeps the event loop draining while
                 # `wait_for_transaction_receipt(timeout=30)` blocks the
                 # underlying Web3 call — otherwise every WS subscriber

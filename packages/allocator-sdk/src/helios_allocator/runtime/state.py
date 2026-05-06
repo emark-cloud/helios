@@ -60,6 +60,16 @@ class AllocatorEvent:
         }
 
 
+# TWAP window for the drawdown defund decision (HIGH #14 in
+# `docs/phase-3-review.md`). Five samples at the default 60s NAV-poll
+# cadence ≈ 5 minutes — long enough to ride out a single bar's flash
+# spike, short enough that a real drawdown still trips within the
+# user's threshold before capital bleeds further. Display drawdown
+# (`drawdown_bps`) keeps using the instant NAV so the dashboard
+# remains reactive.
+_NAV_TWAP_WINDOW = 5
+
+
 @dataclass
 class AllocationState:
     """Mirrored from on-chain reads each cycle.
@@ -78,12 +88,36 @@ class AllocationState:
     last_rebalance_ts: int = 0
     defunded: bool = False
     fees_paid_usd: int = 0
+    # NAV history used by `twap_drawdown_bps`. Filled by `AllocatorStore`
+    # on every `update_allocation`; not part of dataclass equality so
+    # tests comparing states stay clean.
+    nav_samples: deque[tuple[int, int]] = field(
+        default_factory=lambda: deque(maxlen=_NAV_TWAP_WINDOW),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def drawdown_bps(self) -> int:
         if self.high_water_mark_usd == 0 or self.nav_usd >= self.high_water_mark_usd:
             return 0
         delta = self.high_water_mark_usd - self.nav_usd
+        return (delta * 10_000) // self.high_water_mark_usd
+
+    @property
+    def twap_drawdown_bps(self) -> int:
+        """Drawdown computed off the time-weighted-average NAV across
+        the last `_NAV_TWAP_WINDOW` mirror reads. Used for defund
+        decisions only — display still reads `drawdown_bps`. A single
+        flash-crash bar cannot cross the threshold on its own; the
+        window must agree."""
+        if not self.nav_samples or self.high_water_mark_usd == 0:
+            return 0
+        twap = sum(n for _, n in self.nav_samples) // len(self.nav_samples)
+        if twap >= self.high_water_mark_usd:
+            return 0
+        delta = self.high_water_mark_usd - twap
         return (delta * 10_000) // self.high_water_mark_usd
 
 
@@ -131,13 +165,31 @@ class AllocatorStore:
             user = self._users.get(address)
             if user is None:
                 return
-            user.allocations = {a.strategy_id: a for a in allocs}
+            ts = int(time.time())
+            existing = user.allocations
+            new_map: dict[str, AllocationState] = {}
+            for a in allocs:
+                prev = existing.get(a.strategy_id)
+                if prev is not None:
+                    a.nav_samples = prev.nav_samples
+                a.nav_samples.append((ts, a.nav_usd))
+                new_map[a.strategy_id] = a
+            user.allocations = new_map
 
-    def update_allocation(self, address: str, alloc: AllocationState) -> None:
+    def update_allocation(
+        self, address: str, alloc: AllocationState, ts: int | None = None
+    ) -> None:
         with self._lock:
             user = self._users.get(address)
             if user is None:
                 return
+            existing = user.allocations.get(alloc.strategy_id)
+            if existing is not None:
+                # Preserve the TWAP ring across mirror updates so
+                # successive chain reads accumulate into the same
+                # window — otherwise every poll resets to one sample.
+                alloc.nav_samples = existing.nav_samples
+            alloc.nav_samples.append((int(time.time()) if ts is None else ts, alloc.nav_usd))
             user.allocations[alloc.strategy_id] = alloc
 
     # ── Events ────────────────────────────────────────────────
