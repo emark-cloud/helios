@@ -429,6 +429,30 @@ def test_logs_remote_runs_ssh(monkeypatch: pytest.MonkeyPatch) -> None:
         ["logs", "--vps", "user@host", "--no-follow", "--lines", "100"],
     )
     assert result.exit_code == 0, result.output
-    assert calls and calls[0][0] == "ssh"
-    assert calls[0][1] == "user@host"
-    assert "docker logs --tail=100 helios-allocator" in calls[0][2]
+    # `ssh -- target cmd` — the `--` neutralizes option-injection through
+    # `--vps` (HIGH #22 in `docs/phase-3-review.md`).
+    assert calls and calls[0][:3] == ["ssh", "--", "user@host"]
+    assert "docker logs --tail=100 helios-allocator" in calls[0][3]
+
+
+def test_deploy_rejects_dash_prefixed_vps(tmp_path: Path) -> None:
+    """Refuse a `--vps` value that OpenSSH would parse as an option flag
+    (HIGH #22 — `-oProxyCommand=` injection)."""
+    project = tmp_path / "alloc"
+    project.mkdir()
+    (project / "Dockerfile").write_text("FROM python:3.12-slim\n")
+    result = runner.invoke(
+        allocator_cmd.app,
+        ["deploy", "--project", str(project), "--vps", "-oProxyCommand=evil"],
+    )
+    assert result.exit_code == 2
+    assert "starts with '-'" in result.output
+
+
+def test_logs_rejects_dash_prefixed_vps() -> None:
+    result = runner.invoke(
+        allocator_cmd.app,
+        ["logs", "--vps", "-oProxyCommand=evil", "--no-follow"],
+    )
+    assert result.exit_code == 2
+    assert "starts with '-'" in result.output

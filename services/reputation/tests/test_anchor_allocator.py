@@ -43,7 +43,7 @@ def test_dry_run_records_allocator_post() -> None:
     assert result.actor == _ALLOCATOR
     assert result.score_e4 == 4321
     assert result.submitted is False
-    assert poster.pending == [result]
+    assert list(poster.pending) == [result]
 
 
 def test_live_encoding_carries_allocator_actor_type() -> None:

@@ -181,19 +181,45 @@ export function fetchSentinelStrategies(
 }
 
 /**
+ * Reproduce `helios_allocator.service.auth.ws_subscribe_digest` in the
+ * browser. The address is lower-cased; the JSON body has sorted keys
+ * and no whitespace, byte-identical to the Python serializer so
+ * `personal_sign` over either side recovers to the same address.
+ */
+export function wsSubscribeDigest(user: string, validUntil: number): string {
+  const body = JSON.stringify({ user: user.toLowerCase(), valid_until: validUntil });
+  return `Helios ws subscribe v1\n${body}`;
+}
+
+/**
  * Subscribe to user-scoped Sentinel events. Returns a teardown.
  *
  * The WS path mirrors `WS /v1/users/{user}/events` in service.py.
  * Reconnects are caller-controlled — wire in TanStack Query / Zustand
  * with explicit reconnection state, not a silent loop.
+ *
+ * `signMessage` is the wagmi/viem `useSignMessage` hook exposed as a
+ * thunk. It signs the digest above; the server recovers the address
+ * and rejects (close 4401) on mismatch or `valid_until` expiry. We mint
+ * a five-minute window — long enough that a slow network handshake
+ * doesn't race the deadline, short enough that a captured query string
+ * can't open a fresh socket later.
  */
-export function subscribeUserEvents(
+export async function subscribeUserEvents(
   user: string,
+  signMessage: (_digest: string) => Promise<string>,
   onEvent: (_e: SentinelEvent) => void,
   onStatus?: (_status: "open" | "closed" | "error") => void,
-): () => void {
+): Promise<() => void> {
+  const validUntil = Math.floor(Date.now() / 1000) + 300;
+  const digest = wsSubscribeDigest(user, validUntil);
+  const signature = await signMessage(digest);
   const wsBase = BASE.replace(/^http/, "ws");
-  const ws = new WebSocket(`${wsBase}/v1/users/${user}/events`);
+  const params = new URLSearchParams({
+    valid_until: String(validUntil),
+    signature,
+  });
+  const ws = new WebSocket(`${wsBase}/v1/users/${user}/events?${params.toString()}`);
   ws.onopen = () => onStatus?.("open");
   ws.onmessage = (evt) => {
     try {

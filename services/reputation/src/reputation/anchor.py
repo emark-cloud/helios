@@ -15,8 +15,16 @@ Track B / production we set both to a dedicated `REPUTATION_SIGNER_PK`.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
+
+# Cap for the in-memory `pending` ring. The reputation engine ticks every
+# few minutes and the anchor records one entry per submit; 4096 keeps
+# ~weeks of history visible to /v1/audit while bounding RSS for the
+# always-on engine. Older entries fall off silently — they're already
+# durable on-chain.
+_PENDING_RING_CAP = 4096
 
 import structlog
 from _template.web3_consts import RECEIPT_TIMEOUT_SEC
@@ -52,7 +60,7 @@ class AnchorPoster:
         self._anchor = anchor_address
         self._chain_id = chain_id
         self._live = bool(rpc_url and signer_pk and anchor_address)
-        self.pending: list[PostedUpdate] = []
+        self.pending: deque[PostedUpdate] = deque(maxlen=_PENDING_RING_CAP)
 
         # Lazy live handles.
         self._w3: Web3 | None = None

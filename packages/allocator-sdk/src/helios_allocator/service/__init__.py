@@ -16,8 +16,11 @@ the verifier.
 from helios_allocator.service.auth import (
     MetaStrategySignatureError,
     NonceStore,
+    WSSubscribeSignatureError,
     canonical_digest,
     verify_meta_strategy_signature,
+    verify_ws_subscribe_signature,
+    ws_subscribe_digest,
 )
 from helios_allocator.service.schemas import (
     AllocationView,
@@ -33,6 +36,9 @@ __all__ = [
     "MetaStrategySignatureError",
     "NonceStore",
     "StrategyDirectoryRow",
+    "WSSubscribeSignatureError",
     "canonical_digest",
     "verify_meta_strategy_signature",
+    "verify_ws_subscribe_signature",
+    "ws_subscribe_digest",
 ]

@@ -185,3 +185,52 @@ test("POST /prove momentum_v1 fails closed on bad witness (e.g. amount over cap)
   assert.equal(res.status, 503);
   assert.ok(res.body.error, "error message present");
 });
+
+// ─── HIGH #17 hardening ──────────────────────────────────────
+
+test("POST /prove rejects requests without bearer token when authToken is set", async () => {
+  const app = createApp({ authToken: "secret-token" });
+  const res = await request(app)
+    .post("/prove")
+    .send({ strategyClass: "momentum_v1", witnessInputs: {} });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error, "unauthorized");
+});
+
+test("POST /prove rejects mismatched bearer token", async () => {
+  const app = createApp({ authToken: "secret-token" });
+  const res = await request(app)
+    .post("/prove")
+    .set("Authorization", "Bearer wrong-token-x")
+    .send({ strategyClass: "momentum_v1", witnessInputs: {} });
+  assert.equal(res.status, 401);
+});
+
+test("POST /prove accepts matching bearer token (still 400 on bad payload)", async () => {
+  // Auth path passes through, but the missing-fields validator still
+  // fires — confirms `requireAuth` doesn't short-circuit the route.
+  const app = createApp({ authToken: "secret-token" });
+  const res = await request(app)
+    .post("/prove")
+    .set("Authorization", "Bearer secret-token")
+    .send({});
+  assert.equal(res.status, 400);
+});
+
+test("GET /health stays public even when authToken is set", async () => {
+  const app = createApp({ authToken: "secret-token" });
+  const res = await request(app).get("/health");
+  assert.equal(res.status, 200);
+});
+
+test("POST /prove returns 429 when in-flight cap is exhausted", async () => {
+  // `maxConcurrent: 0` short-circuits the semaphore on the first call,
+  // so we don't have to actually run snarkjs to exercise the path.
+  const app = createApp({ maxConcurrent: 0 });
+  const res = await request(app)
+    .post("/prove")
+    .send({ strategyClass: "momentum_v1", witnessInputs: { stub: "x" } });
+  assert.equal(res.status, 429);
+  assert.equal(res.body.error, "prover busy");
+  assert.equal(res.headers["retry-after"], "5");
+});

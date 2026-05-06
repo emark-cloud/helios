@@ -30,12 +30,15 @@ class ProverClient:
         endpoint: str,
         client: httpx.AsyncClient | None = None,
         timeout_sec: float = 35.0,
+        auth_token: str = "",
     ) -> None:
         if not endpoint:
             raise ValueError("prover endpoint required")
         self._endpoint = endpoint.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=timeout_sec)
         self._owns_client = client is None
+        # Optional bearer token (HIGH #17 in `docs/phase-3-review.md`).
+        self._auth_token = auth_token
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -47,10 +50,16 @@ class ProverClient:
         strategy_class: str,
         witness_inputs: dict[str, Any],
     ) -> ProofResult:
+        headers = (
+            {"Authorization": f"Bearer {self._auth_token}"} if self._auth_token else None
+        )
         resp = await self._client.post(
             f"{self._endpoint}/prove",
             json={"strategyClass": strategy_class, "witnessInputs": witness_inputs},
+            headers=headers,
         )
+        if resp.status_code == 429:
+            raise ProverDegraded(resp.json().get("error", "prover busy"))
         if resp.status_code == 503:
             raise ProverDegraded(resp.json().get("error", "prover degraded"))
         resp.raise_for_status()
