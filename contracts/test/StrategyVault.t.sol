@@ -559,6 +559,7 @@ contract StrategyVaultTest is Test {
 
     function _reportNAV(uint256 nav, uint64 ts) internal {
         bytes memory sig = _signNAV(vault, nav, ts);
+        vm.prank(operator);
         vault.reportNAV(abi.encode(nav, ts, sig));
     }
 
@@ -588,6 +589,7 @@ contract StrategyVaultTest is Test {
         // to `navDigest` doesn't consume the expectation slot.
         bytes memory sig2 = _signNAV(vault, 1500e6, ts);
         vm.expectRevert(StrategyVault.StaleNav.selector);
+        vm.prank(operator);
         vault.reportNAV(abi.encode(uint256(1500e6), ts, sig2));
     }
 
@@ -598,6 +600,7 @@ contract StrategyVaultTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
+        vm.prank(operator);
         vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
     }
 
@@ -607,6 +610,7 @@ contract StrategyVaultTest is Test {
         uint256 over = 10 * MAX_CAPACITY + 1;
         bytes memory sig = _signNAV(vault, over, ts);
         vm.expectRevert(StrategyVault.NavExceedsCap.selector);
+        vm.prank(operator);
         vault.reportNAV(abi.encode(over, ts, sig));
     }
 
@@ -627,7 +631,56 @@ contract StrategyVaultTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(navOracleKey, legacyDigest);
         bytes memory sig = abi.encodePacked(r, s, v);
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
+        vm.prank(operator);
         vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+    }
+
+    function test_ReportNAV_RevertsWhenCallerNotOperatorOrNavOracle() public {
+        // HIGH #7 — caller restriction. Even with a valid signature, an
+        // arbitrary EOA must not be able to land a NAV update; that lets
+        // an MEV bot front-run the operator's submission with a stale-
+        // but-valid signature.
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes memory sig = _signNAV(vault, 1000e6, ts);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(StrategyVault.NotOperatorOrNavOracle.selector);
+        vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+    }
+
+    function test_ReportNAV_AcceptsNavOracleAsCaller() public {
+        // The navOracle itself may submit (so a Helios-operated submitter
+        // can post directly without round-tripping through the strategy
+        // operator).
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes memory sig = _signNAV(vault, 1234e6, ts);
+        vm.prank(navOracle);
+        vault.reportNAV(abi.encode(uint256(1234e6), ts, sig));
+        assertEq(vault.totalNAV(), 1234e6);
+    }
+
+    function test_ReportNAV_RevertsOnTooOldSignature() public {
+        // HIGH #7 — bounded replay window. A signature whose `timestamp`
+        // is outside `_MAX_NAV_AGE_SEC` (600s) of `block.timestamp` must
+        // be refused even when monotonicity is satisfied.
+        uint64 oldTs = uint64(block.timestamp + 1);
+        bytes memory sig = _signNAV(vault, 1000e6, oldTs);
+        // Fast-forward past the age window. _MAX_NAV_AGE_SEC = 600s.
+        vm.warp(block.timestamp + 700);
+        vm.expectRevert(StrategyVault.NavTooOld.selector);
+        vm.prank(operator);
+        vault.reportNAV(abi.encode(uint256(1000e6), oldTs, sig));
+    }
+
+    function test_ReportNAV_AcceptsAtAgeBoundary() public {
+        // A signature exactly at the age boundary must still be accepted
+        // — the gate is `block.timestamp > timestamp + _MAX_NAV_AGE_SEC`,
+        // strictly greater than. Locks in the inclusive boundary.
+        uint64 ts = uint64(block.timestamp + 1);
+        bytes memory sig = _signNAV(vault, 1000e6, ts);
+        vm.warp(uint256(ts) + 600);
+        vm.prank(operator);
+        vault.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+        assertEq(vault.totalNAV(), 1000e6);
     }
 
     function test_ReportNAV_RejectsCrossVaultReplay() public {
@@ -671,6 +724,7 @@ contract StrategyVaultTest is Test {
         }
 
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
+        vm.prank(operator);
         sibling.reportNAV(abi.encode(uint256(1000e6), ts, sig));
     }
 
