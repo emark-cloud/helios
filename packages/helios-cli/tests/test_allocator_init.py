@@ -118,13 +118,20 @@ def test_init_rejects_helios_namespace_case_insensitive(tmp_path: Path) -> None:
 def test_init_refuses_to_overwrite_without_force(tmp_path: Path) -> None:
     target = tmp_path / "third-party"
     _scaffold(target)
+    # Drop a sentinel that the rerender would obliterate if it ran.
+    sentinel = target / "STALE.txt"
+    sentinel.write_text("from a previous render")
     # Second call without --force fails fast.
     result = runner.invoke(
         allocator_cmd.app,
         ["init", "--name", "Test ThirdParty", "--target-dir", str(target)],
     )
-    assert result.exit_code != 0
-    assert "--force" in result.output
+    # `BadParameter` exits 2; we don't sniff the rendered panel because
+    # typer's terminal renderer truncates the message to fit the
+    # detected width (CI's narrow pty drops the `--force` substring).
+    assert result.exit_code == 2
+    # And the prior tree is preserved — no implicit overwrite.
+    assert sentinel.exists()
 
 
 def test_init_overwrites_with_force(tmp_path: Path) -> None:
