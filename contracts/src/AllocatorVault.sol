@@ -393,18 +393,34 @@ contract AllocatorVault is
         IStrategyVault(strategy).distributeRealized(address(this));
         uint256 realized = baseAsset.balanceOf(address(this)) - balBefore;
 
-        // Pull principal.
+        // HIGH #8 — pull `min(principal, navShare)` so a position in
+        // unrealized loss returns the recoverable amount instead of
+        // reverting. `withdrawToAllocator` rejects amounts above the
+        // allocator's NAV share at source; previously the strategy
+        // clamped `_totalNAV` and let any allocator drain past its
+        // share, griefing siblings. `_navOf(this)` is post-distribute
+        // since `distributeRealized` above already moved any PnL out
+        // — so it equals exactly the loss-floor on a draw-down position.
         uint256 principal = rec.capitalDeployed;
+        uint256 navShare = IStrategyVault(strategy).navOf(address(this));
+        uint256 toPull = principal < navShare ? principal : navShare;
+        if (toPull > 0) {
+            IStrategyVault(strategy).withdrawToAllocator(address(this), toPull);
+        }
         if (principal > 0) {
-            IStrategyVault(strategy).withdrawToAllocator(address(this), principal);
+            // `_userTotalDeployed` is denominated in the original
+            // capital the user committed, not what came back. Decrement
+            // by the full principal so caps recompute correctly even
+            // when loss is realized at unwind.
             _userTotalDeployed[user] -= principal;
         }
         if (rec.strategy != address(0)) _userActiveStrategyCount[user] -= 1;
 
         rec.capitalDeployed = 0;
 
-        // Credit user's full balance back (principal + their share of realized).
-        uint256 totalBack = principal + realized;
+        // Credit user's recovered balance back (principal capped at
+        // navShare + their share of realized PnL).
+        uint256 totalBack = toPull + realized;
         if (totalBack > 0) {
             baseAsset.forceApprove(userVault, totalBack);
             IUserVaultForAllocator(userVault).creditFromAllocator(user, totalBack);

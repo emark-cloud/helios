@@ -302,6 +302,36 @@ contract StrategyVaultTest is Test {
         assertEq(usdc.balanceOf(allocatorVault), balBefore + 200e6);
     }
 
+    function test_WithdrawToAllocator_RevertsAboveNAVShare() public {
+        // HIGH #8 — vault is in unrealized loss (NAV < principal) so the
+        // allocator's NAV share is below their `_allocationOf`. Asking
+        // for the full principal must refuse at source rather than clamp.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        // Strategy lost 200 — reportNAV says 800, principal is still 1000.
+        _reportNAV(800e6, uint64(block.timestamp + 1));
+
+        vm.prank(allocatorVault);
+        vm.expectRevert(StrategyVault.WithdrawExceedsNAVShare.selector);
+        vault.withdrawToAllocator(allocatorVault, 1000e6);
+    }
+
+    function test_WithdrawToAllocator_AcceptsAtNAVShare() public {
+        // The cap is `<= navShare`. Pulling exactly the share must work
+        // and zero the strategy out.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        _reportNAV(800e6, uint64(block.timestamp + 1));
+
+        uint256 balBefore = usdc.balanceOf(allocatorVault);
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 800e6);
+
+        assertEq(usdc.balanceOf(allocatorVault) - balBefore, 800e6);
+        assertEq(vault.totalNAV(), 0);
+        assertEq(vault.allocationOf(allocatorVault), 200e6); // residual principal
+    }
+
     // ── distributeRealized ──────────────────────────────────────────
 
     function test_DistributeRealized_NoOpWhenUnderwater() public {

@@ -135,6 +135,7 @@ contract StrategyVault is
     error NavTooOld();
     error NotOperatorOrNavOracle();
     error OracleRootStale();
+    error WithdrawExceedsNAVShare();
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
@@ -249,21 +250,19 @@ contract StrategyVault is
         onlyAllocatorVault
         nonReentrant
     {
+        // HIGH #8 in `docs/phase-3-review.md` — cap withdraw at the
+        // allocator's prorated NAV share. Previously the contract clamped
+        // `_totalNAV` to 0 and let the caller drain up to its principal,
+        // which under multi-allocator state lets one allocator drain past
+        // its fair share when the strategy is in unrealized loss; the
+        // asset-balance check would then revert *for the next allocator*
+        // instead of the over-drawer. Refusing the over-pull at source
+        // forces the AllocatorVault to request `min(principal, navShare)`
+        // — see `_unwindAndCredit`.
         if (amount > _allocationOf[allocator]) revert AllocationOverdrawn();
+        if (amount > _navOf(allocator)) revert WithdrawExceedsNAVShare();
         _allocationOf[allocator] -= amount;
-        // NAV is tracked off-chain via signed reportNAV updates; the on-chain
-        // base-asset balance is the hard truth. When the reported NAV signals
-        // unrealized losses (NAV < principal), an unwind/defund still needs
-        // to repatriate whatever underlying the strategy actually holds, so
-        // we clamp _totalNAV to 0 rather than reverting. The asset transfer
-        // below enforces the real constraint — if the strategy lacks the
-        // base-asset balance, safeTransfer reverts.
-        if (amount > _totalNAV) {
-            emit NavClampedOnWithdraw(address(this), allocator, _totalNAV, amount);
-            _totalNAV = 0;
-        } else {
-            _totalNAV -= amount;
-        }
+        _totalNAV -= amount;
         baseAsset.safeTransfer(msg.sender, amount);
     }
 

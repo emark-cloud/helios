@@ -385,6 +385,32 @@ contract AllocatorVaultTest is Test {
         assertGt(r.defundedAt, 0);
     }
 
+    function test_DefundStrategy_LossyUnwindReturnsNAVShareNotPrincipal() public {
+        // HIGH #8 — defunding a position in unrealized loss must return
+        // the recoverable NAV share, not the original principal. With
+        // the previous clamping logic the strategy could not actually
+        // pay out `principal` (insufficient base-asset balance) and the
+        // unwind reverted; in a multi-allocator world a non-loss
+        // sibling could even have its share drained first. The fix
+        // pulls `min(principal, navShare)`.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 30_000e6);
+        // 33% drawdown. Strategy holds 20_000 in baseAsset.
+        _reportNAV(stratA, 20_000e6, uint64(block.timestamp + 1));
+
+        uint256 userBalBefore = userVault.balanceOf(user);
+        vm.prank(operator);
+        allocatorVault.defundStrategy(user, address(stratA), "lossy unwind");
+
+        // User got back 20_000 (NAV share), not 30_000 (original principal).
+        assertEq(userVault.balanceOf(user) - userBalBefore, 20_000e6);
+        // Strategy is empty — full NAV share withdrawn.
+        assertEq(stratA.totalNAV(), 0);
+        IAllocatorVault.AllocationRecord memory r =
+            allocatorVault.allocationOf(user, address(stratA));
+        assertEq(r.capitalDeployed, 0);
+    }
+
     function test_DefundStrategy_RevertsOnAlreadyDefunded() public {
         vm.prank(operator);
         allocatorVault.allocateToStrategy(user, address(stratA), 1000e6);
