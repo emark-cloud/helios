@@ -227,11 +227,7 @@ contract AllocatorVault is
 
     // ── Fee settlement ──────────────────────────────────────────────
 
-    function settleStrategyFee(address user, address strategy)
-        external
-        onlyOperator
-        nonReentrant
-    {
+    function settleStrategyFee(address user, address strategy) external onlyOperator nonReentrant {
         AllocationRecord storage rec = _allocations[user][strategy];
         if (rec.strategy == address(0)) revert StrategyNotAllocated();
         if (rec.defundedAt != 0) revert AllocationDefunded();
@@ -245,9 +241,8 @@ contract AllocatorVault is
         uint256 deployed = rec.capitalDeployed;
         uint256 totalAllocBefore = IStrategyVault(strategy).allocationOf(address(this));
         uint256 navOfBefore = IStrategyVault(strategy).navOf(address(this));
-        uint256 userNavBefore = totalAllocBefore == 0
-            ? 0
-            : (navOfBefore * deployed) / totalAllocBefore;
+        uint256 userNavBefore =
+            totalAllocBefore == 0 ? 0 : (navOfBefore * deployed) / totalAllocBefore;
 
         // Pull realized PnL from the strategy (allocator-vault-wide), then keep
         // the user's prorated share. Strategy fee is taken from the user's PnL
@@ -262,9 +257,8 @@ contract AllocatorVault is
 
         // After distributeRealized, the strategy has reduced totalNAV by exactly
         // realizedTotal. Apportion to user by their share of allocator deployed.
-        uint256 userRealized = totalAllocBefore == 0
-            ? realizedTotal
-            : (realizedTotal * deployed) / totalAllocBefore;
+        uint256 userRealized =
+            totalAllocBefore == 0 ? realizedTotal : (realizedTotal * deployed) / totalAllocBefore;
 
         // HWM-gated fee: only the portion of equity above the prior HWM is
         // fee-eligible. Cap at the realized cash so we never charge a fee
