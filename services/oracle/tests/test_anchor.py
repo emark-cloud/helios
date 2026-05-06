@@ -310,9 +310,7 @@ def test_scheduler_resyncs_nonce_after_dry_run_to_live_transition() -> None:
     # Two bars at interval_bars=2 → one commit.
     rec = None
     for i in range(2):
-        store.append(
-            "KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 * (i + 1), source="t"
-        )
+        store.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 * (i + 1), source="t")
         r = sched.on_bar("KITE/USDT")
         if r is not None:
             rec = r
