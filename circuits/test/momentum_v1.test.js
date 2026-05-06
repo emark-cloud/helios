@@ -102,6 +102,10 @@ function buildValidInput() {
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
+    // HIGH #11 — was_long is private. 1 = unwinding a long; 0 = short.
+    // Bound only when is_signal_flip = 1; default to 1 here (the long-side
+    // case used by the existing exit tests).
+    was_long: "1",
   };
   base.trade_hash = tradeHashOf(base);
   return base;
@@ -256,6 +260,45 @@ test("momentum_v1: exit with neither flip nor stop-loss reason rejected", async 
   input.is_signal_flip = "0";
   input.is_stop_loss = "0";
   input.stop_loss_price = "0";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+// HIGH #11 — short-side signal-flip exit must verify on rising prices.
+test("momentum_v1: short signal-flip exit accepted on rising prices", async () => {
+  const fs = require("node:fs");
+  const input = buildValidInput();
+  // Rising series — would trigger a flip exit for a SHORT position.
+  const rising = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  input.price_observations = rising;
+  input.oracle_root = chainedPoseidon(rising);
+  input.trade_direction = "0";
+  input.is_long_entry = "0";
+  input.is_short_entry = "0";
+  input.is_exit = "1";
+  input.is_signal_flip = "1";
+  input.is_stop_loss = "0";
+  input.was_long = "0"; // unwinding a short
+  input.trade_hash = tradeHashOf(input);
+  const out = "/tmp/helios_momentum_witness.wtns";
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+// HIGH #11 — and the inverse: claiming a long flip while the witness
+// recorded a short (was_long=0) must fail when only down-delta would
+// satisfy the threshold.
+test("momentum_v1: signal-flip with wrong was_long rejected", async () => {
+  const input = buildValidExitInput(); // falling series, was_long=1 by default
+  input.was_long = "0"; // claim short, but the falling-prices delta only justifies long-flip
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+// HIGH #12 — self-swap (asset_in_idx == asset_out_idx) must fail.
+test("momentum_v1: self-swap rejected", async () => {
+  const input = buildValidInput();
+  input.asset_in_idx = "3";
+  input.asset_out_idx = "3";
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });

@@ -108,6 +108,26 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     inIdxLt.out  === 1;
     outIdxLt.out === 1;
 
+    // HIGH #12 — explicitly forbid self-swaps. Mirrors momentum_v1;
+    // yield_rotation already had this. Without it a prover can attest
+    // a no-op trade that bypasses the slippage / signal logic.
+    component sameIdx = IsEqual();
+    sameIdx.in[0] <== asset_in_idx;
+    sameIdx.in[1] <== asset_out_idx;
+    sameIdx.out === 0;
+
+    // HIGH #13 — explicit width on amount fields before they enter
+    // any quadratic constraint. 128 bits keeps the slippage product
+    // (`amount_in × (10000 - max_slippage_bps)`) well below BN254 so
+    // a near-field-size witness can no longer wrap the multiplication
+    // and still pass GreaterEqThan(160).
+    component amountInBits = Num2Bits(128);
+    amountInBits.in <== amount_in;
+    component minOutBits = Num2Bits(128);
+    minOutBits.in <== min_amount_out;
+    component maxPosBits = Num2Bits(128);
+    maxPosBits.in <== max_position_size;
+
     // ── Constraint 1: amount_in <= max_position_size ────────────────
     component sizeOk = LessEqThan(128);
     sizeOk.in[0] <== amount_in;
