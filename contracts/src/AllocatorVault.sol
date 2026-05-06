@@ -9,6 +9,9 @@ import {
     OwnableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {
     ReentrancyGuardTransient
 } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -43,6 +46,7 @@ contract AllocatorVault is
     IAllocatorVault,
     Initializable,
     OwnableUpgradeable,
+    PausableUpgradeable,
     ReentrancyGuardTransient,
     UUPSUpgradeable
 {
@@ -116,6 +120,7 @@ contract AllocatorVault is
         ) revert ZeroAddress();
 
         __Ownable_init(owner_);
+        __Pausable_init();
         baseAsset = baseAsset_;
         operator = operator_;
         userVault = userVault_;
@@ -125,6 +130,18 @@ contract AllocatorVault is
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner { }
+
+    /// @notice Owner-only emergency stop. Halts new allocations,
+    ///         rebalance, and fee settlement. Defunds remain open so
+    ///         users / operators can rescue capital. HIGH #10 in
+    ///         `docs/phase-3-review.md`.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     modifier onlyOperator() {
         if (msg.sender != operator) revert NotAllocator();
@@ -137,6 +154,7 @@ contract AllocatorVault is
         external
         onlyOperator
         nonReentrant
+        whenNotPaused
     {
         if (amount == 0) revert ZeroAmount();
 
@@ -200,6 +218,7 @@ contract AllocatorVault is
         external
         onlyOperator
         nonReentrant
+        whenNotPaused
     {
         if (strategies.length != weightsBps.length || strategies.length == 0) {
             revert LengthMismatch();
@@ -240,7 +259,12 @@ contract AllocatorVault is
         uint256 newHwm;
     }
 
-    function settleStrategyFee(address user, address strategy) external onlyOperator nonReentrant {
+    function settleStrategyFee(address user, address strategy)
+        external
+        onlyOperator
+        nonReentrant
+        whenNotPaused
+    {
         AllocationRecord storage rec = _allocations[user][strategy];
         if (rec.strategy == address(0)) revert StrategyNotAllocated();
         if (rec.defundedAt != 0) revert AllocationDefunded();

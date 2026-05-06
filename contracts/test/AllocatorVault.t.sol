@@ -14,6 +14,10 @@ import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
 import { MockUserVault } from "./mocks/MockUserVault.sol";
 import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 contract AllocatorVaultTest is Test {
     AllocatorVault internal allocatorVault;
@@ -587,6 +591,62 @@ contract AllocatorVaultTest is Test {
         allocatorVault.withdrawAllocatorFees();
         assertEq(usdc.balanceOf(operator) - opBefore, 50e6);
         assertEq(allocatorVault.accruedFees(), 0);
+    }
+
+    // ── HIGH #10: Pausable ──────────────────────────────────────────
+
+    function test_Pause_OnlyOwner() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        allocatorVault.pause();
+    }
+
+    function test_Pause_BlocksAllocate() public {
+        vm.prank(owner);
+        allocatorVault.pause();
+        vm.prank(operator);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        allocatorVault.allocateToStrategy(user, address(stratA), 1000e6);
+    }
+
+    function test_Pause_BlocksRebalance() public {
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        vm.prank(owner);
+        allocatorVault.pause();
+        address[] memory ss = new address[](1);
+        ss[0] = address(stratA);
+        uint256[] memory ws = new uint256[](1);
+        ws[0] = 10_000;
+        vm.prank(operator);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        allocatorVault.rebalance(user, ss, ws);
+    }
+
+    function test_Pause_BlocksFeeSettle() public {
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        vm.prank(owner);
+        allocatorVault.pause();
+        vm.prank(operator);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        allocatorVault.settleStrategyFee(user, address(stratA));
+    }
+
+    function test_Pause_LeavesDefundOpen() public {
+        // Defund is the rescue path — must work even while paused so users
+        // can pull capital out under emergency.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        vm.prank(owner);
+        allocatorVault.pause();
+
+        vm.prank(operator);
+        allocatorVault.defundStrategy(user, address(stratA), "rescue");
+        IAllocatorVault.AllocationRecord memory r =
+            allocatorVault.allocationOf(user, address(stratA));
+        assertGt(r.defundedAt, 0);
     }
 
     // ── helpers ────────────────────────────────────────────────────

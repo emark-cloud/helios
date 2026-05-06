@@ -8,6 +8,10 @@ import { IUserVault } from "../src/interfaces/IUserVault.sol";
 import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 /// @dev Stand-in for `AllocatorVault` so UserVault's tightening guard
 ///      can read a deterministic `userTotalDeployed` without the full
@@ -399,5 +403,78 @@ contract UserVaultTest is Test {
         vault.creditFromAllocator(user, 5000e6);
         assertEq(vault.balanceOf(user), DEPOSIT + 5000e6);
         assertEq(vault.highWaterMarkOf(user), DEPOSIT + 5000e6);
+    }
+
+    // ── HIGH #10: Pausable ───────────────────────────────────────────
+
+    function test_Pause_OnlyOwner() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        vault.pause();
+    }
+
+    function test_Pause_BlocksDeposits() public {
+        vm.prank(owner);
+        vault.pause();
+        vm.prank(user);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.deposit(address(usdc), DEPOSIT);
+    }
+
+    function test_Pause_BlocksDelegate() public {
+        vm.prank(user);
+        vault.setMetaStrategy(_meta(), "");
+        vm.prank(owner);
+        vault.pause();
+        vm.prank(user);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.delegateToAllocator(allocator, 7 days);
+    }
+
+    function test_Pause_BlocksTransferToAllocator() public {
+        _seedDelegation();
+        vm.prank(owner);
+        vault.pause();
+        vm.prank(allocator);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.transferToAllocator(user, 1000e6);
+    }
+
+    function test_Pause_LeavesWithdrawalsOpen() public {
+        _seedDelegation();
+        // Pause AFTER deposit so user's idle balance > 0.
+        vm.prank(owner);
+        vault.pause();
+        // Withdraw of idle balance is the rescue path — must stay open.
+        uint256 before = usdc.balanceOf(user);
+        vm.prank(user);
+        vault.withdraw(address(usdc), 5000e6);
+        assertEq(usdc.balanceOf(user) - before, 5000e6);
+    }
+
+    function test_Pause_LeavesCreditFromAllocatorOpen() public {
+        // The allocator returning capital to a user mid-emergency is good —
+        // never block this path.
+        _seedDelegation();
+        vm.prank(owner);
+        vault.pause();
+        usdc.mint(allocator, 1000e6);
+        vm.prank(allocator);
+        usdc.approve(address(vault), type(uint256).max);
+        vm.prank(allocator);
+        vault.creditFromAllocator(user, 1000e6);
+        assertEq(vault.balanceOf(user), DEPOSIT + 1000e6);
+    }
+
+    function test_Unpause_RestoresNormalOps() public {
+        vm.prank(owner);
+        vault.pause();
+        vm.prank(owner);
+        vault.unpause();
+        // Deposit succeeds again.
+        vm.prank(user);
+        vault.deposit(address(usdc), 1000e6);
+        assertEq(vault.balanceOf(user), 1000e6);
     }
 }
