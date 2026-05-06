@@ -432,8 +432,8 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 | 10 | `[x]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. (PR #45, merged 2026-05-05) | Playwright `onboard.spec` green; localStorage choice round-trips. |
 | 11 | `[x]` | **WS6.C — Dashboard allocator leaderboard.** (PR #46, merged 2026-05-05) | Playwright dashboard spec green; Sentinel + Helix both render. |
 | 12 | `[x]` | **WS2.A — `helios-allocator init` scaffold + template + SDK README "Build with Claude Code".** (PR #47, merged 2026-05-06) | `pytest packages/helios-cli/tests/test_allocator_init.py` green. |
-| 13 | `[~]` | **WS1.C — Backtest harness** in the SDK. | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |
-| 14 | `[ ]` | **WS2.B — `helios-allocator {backtest, simulate, stake, deploy, logs}`.** | Typer CliRunner smoke tests green. |
+| 13 | `[x]` | **WS1.C — Backtest harness** in the SDK. (PR #48, merged 2026-05-06) | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |
+| 14 | `[~]` | **WS2.B — `helios-allocator {backtest, simulate, stake, deploy, logs}`.** | Typer CliRunner smoke tests green. |
 | 15 | `[ ]` | **WS2.C — `helios scaffold-strategy` + Strategy SDK README.** | Scaffold-install-import test green for all three classes. |
 | 16 | `[ ]` | **WS4 — Strategy SDK hardening** (YR backtest driver / position flipping / NAV sizing) split as 3 small PRs. | `pytest packages/strategy-sdk` green; refreshed backtest writeups committed. |
 | 17 | `[ ]` | **WS7 — `scenarios/phase3-divergence.py` + `scripts/e2e-phase3.sh` + GH Action.** | Full divergence scenario green; third-party-init acceptance test green with zero Helios edits. |
