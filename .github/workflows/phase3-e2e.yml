@@ -1,0 +1,46 @@
+name: phase3-e2e
+
+# Pure-Python in-process scenario — no untrusted GitHub event data
+# interpolated into any `run:` step. Only static commands.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'packages/allocator-sdk/**'
+      - 'services/sentinel/**'
+      - 'services/helix/**'
+      - 'services/reputation/**'
+      - 'frontend/src/app/allocators/**'
+      - 'frontend/src/app/dashboard/**'
+      - 'frontend/src/app/onboard/**'
+      - 'subgraph/**'
+      - 'scenarios/phase3-divergence.py'
+      - 'scripts/e2e-phase3.sh'
+      - '.github/workflows/phase3-e2e.yml'
+
+concurrency:
+  group: phase3-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  divergence:
+    name: phase3 divergence + drawdown + fee-settle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: uv sync
+        run: uv sync --all-packages --all-extras
+
+      - name: Run Phase 3 e2e
+        run: ./scripts/e2e-phase3.sh
