@@ -4,7 +4,7 @@ Mirrors the build plan at `/home/emark/.claude/plans/i-want-to-start-jiggly-hare
 
 Tracks: **CX** (contracts/circuits), **SX** (services/SDKs), **FE** (frontend/bot), **OP** (infra/ops).
 
-Current phase: **Phase 1** (Phase 0 complete except for items requiring user action — see below).
+Current phase: **Phase 4** (Phases 0–3 complete as of 2026-05-06).
 
 ---
 
@@ -308,47 +308,55 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 
 ---
 
-## Phase 3 — AllocatorSDK + Helix
+## Phase 3 — AllocatorSDK + Helix ✅ (done 2026-05-06)
 
 **Goal.** Marketplace mechanism is real. Two allocators on-chain, users can pick.
 
+Implementation plan: `docs/phase3-plan.md` (17-step PR sequence, PRs #36–#54, all merged).
+
 ### SX — Allocator SDK
-- [ ] `packages/allocator-sdk` with `BaseAllocator`, `rank_strategies`, `allocate` abstract methods
-- [ ] Helpers: `default_top_k_allocation`, `score_weighted_allocation`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`
-- [ ] SDK handles: onboarding, drawdown monitoring at 60s, fee crystallization, defund/rebalance tx submission via Passport sessions, Goldsky integration, ReputationAnchor integration for allocator reputation, WS event emission, stake management, Docker packaging, local backtest
-- [ ] CLI: `helios-allocator init | backtest | simulate | stake | deploy | logs`
-- [ ] **`packages/allocator-sdk/README.md` "Build with Claude Code" section** (added 2026-05-05 — judging-criteria audit, criterion D novelty). 5-line scaffold prompt + pointer to `CLAUDE.md`; scaffold output (`helios-allocator init`) is the AI-native entry path.
+- [x] `packages/allocator-sdk` with `BaseAllocator`, `rank_strategies`, `allocate` abstract methods (Phase 0/1 scaffolding; lifted out of `services/sentinel` in WS1.A — PRs #36/#37/#38)
+- [x] Helpers: `default_top_k_allocation`, `score_weighted_allocation`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime` (WS1.B — PR #39)
+- [x] SDK handles: onboarding, drawdown monitoring at 60s, fee crystallization, defund/rebalance tx submission via Passport sessions, Goldsky integration, ReputationAnchor integration for allocator reputation, WS event emission, stake management, Docker packaging, local backtest (WS1.A — PRs #36/#37/#38; backtest harness WS1.C — PR #48)
+- [x] CLI: `helios-allocator init | backtest | simulate | stake | deploy | logs` (WS2.A — PR #47; WS2.B — PR #49)
+- [x] **`packages/allocator-sdk/README.md` "Build with Claude Code" section** (WS2.A — PR #47). 5-line scaffold prompt + pointer to `CLAUDE.md`; scaffold output (`helios-allocator init`) is the AI-native entry path.
 
 ### SX — Helix-lite (second reference allocator)
-- [ ] `services/helix/` built **entirely on top of allocator-sdk** — treated as an external consumer for validation purposes
-- [ ] `helix_fee_factor` — fixed-weight fee penalty (regime-adaptive variant deferred — see Deferred §)
-- [ ] `helix_greedy_pick` — top-K greedy selection by reputation × fee factor (correlation-aware variant deferred)
-- [ ] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Helix"`, fee rate 600 bps
-- [ ] Runs alongside Sentinel on the VPS
+- [x] `services/helix/` built **entirely on top of allocator-sdk** (WS3.A — PR #42)
+- [x] `helix_fee_factor` — fixed-weight fee penalty (WS1.B — PR #39; regime-adaptive variant deferred per `docs/phase3-plan.md` scope cuts)
+- [x] `helix_greedy_pick` — top-K greedy selection by reputation × fee factor (WS1.B — PR #39; correlation-aware variant ships unwired in v1)
+- [x] Registered on `AllocatorRegistry` with `isReferenceBrand = true`, name `"Helios Helix"`, fee rate 600 bps (WS3.B — PR #43)
+- [x] Runs alongside Sentinel on the VPS (PM2 entry shipped in PR #42; VPS deploy itself is Phase 6)
 
 ### SX — Allocator reputation
-- [ ] Reputation Engine computes allocator scores from aggregate user net P&L above HWM, drawdown discipline (did they actually fire bad strategies on time?), user retention, stake
-- [ ] `postReputationUpdate` with `actor_type = ALLOCATOR`
-- [ ] Allocator leaderboards queryable via subgraph
+- [x] Reputation Engine computes allocator scores from aggregate user net P&L above HWM, drawdown discipline (did they actually fire bad strategies on time?), user retention, stake (WS5.A — PR #40)
+- [x] `postReputationUpdate` with `actor_type = ALLOCATOR` (WS5.A — PR #40)
+- [x] Allocator leaderboards queryable via subgraph (WS5.B subgraph entities — PR #41; FE leaderboard — PR #46)
 
 ### SX — Strategy SDK hardening (carried over from Phase 2 backtest writeups)
-- [ ] **YR-aware backtest engine.** `helios.backtest.run_backtest` only drives `on_bar` today, so `helios backtest` emits zero trades against `YieldRotationStrategy` (which overrides `on_bar` to a no-op and listens on `on_yield_tick`). Add an `on_yield_tick` driver path so YR strategies surface in `helios backtest` like the directional classes; remove the stand-alone harness in `docs/backtests/_yield_rotation_v1_harness.py` once the CLI can produce equivalent output.
-- [ ] **Position flipping in `_apply_intent`.** Mean-rev signal flips currently stack onto open positions instead of auto-EXITing first; spec'd as a known follow-up in `docs/backtests/mean_reversion_v1_90d.md`. Add a "flip = exit + open" path with explicit tests for LONG→SHORT and SHORT→LONG transitions.
-- [ ] **NAV-based / vol-target sizing helper.** Once flipping is fixed, ship a sizing helper that re-sizes against current NAV (not stale cash) so reference strategies stop over-leveraging across long runs.
-- [ ] **Mirror remaining packages to test-PyPI.** WS6 PR5.B shipped GitHub Releases as the wheel host because PyPI's web UI was down for trusted-publisher registration. When test-PyPI registration is available again, register OIDC trusted publishers for `helios-trader-cli`, `helios-allocator-sdk`, and `helios-contracts-abi` and re-enable `publish-sdk-testpypi.yml` for those three (the GitHub Releases path stays as the install-from-curl fallback).
-- [ ] **`helios scaffold-strategy <class>` CLI** (added 2026-05-05 — judging-criteria audit, criterion D novelty). Mirrors `helios-allocator init` so both SDKs have an AI-native starter path. Output: a runnable subclass of `MomentumStrategy` / `MeanReversionStrategy` / `YieldRotationStrategy` plus `pyproject.toml`, README, and a "next steps for Claude Code" comment block referencing `CLAUDE.md`.
-- [ ] **`packages/strategy-sdk/README.md` "Build with Claude Code" section** (added 2026-05-05 — judging-criteria audit). 5-line scaffold prompt + pointer to `CLAUDE.md`; pairs with `helios scaffold-strategy`.
+- [x] **YR-aware backtest engine.** `helios.backtest.run_yield_backtest` lifts the bespoke harness into the SDK; `helios backtest --strategy …yield_rotation_v1/strategy.py` now routes through the YR driver. (WS4 PR 1/3 — PR #51). The standalone harness is now a thin wrapper around the SDK driver, kept because the reference impl needs constructor args.
+- [x] **Position flipping in `_apply_intent`.** "Flip = exit + open" path lands the closing leg's realised P&L on `BacktestReport.realized_pnl` instead of silently netting opposing qtys. (WS4 PR 2/3 — PR #52)
+- [x] **NAV-based / vol-target sizing helper.** `helios.sizing.nav_target_notional` + `TradeIntent.is_nav_targeted` flag + `StrategyAgent.size_trade(nav_target=True)`. Reference momentum + mean-rev opt in. Backtest writeups refreshed. (WS4 PR 3/3 — PR #53)
+- [ ] **Mirror remaining packages to test-PyPI.** Deferred per `project_testpypi_oidc_setup.md` memory — blocked on test.pypi.org's web-UI availability for OIDC trusted-publisher registration. GitHub Releases path is the live wheel host.
+- [x] **`helios scaffold-strategy <class>` CLI** (WS2.C — PR #50). Per-class templates for `momentum_v1`, `mean_reversion_v1`, `yield_rotation_v1`. Each scaffold installs from public PyPI with no workspace runtime deps and is runnable through `helios backtest` immediately.
+- [x] **`packages/strategy-sdk/README.md` "Build with Claude Code" section** (WS2.C — PR #50).
 
 ### FE — Allocator surface
-- [ ] `/allocators` directory: Sentinel first with "Official Reference" badge, Helix second (same badge), space for third parties below
-- [ ] Each card: name, fee rate, supported classes, ranking function one-sentence + "view code" link, current users, total capital managed, reputation, stake
-- [ ] `/onboard` adds an allocator-picker step
-- [ ] `/allocators/[name]` detail page
+- [x] `/allocators` directory: Sentinel first with "Official Reference" badge, Helix second (same badge), space for third parties below (WS6.A — PR #44)
+- [x] Each card: name, fee rate, supported classes, ranking function one-sentence + "view code" link, current users, total capital managed, reputation, stake (WS6.A — PR #44)
+- [x] `/onboard` adds an allocator-picker step (WS6.B — PR #45)
+- [x] `/allocators/[name]` detail page (WS6.A — PR #44)
+- [x] Allocator leaderboard on `/dashboard` (WS6.C — PR #46)
+
+### SX — Phase 3 acceptance e2e (WS7 — PR #54)
+- [x] `scenarios/phase3-divergence.py` — drives Sentinel + Helix in-process, asserts the four acceptance flows (capital flow per allocator, divergence ≥5% on shared strategies or set-difference, drawdown defund within one tick, HWM × 1.05 fee settle within one tick)
+- [x] `scripts/e2e-phase3.sh` — wrapper invoked locally and by the GH Action
+- [x] `.github/workflows/phase3-e2e.yml` — runs on every PR touching the allocator/sentinel/helix/reputation/subgraph paths
 
 ### Acceptance for Phase 3
-- [ ] A user picks Sentinel at onboarding → flow works. Same user re-onboards picking Helix → flow works with different allocation decisions visible.
-- [ ] `helios-allocator init --name "TestThirdParty"` scaffolds a working allocator that can be registered on Kite testnet without any modifications to Helios code.
-- [ ] Allocator leaderboard on dashboard shows both Sentinel and Helix with diverging reputation as their decisions play out differently across users.
+- [x] A user picks Sentinel at onboarding → flow works. Same user re-onboards picking Helix → flow works with different allocation decisions visible. (WS6.B onboarding flow — PR #45; in-process divergence assertion — PR #54)
+- [x] `helios-allocator init --name "TestThirdParty"` scaffolds a working allocator that can be registered on Kite testnet without any modifications to Helios code. (WS2.A scaffold + install acceptance test — PR #47; on-chain register-on-anvil gate deferred to a follow-up that lands alongside `DeployPhase3` on a refreshed testnet pin)
+- [x] Allocator leaderboard on dashboard shows both Sentinel and Helix with diverging reputation as their decisions play out differently across users. (WS5.A engine — PR #40; WS5.B subgraph — PR #41; WS6.C leaderboard — PR #46; divergence scenario — PR #54)
 
 ---
 

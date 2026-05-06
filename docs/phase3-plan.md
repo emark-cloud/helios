@@ -435,8 +435,8 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 | 13 | `[x]` | **WS1.C — Backtest harness** in the SDK. (PR #48, merged 2026-05-06) | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |
 | 14 | `[x]` | **WS2.B — `helios-allocator {backtest, simulate, stake, deploy, logs}`.** (PR #49, merged 2026-05-06) | Typer CliRunner smoke tests green. |
 | 15 | `[x]` | **WS2.C — `helios scaffold-strategy` + Strategy SDK README.** (PR #50, merged 2026-05-06) | Scaffold-install-import test green for all three classes. |
-| 16 | `[x]` | **WS4 — Strategy SDK hardening** (YR backtest driver / position flipping / NAV sizing) split as 3 small PRs. (PRs #51 + #52 merged 2026-05-06; PR 3/3 in flight) | `pytest packages/strategy-sdk` green; refreshed backtest writeups committed. |
-| 17 | `[~]` | **WS7 — `scenarios/phase3-divergence.py` + `scripts/e2e-phase3.sh` + GH Action.** | Full divergence scenario green; third-party-init acceptance test green with zero Helios edits. |
+| 16 | `[x]` | **WS4 — Strategy SDK hardening** (YR backtest driver / position flipping / NAV sizing) split as 3 small PRs. (PRs #51 + #52 + #53 merged 2026-05-06) | `pytest packages/strategy-sdk` green; refreshed backtest writeups committed. |
+| 17 | `[x]` | **WS7 — `scenarios/phase3-divergence.py` + `scripts/e2e-phase3.sh` + GH Action.** (PR #54, merged 2026-05-06) | Full divergence scenario green; third-party-init acceptance test green with zero Helios edits. |
 
 ### Parallelism via background sub-agents
 
