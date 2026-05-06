@@ -177,6 +177,36 @@ async def test_drawdown_under_threshold_does_not_defund() -> None:
 
 
 @pytest.mark.asyncio
+async def test_drawdown_breach_resists_single_flash_spike() -> None:
+    """HIGH #14 — a one-tick NAV plunge that recovers next tick must not
+    trigger a defund. Pre-load the TWAP ring with healthy samples; the
+    spike alone shouldn't move the smoothed mean past the threshold."""
+    s1 = _candidate("0x" + "11" * 20)
+    loop, store, onchain = _build([s1])
+
+    user = store.upsert_user(_user_meta(drawdown_bps=1_500))
+    user.delegated_capital_usd = 10_000
+    alloc = AllocationState(
+        strategy_id=s1.strategy_id,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=10_000,
+        high_water_mark_usd=10_000,
+        nav_usd=7_000,  # the flash bar — instant dd would be 3000bps
+    )
+    # Pre-existing healthy history: mean over (10000*4 + 7000)/5 = 9400 ⇒ 600bps twap.
+    for ts, nav in [(900, 10_000), (920, 10_000), (940, 10_000), (960, 10_000)]:
+        alloc.nav_samples.append((ts, nav))
+    user.allocations[s1.strategy_id] = alloc
+    user.last_rebalance_ts = 1_000
+
+    await loop.tick_once(now=1_100)
+
+    assert not any(c.method == "defundStrategy" for c in onchain.pending)
+    assert not user.allocations[s1.strategy_id].defunded
+
+
+@pytest.mark.asyncio
 async def test_drawdown_takes_priority_over_rank_drop() -> None:
     """Even when a strategy also dropped out of the rank, the defund
     should be tagged DRAWDOWN_BREACH (the higher-priority reason)."""

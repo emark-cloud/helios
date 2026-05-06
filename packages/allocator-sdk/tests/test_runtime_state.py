@@ -49,6 +49,66 @@ def test_drawdown_bps_computation() -> None:
     assert a.drawdown_bps == 0  # uninitialized HWM
 
 
+def test_twap_drawdown_smooths_flash_spike() -> None:
+    """HIGH #14 — a single bar where NAV drops 30% must NOT trip a 15%
+    drawdown threshold once the surrounding samples agree NAV is fine.
+    The instant `drawdown_bps` does see the spike (used for display);
+    `twap_drawdown_bps` averages over the window so defund decisions
+    aren't held hostage to a single bad oracle bar."""
+    a = AllocationState(
+        strategy_id="0x" + "11" * 20,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=1_000,
+        high_water_mark_usd=1_000,
+        nav_usd=700,  # the flash bar
+    )
+    # Four healthy samples + the current spike. Mean = (1000*4 + 700) / 5 = 940 ⇒ 6% twap dd.
+    for ts, nav in [(1, 1_000), (2, 1_000), (3, 1_000), (4, 1_000)]:
+        a.nav_samples.append((ts, nav))
+    a.nav_samples.append((5, 700))
+    assert a.drawdown_bps == 3_000  # instant view sees the spike
+    assert a.twap_drawdown_bps == 600  # smoothed view does not
+
+
+def test_twap_drawdown_with_no_samples_falls_back_to_zero() -> None:
+    a = AllocationState(
+        strategy_id="0x" + "11" * 20,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=1_000,
+        high_water_mark_usd=1_000,
+        nav_usd=600,
+    )
+    # No samples populated yet — twap returns 0 so a fresh allocation
+    # never gets defunded on its first tick before the ring fills.
+    assert a.twap_drawdown_bps == 0
+
+
+def test_update_allocation_carries_nav_samples_forward() -> None:
+    """Successive chain mirrors must accumulate into the same TWAP ring,
+    not reset it — otherwise a one-mirror window can never include enough
+    history to smooth a flash bar."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    sid = "0x" + "11" * 20
+    for i, nav in enumerate([1_000, 1_000, 1_000, 700], start=1):
+        a = AllocationState(
+            strategy_id=sid,
+            chain_id=2368,
+            declared_class="momentum_v1",
+            capital_deployed_usd=1_000,
+            high_water_mark_usd=1_000,
+            nav_usd=nav,
+        )
+        store.update_allocation(user.meta.user_address, a, ts=i)
+
+    final = store.get_user(user.meta.user_address).allocations[sid]  # type: ignore[union-attr]
+    assert [n for _, n in final.nav_samples] == [1_000, 1_000, 1_000, 700]
+    # Mean = 925 ⇒ 7.5% drawdown (well below a 15% threshold).
+    assert final.twap_drawdown_bps == 750
+
+
 def test_store_upsert_and_lookup() -> None:
     store = AllocatorStore()
     user = store.upsert_user(_meta())

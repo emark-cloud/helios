@@ -457,6 +457,7 @@ contract AllocatorVaultTest is Test {
         allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
         vm.expectEmit(true, true, false, true);
         emit StrategyFeeSettled(user, address(stratA), 0, 10_000e6);
+        vm.prank(operator);
         allocatorVault.settleStrategyFee(user, address(stratA));
     }
 
@@ -471,12 +472,68 @@ contract AllocatorVaultTest is Test {
         uint256 userBalBefore = userVault.balanceOf(user);
         uint256 accruedBefore = allocatorVault.accruedFees();
 
+        vm.prank(operator);
         allocatorVault.settleStrategyFee(user, address(stratA));
 
         // 1k realized: 10% strat fee = 100, 5% allocator fee = 50, user gets 850.
         assertEq(usdc.balanceOf(stratAOperator) - stratOpBalBefore, 100e6);
         assertEq(userVault.balanceOf(user) - userBalBefore, 850e6);
         assertEq(allocatorVault.accruedFees() - accruedBefore, 50e6);
+        assertEq(allocatorVault.allocationOf(user, address(stratA)).strategyHighWaterMark, 11_000e6);
+    }
+
+    function test_SettleStrategyFee_RevertsWhenNotOperator() public {
+        // HIGH #4 — settleStrategyFee was previously permissionless. A
+        // griefing caller could force settlement at an unfavorable NAV bar
+        // before realized PnL could compound, locking in the lower fee
+        // basis. Operator-only.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        usdc.mint(address(stratA), 1000e6);
+        _reportNAV(stratA, 11_000e6, uint64(block.timestamp + 1));
+
+        vm.prank(makeAddr("griefer"));
+        vm.expectRevert(IAllocatorVault.NotAllocator.selector);
+        allocatorVault.settleStrategyFee(user, address(stratA));
+    }
+
+    function test_SettleStrategyFee_HWMStableUnderNavOscillation() public {
+        // HIGH #4 — with the previous `+= realized` accumulator, HWM
+        // crept past actual NAV peaks: every up-leg added another `realized`
+        // even when the user's true equity high never moved. The fix
+        // anchors HWM to navAtSettlement and gates fees on excess-over-HWM
+        // so the second up-leg yields zero fee and zero HWM bump.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+
+        // First up-leg: NAV → 11k. distributeRealized returns 1000.
+        usdc.mint(address(stratA), 1000e6);
+        _reportNAV(stratA, 11_000e6, uint64(block.timestamp + 1));
+        vm.prank(operator);
+        allocatorVault.settleStrategyFee(user, address(stratA));
+        assertEq(allocatorVault.allocationOf(user, address(stratA)).strategyHighWaterMark, 11_000e6);
+        uint256 accruedAfterFirst = allocatorVault.accruedFees();
+
+        // Strategy reverts to 10k (no realized loss is propagated; this
+        // simulates an unrealized round-trip). Re-report NAV.
+        _reportNAV(stratA, 10_000e6, uint64(block.timestamp + 2));
+
+        // Second up-leg back to 11k: distributeRealized would again return
+        // 1000 if a fresh round-trip hit. Mint + reportNAV.
+        usdc.mint(address(stratA), 1000e6);
+        _reportNAV(stratA, 11_000e6, uint64(block.timestamp + 3));
+
+        uint256 stratOpBalBefore = usdc.balanceOf(stratAOperator);
+        uint256 userBalBefore = userVault.balanceOf(user);
+        vm.prank(operator);
+        allocatorVault.settleStrategyFee(user, address(stratA));
+
+        // userNavBefore = 11k = prevHWM ⇒ excess = 0 ⇒ feeEligible = 0 ⇒
+        // strat + alloc fees zero, full realized credited as toUser.
+        assertEq(usdc.balanceOf(stratAOperator) - stratOpBalBefore, 0);
+        assertEq(userVault.balanceOf(user) - userBalBefore, 1000e6);
+        assertEq(allocatorVault.accruedFees(), accruedAfterFirst); // no new accrual
+        // HWM did NOT bump past 11k — NAV peak unchanged.
         assertEq(allocatorVault.allocationOf(user, address(stratA)).strategyHighWaterMark, 11_000e6);
     }
 
@@ -494,6 +551,7 @@ contract AllocatorVaultTest is Test {
         allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
         usdc.mint(address(stratA), 1000e6);
         _reportNAV(stratA, 11_000e6, uint64(block.timestamp + 1));
+        vm.prank(operator);
         allocatorVault.settleStrategyFee(user, address(stratA));
 
         uint256 opBefore = usdc.balanceOf(operator);
