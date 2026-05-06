@@ -111,17 +111,30 @@ contract StrategyVaultTest is Test {
         );
 
         // PR1a: vault now binds proofs to roots known to the price/yield
-        // anchors (Helios.md §9.3). Mock both anchors as accepting any root
-        // here; explicit "unknown root" tests below set the mock to false.
+        // anchors (Helios.md §9.3). HIGH #6 — vault now also enforces
+        // freshness (180s) via `IOracleAnchor.freshness`. Mock the
+        // freshness call to return the current block timestamp so the
+        // root is treated as fresh; explicit "unknown root" / "stale
+        // root" tests below override.
         vm.mockCall(
             priceAnchor,
             abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
             abi.encode(true)
         );
         vm.mockCall(
+            priceAnchor,
+            abi.encodeWithSelector(IOracleAnchor.freshness.selector),
+            abi.encode(uint64(block.timestamp))
+        );
+        vm.mockCall(
             yieldAnchor,
             abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
             abi.encode(true)
+        );
+        vm.mockCall(
+            yieldAnchor,
+            abi.encodeWithSelector(IOracleAnchor.freshness.selector),
+            abi.encode(uint64(block.timestamp))
         );
 
         // PR2: YR path now binds the proof's `markets_allowlist_root` PI
@@ -466,11 +479,13 @@ contract StrategyVaultTest is Test {
     function test_ExecuteWithProof_RevertsOnUnknownOracleRoot() public {
         // Anchor disowns the proof's oracle root → revert before verifier call.
         // PR1a hardening — without the binding the prover can mint a Poseidon
-        // root over fictitious prices and pass the on-chain verifier.
+        // root over fictitious prices and pass the on-chain verifier. HIGH #6
+        // — `freshness` returning 0 stands in for both "never committed" and
+        // "currently revoked"; either way the vault must refuse the trade.
         vm.mockCall(
             priceAnchor,
-            abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector),
-            abi.encode(false)
+            abi.encodeWithSelector(IOracleAnchor.freshness.selector),
+            abi.encode(uint64(0))
         );
         uint256[] memory pi = _validInputs();
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
@@ -479,13 +494,30 @@ contract StrategyVaultTest is Test {
         vault.executeWithProof(_proofBytes(), pi, trades);
     }
 
+    function test_ExecuteWithProof_RevertsOnStaleOracleRoot() public {
+        // HIGH #6 — a root committed > _MAX_ORACLE_STALENESS_SEC (180s)
+        // ago must not justify a fresh trade. Anchor reports a known
+        // root with a long-past committedAt timestamp.
+        vm.warp(10_000); // anchor block.timestamp set during setUp() = 1
+        vm.mockCall(
+            priceAnchor,
+            abi.encodeWithSelector(IOracleAnchor.freshness.selector),
+            abi.encode(uint64(10_000 - 200)) // 200s ago — outside the 180s window
+        );
+        uint256[] memory pi = _validInputs();
+        IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
+        vm.prank(operator);
+        vm.expectRevert(StrategyVault.OracleRootStale.selector);
+        vault.executeWithProof(_proofBytes(), pi, trades);
+    }
+
     function test_ExecuteWithProof_QueriesAnchorWithProvenRoot() public {
-        // The vault must call isKnownRoot with the exact bytes32 from
+        // The vault must call freshness with the exact bytes32 from
         // publicInputs[PI_ORACLE_ROOT], not some derived value.
         uint256[] memory pi = _validInputs();
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);
         vm.expectCall(
-            priceAnchor, abi.encodeWithSelector(IOracleAnchor.isKnownRoot.selector, bytes32(pi[13]))
+            priceAnchor, abi.encodeWithSelector(IOracleAnchor.freshness.selector, bytes32(pi[13]))
         );
         vm.prank(operator);
         vault.executeWithProof(_proofBytes(), pi, trades);

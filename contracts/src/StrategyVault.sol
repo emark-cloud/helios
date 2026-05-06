@@ -134,6 +134,7 @@ contract StrategyVault is
     error NavExceedsCap();
     error NavTooOld();
     error NotOperatorOrNavOracle();
+    error OracleRootStale();
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
@@ -143,6 +144,15 @@ contract StrategyVault is
     /// @dev Selector for `IERC20.approve(address,uint256)`. Hardcoded so the
     ///      whitelist is independent of compile-time IERC20 metadata changes.
     bytes4 internal constant _APPROVE_SELECTOR = IERC20.approve.selector;
+
+    /// @notice Maximum age of an oracle root the proof's `oracle_root`
+    ///         input may reference, measured against `block.timestamp`
+    ///         at trade execution. 180s matches `Helios.md` §10's
+    ///         freshness budget — the off-chain oracle commits a fresh
+    ///         root every 60s so a healthy chain has at least three
+    ///         valid candidates at any given time. HIGH #6 in
+    ///         `docs/phase-3-review.md`.
+    uint256 internal constant _MAX_ORACLE_STALENESS_SEC = 180;
 
     /// @dev Selector for the canonical Algebra-Integral exactInputSingle
     ///      shape: `(address tokenIn, address tokenOut, address recipient,
@@ -341,9 +351,17 @@ contract StrategyVault is
         // actually committed via OraclePriceAnchor. Without this an operator
         // can fabricate price observations, hash them into a Poseidon root,
         // and pass the verifier — the proof is valid for *some* market state
-        // but not for one the protocol has signed off on.
-        if (!IOracleAnchor(priceAnchor).isKnownRoot(bytes32(publicInputs[PI_ORACLE_ROOT]))) {
-            revert UnknownOracleRoot();
+        // but not for one the protocol has signed off on. The freshness
+        // gate refuses roots older than `_MAX_ORACLE_STALENESS_SEC` so a
+        // months-old committed root cannot retroactively justify a trade
+        // (HIGH #6 in `docs/phase-3-review.md`).
+        {
+            uint64 committedAt =
+                IOracleAnchor(priceAnchor).freshness(bytes32(publicInputs[PI_ORACLE_ROOT]));
+            if (committedAt == 0) revert UnknownOracleRoot();
+            if (block.timestamp > uint256(committedAt) + _MAX_ORACLE_STALENESS_SEC) {
+                revert OracleRootStale();
+            }
         }
 
         bytes32 tradeHash = bytes32(publicInputs[PI_TRADE_HASH]);

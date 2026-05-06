@@ -28,6 +28,11 @@ contract OracleYieldAnchor is IOracleAnchor, Ownable, EIP712 {
 
     Commit[] internal _commits;
     mapping(bytes32 => bool) internal _seenRoot;
+    /// @dev `committedAt` keyed by root. Mirrors OraclePriceAnchor —
+    ///      survives `revokeRoot` so `unrevokeRoot` restores the
+    ///      original freshness reading without a re-commit (HIGH #9 in
+    ///      `docs/phase-3-review.md`).
+    mapping(bytes32 => uint64) internal _committedAt;
 
     constructor(address signer_, address owner_)
         Ownable(owner_)
@@ -48,6 +53,14 @@ contract OracleYieldAnchor is IOracleAnchor, Ownable, EIP712 {
         if (!_seenRoot[root]) revert UnknownRoot();
         _seenRoot[root] = false;
         emit RootRevoked(root);
+    }
+
+    /// @inheritdoc IOracleAnchor
+    function unrevokeRoot(bytes32 root) external onlyOwner {
+        if (_committedAt[root] == 0) revert UnknownRoot();
+        if (_seenRoot[root]) revert RootNotRevoked();
+        _seenRoot[root] = true;
+        emit RootUnrevoked(root);
     }
 
     function commit(bytes32 root, uint64 windowStart, uint64 windowEnd, bytes calldata sig)
@@ -78,6 +91,7 @@ contract OracleYieldAnchor is IOracleAnchor, Ownable, EIP712 {
             })
         );
         _seenRoot[root] = true;
+        _committedAt[root] = uint64(block.timestamp);
 
         emit Committed(_commits.length - 1, root, windowStart, windowEnd, recovered);
     }
@@ -99,6 +113,12 @@ contract OracleYieldAnchor is IOracleAnchor, Ownable, EIP712 {
 
     function isKnownRoot(bytes32 root) external view returns (bool) {
         return _seenRoot[root];
+    }
+
+    /// @inheritdoc IOracleAnchor
+    function freshness(bytes32 root) external view returns (uint64) {
+        if (!_seenRoot[root]) return 0;
+        return _committedAt[root];
     }
 
     function domainSeparator() external view returns (bytes32) {
