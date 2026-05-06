@@ -333,16 +333,36 @@ def _apply_intent(
         strategy._set_position(asset, 0.0, 0.0, Direction.EXIT)
         return cash, realized
 
+    # WS4 PR 2/3: position flipping. If we hold a position in the
+    # opposite direction, close it first and realise the P&L before
+    # opening the new side. Without this, a LONG intent on top of an
+    # open SHORT (or vice-versa) silently nets the qtys, leaving an
+    # avg-entry that's a meaningless mix of two opposing legs and
+    # never realises the closing leg's gain/loss.
+    cash, flip_realized = _close_if_flipping(
+        strategy=strategy,
+        bar=bar,
+        ts=ts,
+        asset=asset,
+        price=price,
+        target=direction,
+        cash=cash,
+        holdings=holdings,
+        fills=fills,
+        fee_bps=fee_bps,
+    )
+    realized += flip_realized
+
     notional = strategy.size_trade(intent, available_capital=cash)
     if notional <= 0:
-        return cash, 0.0
+        return cash, realized
     fee = notional * fee_bps / 10_000
     if notional + fee > cash:
         # Down-size to fit available capital after fees.
         notional = max(0.0, cash * 10_000 / (10_000 + fee_bps))
         fee = notional * fee_bps / 10_000
         if notional <= 0:
-            return cash, 0.0
+            return cash, realized
 
     qty = notional / price if direction == Direction.LONG else -notional / price
     if direction == Direction.LONG:
@@ -387,6 +407,51 @@ def _apply_intent(
             fee_usd=fee,
         )
     )
+    return cash, realized
+
+
+def _close_if_flipping(
+    *,
+    strategy: StrategyAgent,
+    bar: int,
+    ts: datetime,
+    asset: str,
+    price: float,
+    target: Direction,
+    cash: float,
+    holdings: dict[str, float],
+    fills: list[TradeFill],
+    fee_bps: int,
+) -> tuple[float, float]:
+    """If `asset` holds a position with the opposite direction to
+    `target`, close it and return (new_cash, realised_pnl). No-op
+    otherwise."""
+    prev_qty = holdings.get(asset, 0.0)
+    if prev_qty == 0:
+        return cash, 0.0
+    prev_pos = strategy.position_object(asset)
+    prev_dir = prev_pos.direction if prev_pos else Direction.LONG
+    flipping = (target == Direction.LONG and prev_dir == Direction.SHORT) or (
+        target == Direction.SHORT and prev_dir == Direction.LONG
+    )
+    if not flipping:
+        return cash, 0.0
+    avg_entry = prev_pos.avg_entry_price if prev_pos is not None else price
+    close_fill, cash, realized = _close_position(
+        bar=bar,
+        ts=ts,
+        asset=asset,
+        price=price,
+        qty=prev_qty,
+        avg_entry=avg_entry,
+        direction=prev_dir,
+        fee_bps=fee_bps,
+        cash=cash,
+    )
+    fills.append(close_fill)
+    holdings.pop(asset, None)
+    strategy._set_position(asset, 0.0, 0.0, Direction.EXIT)
+    strategy._set_capital(cash)
     return cash, realized
 
 
