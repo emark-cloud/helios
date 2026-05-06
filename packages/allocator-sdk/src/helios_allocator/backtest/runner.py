@@ -152,9 +152,7 @@ def run_backtest(
                 "rank_strategies returned wrong number of scores: "
                 f"{len(scores)} vs {len(candidates)}."
             )
-        ranked = [
-            c for _, c in sorted(zip(scores, candidates, strict=True), key=lambda p: -p[0])
-        ]
+        ranked = [c for _, c in sorted(zip(scores, candidates, strict=True), key=lambda p: -p[0])]
         targets = allocator.allocate(cfg.user, ranked, int(user_capital))
 
         # Apply per-strategy day-d returns to the dollar allocations.
