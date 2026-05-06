@@ -201,4 +201,78 @@ contract OraclePriceAnchorTest is Test {
         vm.expectRevert(IOracleAnchor.UnknownRoot.selector);
         anchor.revokeRoot(root);
     }
+
+    // ── HIGH #9: unrevokeRoot ──────────────────────────────────────
+
+    function test_unrevokeRoot_restoresIsKnown() public {
+        bytes32 root = keccak256("victim");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+        assertFalse(anchor.isKnownRoot(root));
+
+        vm.expectEmit(true, false, false, false);
+        emit IOracleAnchor.RootUnrevoked(root);
+        vm.prank(owner);
+        anchor.unrevokeRoot(root);
+        assertTrue(anchor.isKnownRoot(root));
+    }
+
+    function test_unrevokeRoot_onlyOwner() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this))
+        );
+        anchor.unrevokeRoot(root);
+    }
+
+    function test_unrevokeRoot_rejectsNeverCommitted() public {
+        vm.prank(owner);
+        vm.expectRevert(IOracleAnchor.UnknownRoot.selector);
+        anchor.unrevokeRoot(keccak256("never-committed"));
+    }
+
+    function test_unrevokeRoot_rejectsAlreadyActive() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        vm.expectRevert(IOracleAnchor.RootNotRevoked.selector);
+        anchor.unrevokeRoot(root);
+    }
+
+    // ── HIGH #6: freshness view ────────────────────────────────────
+
+    function test_freshness_returnsCommittedAt() public {
+        bytes32 root = keccak256("fresh");
+        vm.warp(10_000);
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        assertEq(anchor.freshness(root), uint64(10_000));
+    }
+
+    function test_freshness_zeroForUnknownRoot() public view {
+        assertEq(anchor.freshness(keccak256("never")), uint64(0));
+    }
+
+    function test_freshness_zeroAfterRevoke() public {
+        bytes32 root = keccak256("r");
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+        assertEq(anchor.freshness(root), uint64(0));
+    }
+
+    function test_freshness_restoredAfterUnrevoke() public {
+        bytes32 root = keccak256("r");
+        vm.warp(10_000);
+        anchor.commit(root, 100, 200, _sign(signerPk, root, 100, 200, 0));
+        vm.prank(owner);
+        anchor.revokeRoot(root);
+        vm.prank(owner);
+        anchor.unrevokeRoot(root);
+        // committedAt timestamp survives the revoke→unrevoke round-trip.
+        assertEq(anchor.freshness(root), uint64(10_000));
+    }
 }

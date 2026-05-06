@@ -32,6 +32,7 @@ interface IOracleAnchor {
         address indexed signer
     );
     event RootRevoked(bytes32 indexed root);
+    event RootUnrevoked(bytes32 indexed root);
 
     error ZeroAddress();
     error ZeroRoot();
@@ -40,6 +41,7 @@ interface IOracleAnchor {
     error NonMonotonicWindow();
     error UnknownIndex();
     error UnknownRoot();
+    error RootNotRevoked();
 
     /// @notice Latest commit.
     /// @dev Reverts with `UnknownIndex` if no commits exist yet.
@@ -74,6 +76,21 @@ interface IOracleAnchor {
     ///      `UnknownRoot` if the root was never committed (or already
     ///      revoked) so callers can detect typos.
     function revokeRoot(bytes32 root) external;
+
+    /// @notice Reverse a `revokeRoot`, restoring the root's `isKnownRoot`
+    ///         status. Owner-gated (HIGH #9 in `docs/phase-3-review.md`).
+    ///         Reverts with `UnknownRoot` if the root was never committed
+    ///         and `RootNotRevoked` if it's still active. Without this
+    ///         pair, a misclick on `revokeRoot` permanently bricks every
+    ///         strategy whose proofs reference the targeted root.
+    function unrevokeRoot(bytes32 root) external;
+
+    /// @notice `committedAt` timestamp for a root, or 0 if never committed
+    ///         or currently revoked. Lets consumers (StrategyVault) gate
+    ///         on max-staleness without scanning the commit array — HIGH
+    ///         #6 in `docs/phase-3-review.md`. Equivalent to
+    ///         `isKnownRoot(root) ? <committedAt> : 0`.
+    function freshness(bytes32 root) external view returns (uint64);
 
     /// @notice Address authorized to sign commits.
     function oracleSigner() external view returns (address);
