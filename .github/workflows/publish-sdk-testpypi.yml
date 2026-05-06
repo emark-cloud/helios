@@ -1,5 +1,21 @@
 name: publish-sdk-testpypi
 
+# Mirrors all four publishable Helios Python packages to test-PyPI on
+# every `sdk-v*` tag via OIDC trusted publishing (no API tokens).
+#
+# Each package needs a one-time trusted-publisher registration on
+# test.pypi.org pointing at this repo + this workflow file +
+# environment `testpypi`. Status:
+#   - helios-strategy-sdk   - registered (publishes since sdk-v0.1.0)
+#   - helios-contracts-abi  - pending registration
+#   - helios-allocator-sdk  - pending registration
+#   - helios-trader-cli     - pending registration
+#
+# The three pending packages are marked `registered: false` and run with
+# `continue-on-error: true` on the publish step so the workflow stays
+# green while registrations are outstanding. Flip a package's flag to
+# `true` once its trusted-publisher entry is live on test.pypi.org.
+
 on:
   push:
     tags:
@@ -8,13 +24,29 @@ on:
 
 jobs:
   build-and-publish:
-    name: Build & publish helios-strategy-sdk to test-PyPI
+    name: Publish ${{ matrix.dist }} to test-PyPI
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/helios-strategy-sdk
+      url: https://test.pypi.org/p/${{ matrix.dist }}
     permissions:
       id-token: write  # required for PyPI trusted publishing (OIDC)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dist: helios-strategy-sdk
+            dir: packages/strategy-sdk
+            registered: true
+          - dist: helios-contracts-abi
+            dir: packages/contracts-abi-py
+            registered: false
+          - dist: helios-allocator-sdk
+            dir: packages/allocator-sdk
+            registered: false
+          - dist: helios-trader-cli
+            dir: packages/helios-cli
+            registered: false
     steps:
       - uses: actions/checkout@v4
 
@@ -30,19 +62,21 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/sdk-v')
         env:
           GH_REF: ${{ github.ref }}
+          PKG_DIR: ${{ matrix.dir }}
         run: |
           tag="${GH_REF#refs/tags/sdk-v}"
-          pyproject_version=$(uv run --no-project python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('packages/strategy-sdk/pyproject.toml').read_text())['project']['version'])")
+          pyproject_version=$(uv run --no-project python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('${PKG_DIR}/pyproject.toml').read_text())['project']['version'])")
           echo "tag=$tag pyproject=$pyproject_version"
           if [ "$tag" != "$pyproject_version" ]; then
-            echo "::error::tag sdk-v$tag does not match pyproject version $pyproject_version"
+            echo "::error::tag sdk-v$tag does not match ${PKG_DIR} pyproject version $pyproject_version"
             exit 1
           fi
 
       - name: Build sdist + wheel
-        run: uv build --package helios-strategy-sdk --sdist --wheel --out-dir dist
+        run: uv build --package ${{ matrix.dist }} --sdist --wheel --out-dir dist
 
       - name: Publish to test-PyPI
+        continue-on-error: ${{ !matrix.registered }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
