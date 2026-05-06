@@ -23,6 +23,7 @@ WS4.B replaces the Phase 0 stubs with real behavior:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shlex
@@ -38,9 +39,12 @@ import typer
 from helios.backtest import (
     DEFAULT_FEE_BPS,
     BacktestReport,
+    YieldBacktestReport,
     run_backtest,
+    run_yield_backtest,
     synthesize_random_walk,
 )
+from helios.types import YieldTick
 from rich.console import Console
 
 from helios_cli import _deployments
@@ -97,6 +101,26 @@ def backtest(
     bars, bar_interval = _PERIOD_TABLE[period]
     agent = _load(strategy)
 
+    declared_class = agent.declared_class or "uncategorized"
+    out_dir = output_dir / declared_class
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{strategy.stem}_{period}.md"
+
+    # WS4: yield_rotation_v1 is yield-driven, not bar-driven; route it
+    # through the SDK's `run_yield_backtest` instead of the swap engine.
+    if declared_class == "yield_rotation_v1":
+        yr_report = run_yield_backtest(
+            strategy=agent,
+            ticks=_synthesize_yield_ticks(agent, ticks=bars, seed=seed),
+            initial_capital=float(capital),
+            tick_interval_sec=bar_interval,
+            bridging_cost_bps=getattr(agent, "_bridging_cost_bps", 30),
+        )
+        out_file.write_text(_render_yield_report(agent, yr_report, period, seed))
+        console.print(yr_report.summary())
+        console.print(f"[green]Report:[/green] {out_file}")
+        return
+
     assets = list(agent.asset_universe) or ["BTC", "ETH", "SOL"]
     prices = synthesize_random_walk(assets=assets, bars=bars, seed=seed)
     report = run_backtest(
@@ -107,10 +131,6 @@ def backtest(
         fee_bps=fee_bps,
     )
 
-    declared_class = agent.declared_class or "uncategorized"
-    out_dir = output_dir / declared_class
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{strategy.stem}_{period}.md"
     out_file.write_text(_render_report(agent, report, period, seed))
     console.print(report.summary())
     console.print(f"[green]Report:[/green] {out_file}")
@@ -152,6 +172,58 @@ def _ascii_nav(navs: list[float], width: int = 60, height: int = 10) -> str:
         rows.append("".join("█" if v >= threshold else " " for v in sample))
     rows.append("─" * len(sample))
     return "\n".join(rows)
+
+
+def _synthesize_yield_ticks(agent: Any, *, ticks: int, seed: int) -> list[dict[int, YieldTick]]:
+    """Generate a deterministic per-market APY trajectory for the YR
+    backtest CLI driver.
+
+    The reference YR strategy advertises an `_allowlist` of market ids;
+    third-party YR scaffolds advertise `_allowlisted_markets`. We honour
+    whichever attribute is present, falling back to four anonymous
+    markets so a stripped-down YR class still gets a runnable backtest.
+    """
+    raw_markets = (
+        getattr(agent, "_allowlist", None)
+        or getattr(agent, "_allowlisted_markets", None)
+        or (1, 2, 3, 4)
+    )
+    markets = tuple(int(m) for m in raw_markets)
+    base = {m: 300 + (i * 80) for i, m in enumerate(markets)}
+    out: list[dict[int, YieldTick]] = []
+    state = (seed or 0xDEADBEEF) & 0xFFFFFFFF
+    for tick in range(ticks):
+        snapshot: dict[int, YieldTick] = {}
+        for i, m in enumerate(markets):
+            state = (1664525 * state + 1013904223) & 0xFFFFFFFF
+            jitter = (state & 0xFF) - 128  # ~ ±128 bps noise per tick
+            cycle = int(80 * math.sin(tick / 240 + i))  # ~10d cycle
+            apy_bps = max(0, base[m] + cycle + jitter // 4)
+            snapshot[m] = YieldTick(
+                market_id=m,
+                apy_bps_e6=apy_bps * 1_000_000,
+                timestamp_ms=tick * 3_600_000,
+            )
+        out.append(snapshot)
+    return out
+
+
+def _render_yield_report(agent: Any, report: YieldBacktestReport, period: str, seed: int) -> str:
+    markets = getattr(agent, "_allowlist", None) or getattr(agent, "_allowlisted_markets", ()) or ()
+    markets_str = ", ".join(str(m) for m in markets) or "—"
+    return (
+        f"# Backtest — {type(agent).__name__} ({agent.declared_class})\n\n"
+        f"- **Period:** {period} (synthetic yield trajectory, seed={seed})\n"
+        f"- **Markets:** {markets_str}\n"
+        f"- **Ticks simulated:** {report.ticks} ({report.tick_interval_sec}s each)\n"
+        f"- **Initial capital:** ${report.initial_capital:,.2f}\n"
+        f"- **Rotations:** {len(report.rotations)}\n"
+        f"- **Avg active APY:** {report.avg_active_apy_bps:,.1f} bps\n"
+        f"- **Realized yield:** ${report.realized_yield_usd:+,.2f}\n"
+        f"- **Rotations with positive APY diff:** {report.rotations_with_pos_diff}\n"
+        f"- **Median rotation APY diff:** {report.median_apy_diff_bps:,.1f} bps\n"
+        f"- **Σ bridging cost:** {report.bridging_cost_total_bps} bps\n"
+    )
 
 
 # ─── helios simulate ──────────────────────────────────────────────

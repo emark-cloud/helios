@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from helios.agent import StrategyAgent
 from helios.nav import BARS_PER_YEAR_1M, NAVTracker
-from helios.types import Direction, MarketSnapshot, TradeIntent
+from helios.types import Direction, MarketSnapshot, TradeIntent, YieldTick
 
 # Bars of look-back included in each MarketSnapshot.prices window.
 DEFAULT_LOOKBACK_BARS = 32
@@ -430,6 +430,183 @@ def _close_position(
         fee_usd=fee,
     )
     return fill, cash, realized
+
+
+# ── yield_rotation_v1 driver ───────────────────────────────────────
+
+
+@dataclass
+class Rotation:
+    """One executed rotation in the yield backtest."""
+
+    tick: int
+    timestamp_ms: int
+    m_from: int
+    m_to: int
+    apy_from_bps: int
+    apy_to_bps: int
+    bridging_cost_bps: int
+    amount_in_usd: float
+
+
+@dataclass
+class YieldBacktestReport:
+    """Result of one yield-rotation backtest run.
+
+    YR has no swap fills, no per-bar NAV, and no Sharpe — the lever is
+    *which market your capital is in over time*. This shape is purpose-
+    built for that: per-tick active-market trace + the rotations that
+    drove it, summarised by the average annualised APY actually earned.
+    """
+
+    initial_capital: float
+    ticks: int
+    tick_interval_sec: int
+    rotations: list[Rotation] = field(default_factory=list)
+    avg_active_apy_bps: float = 0.0
+    realized_yield_usd: float = 0.0
+    rotations_with_pos_diff: int = 0
+    median_apy_diff_bps: float = 0.0
+    bridging_cost_total_bps: int = 0
+
+    def summary(self) -> str:
+        """One-screen summary used by `helios backtest --strategy <yr>`."""
+        return (
+            f"Ticks:                {self.ticks} ({self.tick_interval_sec}s each)\n"
+            f"Initial:              ${self.initial_capital:,.2f}\n"
+            f"Rotations:            {len(self.rotations)}\n"
+            f"Avg active APY:       {self.avg_active_apy_bps:,.1f} bps\n"
+            f"Realized yield:       ${self.realized_yield_usd:+,.2f}\n"
+            f"Rotations w/ +diff:   {self.rotations_with_pos_diff}\n"
+            f"Median APY diff:      {self.median_apy_diff_bps:,.1f} bps\n"
+            f"Σ bridging cost:      {self.bridging_cost_total_bps} bps\n"
+        )
+
+
+def run_yield_backtest(
+    *,
+    strategy: StrategyAgent,
+    ticks: Sequence[Mapping[int, YieldTick]],
+    initial_capital: float = 50_000.0,
+    tick_interval_sec: int = 3_600,
+    bridging_cost_bps: int = 0,
+) -> YieldBacktestReport:
+    """Drive a `yield_rotation_v1` strategy through a synthetic yield
+    sequence.
+
+    Each element of `ticks` is the `{market_id: YieldTick}` snapshot
+    seen by `on_yield_tick` at one tick boundary. The driver:
+      1. Calls `on_yield_tick(snapshot)`; on a returned `RotationIntent`
+         records the rotation and updates `strategy.set_active_market`.
+      2. Accrues the active market's APY for the elapsed tick interval
+         into `realized_yield_usd` (annualised → per-tick).
+      3. Optionally subtracts a flat `bridging_cost_bps` per rotation
+         from realised yield (default 0 — operators pass their own).
+
+    Pure Python; deterministic given the same `ticks` sequence.
+    """
+    if strategy.declared_class != "yield_rotation_v1":
+        raise ValueError(
+            f"run_yield_backtest expects a yield_rotation_v1 strategy; "
+            f"got declared_class={strategy.declared_class!r}."
+        )
+    if not ticks:
+        raise ValueError("ticks must not be empty")
+    if tick_interval_sec <= 0:
+        raise ValueError("tick_interval_sec must be positive")
+
+    strategy._set_capital(initial_capital)
+    strategy._set_nav(initial_capital)
+
+    seconds_per_year = 365 * 24 * 3_600
+    bps_per_unit_year = 10_000.0
+    rotations: list[Rotation] = []
+    gross_yield_usd = 0.0  # before bridging — the avg-APY denominator
+    realized_yield_usd = 0.0  # net of bridging — the user-facing P&L
+    bridging_total_bps = 0
+    apy_diffs: list[int] = []
+    for i, snapshot in enumerate(ticks):
+        active = strategy.active_market
+        if active is not None and active in snapshot:
+            apy_bps_e6 = snapshot[active].apy_bps_e6
+            apy_bps = apy_bps_e6 / 1_000_000.0
+            # Annualised APY → realised over one tick interval.
+            tick_yield = (
+                initial_capital
+                * (apy_bps / bps_per_unit_year)
+                * (tick_interval_sec / seconds_per_year)
+            )
+            gross_yield_usd += tick_yield
+            realized_yield_usd += tick_yield
+        intent = strategy.on_yield_tick(dict(snapshot))
+        if intent is None:
+            continue
+        if active is not None and intent.m_from != active:
+            # Strategy claimed a `m_from` that doesn't match its known
+            # active market. The reference strategy is allowed to pick
+            # any m_from when active is None (initial deployment); but
+            # once a position is open, m_from must equal active or the
+            # strategy is rotating from a phantom position.
+            raise RuntimeError(
+                f"strategy returned m_from={intent.m_from} but active_market={active}"
+            )
+        rotations.append(
+            Rotation(
+                tick=i,
+                timestamp_ms=i * tick_interval_sec * 1_000,
+                m_from=intent.m_from,
+                m_to=intent.m_to,
+                apy_from_bps=intent.apy_from_bps,
+                apy_to_bps=intent.apy_to_bps,
+                bridging_cost_bps=bridging_cost_bps,
+                amount_in_usd=intent.amount_in_usd,
+            )
+        )
+        apy_diffs.append(intent.apy_to_bps - intent.apy_from_bps)
+        bridging_total_bps += bridging_cost_bps
+        # Charge a flat per-rotation bridging cost against initial capital.
+        # Same shape as a one-shot fee — keeps the YR P&L story honest
+        # against a do-nothing baseline.
+        realized_yield_usd -= initial_capital * (bridging_cost_bps / bps_per_unit_year)
+        strategy.set_active_market(intent.m_to)
+
+    n_ticks = len(ticks)
+    # Average annualised APY of the active market across the full
+    # window, time-weighted (ticks with `active is None` contribute
+    # zero — same shape as the reference harness's pre-WS4 measure).
+    # Computed gross-of-bridging so a frequently-rotating strategy
+    # isn't double-penalised: bridging cost shows up separately in
+    # `realized_yield_usd` and `bridging_cost_total_bps`.
+    avg_apy_bps = (
+        (gross_yield_usd / initial_capital)
+        * (seconds_per_year / (tick_interval_sec * n_ticks))
+        * bps_per_unit_year
+        if initial_capital > 0 and n_ticks > 0
+        else 0.0
+    )
+    pos_diffs = sum(1 for d in apy_diffs if d > 0)
+    median_diff = _median(apy_diffs) if apy_diffs else 0.0
+    return YieldBacktestReport(
+        initial_capital=initial_capital,
+        ticks=n_ticks,
+        tick_interval_sec=tick_interval_sec,
+        rotations=rotations,
+        avg_active_apy_bps=avg_apy_bps,
+        realized_yield_usd=realized_yield_usd,
+        rotations_with_pos_diff=pos_diffs,
+        median_apy_diff_bps=median_diff,
+        bridging_cost_total_bps=bridging_total_bps,
+    )
+
+
+def _median(xs: Sequence[int]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    if n % 2 == 1:
+        return float(s[n // 2])
+    return (s[n // 2 - 1] + s[n // 2]) / 2.0
 
 
 def synthesize_random_walk(

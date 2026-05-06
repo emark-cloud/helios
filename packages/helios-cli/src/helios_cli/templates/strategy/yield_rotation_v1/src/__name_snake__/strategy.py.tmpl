@@ -1,6 +1,6 @@
 """{{NAME_PASCAL}}Strategy — your yield_rotation_v1 rotation logic.
 
-The SDK runtime polls the yield oracle and drives `propose_rotation`
+The SDK runtime polls the yield oracle and drives `on_yield_tick`
 once per yield-snapshot tick — a different cadence from price bars,
 which is why YR strategies do not implement `on_bar`. Your job is the
 ranker: when has APY divergence between two markets exceeded
@@ -24,7 +24,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import ClassVar
 
-from helios import MarketSnapshot, StrategyAgent, TradeIntent
+from helios import (
+    MarketSnapshot,
+    RotationIntent,
+    StrategyAgent,
+    TradeIntent,
+    YieldTick,
+)
 
 
 class {{NAME_PASCAL}}Strategy(StrategyAgent):
@@ -51,27 +57,41 @@ class {{NAME_PASCAL}}Strategy(StrategyAgent):
 
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
         # YR is yield-driven; the runtime never calls `on_bar` for this
-        # strategy class. Override `propose_rotation` instead.
+        # strategy class. Override `on_yield_tick` instead.
+        del asset, snapshot
         return None
 
-    def propose_rotation(self, apys_bps: dict[int, int]) -> dict[str, int] | None:
-        """Return `{"m_from": id, "m_to": id, "amount_usd": int}` to
-        rotate, or `None` to hold. The SDK runtime drives this hook with
-        the latest signed APY snapshot per allowlisted market.
-
-        Default implementation: take the largest divergence above the
-        `signal_threshold + bridging_cost` floor. Edit me — that's the
-        whole point.
+    def on_yield_tick(self, ticks: dict[int, YieldTick]) -> RotationIntent | None:
+        """Default rule: rotate into the highest-APY allowlisted market
+        when the differential beats `signal_threshold + bridging_cost`.
+        Edit me — that's the whole point.
         """
-        floor_bps = self._signal_threshold_bps + self._bridging_cost_bps
-        eligible = {m: apys_bps[m] for m in self._allowlisted_markets if m in apys_bps}
-        if len(eligible) < 2:
+        candidates = {m: t for m, t in ticks.items() if m in self._allowlisted_markets}
+        if len(candidates) < 2:
             return None
-        m_from = min(eligible, key=lambda m: eligible[m])
-        m_to = max(eligible, key=lambda m: eligible[m])
-        if eligible[m_to] - eligible[m_from] < floor_bps or m_from == m_to:
+        best = max(candidates, key=lambda m: candidates[m].apy_bps_e6)
+        if self.active_market == best:
             return None
-        amount = int(min(self.max_position_size_usd, self.available_capital * self._position_fraction))
+        if self.active_market is not None and self.active_market in candidates:
+            from_market = self.active_market
+        else:
+            from_market = min(candidates, key=lambda m: candidates[m].apy_bps_e6)
+        if from_market == best:
+            return None
+        from_apy_bps = candidates[from_market].apy_bps_e6 // 1_000_000
+        to_apy_bps = candidates[best].apy_bps_e6 // 1_000_000
+        if to_apy_bps - from_apy_bps < self._signal_threshold_bps + self._bridging_cost_bps:
+            return None
+        amount = min(
+            float(self.max_position_size_usd),
+            self.available_capital * self._position_fraction,
+        )
         if amount <= 0:
             return None
-        return {"m_from": m_from, "m_to": m_to, "amount_usd": amount}
+        return RotationIntent(
+            m_from=from_market,
+            m_to=best,
+            amount_in_usd=amount,
+            apy_from_bps=from_apy_bps,
+            apy_to_bps=to_apy_bps,
+        )

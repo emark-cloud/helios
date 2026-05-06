@@ -23,7 +23,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import ClassVar
 
-from helios.types import Direction, MarketSnapshot, Position, StrategyManifest, TradeIntent
+from helios.types import (
+    Direction,
+    MarketSnapshot,
+    Position,
+    RotationIntent,
+    StrategyManifest,
+    TradeIntent,
+    YieldTick,
+)
 
 
 class StrategyAgent(ABC):
@@ -53,6 +61,13 @@ class StrategyAgent(ABC):
         # `reportNAV` cycle. Defaults to cash so legacy code paths stay
         # correct on day-zero.
         self._nav_usd: float = 0.0
+        # WS4: yield_rotation_v1 strategies track which market currently
+        # holds capital so the SDK's yield-tick driver can attribute
+        # realized APY between rotations. Directional classes never read
+        # or write this field. `set_active_market` is the public setter
+        # for runtimes that bridge a successful executeWithProof back to
+        # the strategy's view of state.
+        self._active_market: int | None = None
 
     # ── To be overridden by operators ────────────────────────
     @abstractmethod
@@ -60,6 +75,16 @@ class StrategyAgent(ABC):
         """Called for each asset on each bar close. Return a TradeIntent
         to trade, or None to do nothing."""
         ...
+
+    def on_yield_tick(self, ticks: dict[int, YieldTick]) -> RotationIntent | None:
+        """Called by the SDK's yield-tick driver for `yield_rotation_v1`
+        strategies. `ticks` is the latest APY snapshot per allowlisted
+        market. Return a `RotationIntent` to rotate, or `None` to hold.
+
+        Default returns `None` — directional strategies never see this
+        hook and do not need to override it. YR strategies must."""
+        del ticks
+        return None
 
     def size_trade(self, intent: TradeIntent, available_capital: float) -> float:
         """Translate a TradeIntent into a notional USD amount.
@@ -114,6 +139,18 @@ class StrategyAgent(ABC):
 
     def position_object(self, asset: str) -> Position | None:
         return self._positions.get(asset)
+
+    @property
+    def active_market(self) -> int | None:
+        """The yield_rotation_v1 market currently holding capital, or
+        None if the strategy is between rotations / has not deployed."""
+        return self._active_market
+
+    def set_active_market(self, market_id: int | None) -> None:
+        """Used by `yield_rotation_v1` runtimes (and the SDK's yield
+        backtest driver) to record a successful rotation. Strategies do
+        not call this from `on_yield_tick`."""
+        self._active_market = market_id
 
     def manifest(
         self, *, operator: str, stake_amount_usd: int, max_capacity_usd: int

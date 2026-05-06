@@ -1,12 +1,18 @@
-"""Stand-alone 90d yield-rotation backtest harness.
+"""Stand-alone 90d yield-rotation backtest driver — kept as a runnable
+worked example wrapping the SDK's `helios.run_yield_backtest`.
 
-The SDK's bar-driven backtest engine doesn't call `on_yield_tick`
-(yield is a different cadence than price). This harness drives it
-directly with synthetic APY traces so we can produce the
-`docs/backtests/yield_rotation_v1_90d.md` numbers.
+WS4: the SDK now exposes a yield-tick driver (`helios.backtest.
+run_yield_backtest`). For YR strategies whose constructors require
+arguments — like the reference impl — `helios backtest --strategy …`
+cannot instantiate them with no args, so this harness still earns its
+keep: it picks the constructor args for the reference strategy and
+delegates the cadence + accounting to the SDK driver. Third-party
+strategies with default-arg constructors should use `helios backtest`
+directly.
 
 Run from the repo root:
-    uv run --no-sync python /tmp/yr_harness.py
+    uv run --project reference-strategies/yield_rotation_v1 \\
+        python docs/backtests/_yield_rotation_v1_harness.py
 """
 
 from __future__ import annotations
@@ -14,8 +20,8 @@ from __future__ import annotations
 import math
 import random
 
+from helios import YieldTick, run_yield_backtest
 from yield_rotation_v1 import YieldRotationStrategy
-from yield_rotation_v1.types import YieldTick
 
 TICKS_PER_DAY = 24
 DAYS = 90
@@ -43,62 +49,45 @@ def run(seed: int) -> dict[str, float | int]:
         signal_threshold_bps=SIGNAL_THRESHOLD_BPS,
         bridging_cost_bps=BRIDGING_COST_BPS,
     )
-    strategy.set_capital(INITIAL_CAPITAL)
-    rotations: list[tuple[int, int, int, int]] = []
-    realized_yield_bps_ticks = 0  # Σ (apy_active_bps × dt_in_ticks)
-
-    for tick in range(TICKS):
-        ticks_now = {
+    ticks = [
+        {
             m: YieldTick(
                 market_id=m,
-                apy_bps_e6=synth_apy_bps(seed, m, tick),
-                timestamp_ms=tick * 3_600_000,
+                apy_bps_e6=synth_apy_bps(seed, m, t),
+                timestamp_ms=t * 3_600_000,
             )
             for m in MARKETS
         }
-        active = strategy._active_market  # type: ignore[attr-defined]
-        if active is not None and active in ticks_now:
-            apy = ticks_now[active].apy_bps_e6 // 1_000_000
-            realized_yield_bps_ticks += apy
-        intent = strategy.on_yield_tick(ticks_now)
-        if intent is not None:
-            rotations.append(
-                (tick, intent.m_from, intent.m_to, intent.apy_to_bps - intent.apy_from_bps)
-            )
-            strategy.set_active_market(intent.m_to)
-
-    # Convert ticks-of-bps into annualised return: each tick is 1 hour;
-    # APY is annual, so per-tick contribution is apy_bps / (365*24).
-    apy_avg_bps = realized_yield_bps_ticks / TICKS if TICKS else 0
+        for t in range(TICKS)
+    ]
+    report = run_yield_backtest(
+        strategy=strategy,
+        ticks=ticks,
+        initial_capital=INITIAL_CAPITAL,
+        tick_interval_sec=3_600,
+        bridging_cost_bps=BRIDGING_COST_BPS,
+    )
     return {
         "seed": seed,
-        "rotations": len(rotations),
-        "avg_active_apy_bps": round(apy_avg_bps, 1),
-        "rotations_with_pos_diff": sum(1 for r in rotations if r[3] > 0),
-        "median_diff_bps": _median([r[3] for r in rotations]) if rotations else 0,
+        "rotations": len(report.rotations),
+        "avg_active_apy_bps": round(report.avg_active_apy_bps, 1),
+        "realized_yield_usd": round(report.realized_yield_usd, 2),
+        "rotations_with_pos_diff": report.rotations_with_pos_diff,
+        "median_diff_bps": round(report.median_apy_diff_bps, 1),
     }
-
-
-def _median(xs: list[int]) -> float:
-    xs = sorted(xs)
-    n = len(xs)
-    if n == 0:
-        return 0.0
-    if n % 2 == 1:
-        return float(xs[n // 2])
-    return (xs[n // 2 - 1] + xs[n // 2]) / 2.0
 
 
 _HEADER = (
     f"{'seed':>6} | {'rotations':>10} | {'avg_active_apy_bps':>20} | "
-    f"{'pos_diff':>10} | {'median_diff_bps':>16}"
+    f"{'realized_$':>12} | {'pos_diff':>10} | {'median_diff_bps':>16}"
 )
 
 
 def _format_row(r: dict[str, float | int]) -> str:
     return (
         f"{r['seed']:>6} | {r['rotations']:>10} | {r['avg_active_apy_bps']:>20} | "
-        f"{r['rotations_with_pos_diff']:>10} | {r['median_diff_bps']:>16}"
+        f"{r['realized_yield_usd']:>12} | {r['rotations_with_pos_diff']:>10} | "
+        f"{r['median_diff_bps']:>16}"
     )
 
 
