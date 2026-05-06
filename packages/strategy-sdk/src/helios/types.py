@@ -37,6 +37,14 @@ class TradeIntent(BaseModel):
     # Both default False; set them ONLY on EXIT intents and never both.
     is_signal_flip: bool = False
     is_stop_loss: bool = False
+    # WS4 PR 3/3: signals that `amount_in_usd` was computed against
+    # mark-to-market NAV (via `helios.sizing.nav_target_notional`) and
+    # should be allowed to clear the strategy's `available_capital`
+    # cap. The engine's `size_trade` path still clamps a NAV-targeted
+    # notional to `nav` and the `_apply_intent` down-size guard still
+    # fits the trade to actual free cash on a half-deployed strategy
+    # — this flag only widens the sizing band, it doesn't bypass cash.
+    is_nav_targeted: bool = False
 
     def model_post_init(self, _ctx: object) -> None:
         if self.amount_in_usd is None and self.amount_in_asset is None:

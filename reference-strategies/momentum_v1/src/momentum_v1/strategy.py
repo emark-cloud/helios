@@ -21,6 +21,7 @@ operator's IP.
 from __future__ import annotations
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
+from helios.sizing import nav_target_notional
 
 
 class MomentumStrategy(StrategyAgent):
@@ -59,6 +60,7 @@ class MomentumStrategy(StrategyAgent):
                 amount_in_usd=self._size(),
                 direction=Direction.LONG,
                 max_slippage_bps=self._max_slippage_bps,
+                is_nav_targeted=True,
             )
 
         # Exit: signal flip while we still hold long.
@@ -76,15 +78,13 @@ class MomentumStrategy(StrategyAgent):
 
     # ── Internal sizing ───────────────────────────────────────
     def _size(self) -> float:
-        # PR4: scale entries against current NAV (cash + mark-to-market
-        # of held positions) — the prior `available_capital`-only sizing
-        # collapsed to a tiny slice of the real footprint once the
-        # strategy was already deployed. `size_trade` still clamps the
-        # result to free cash so we never spend what we don't have.
-        return min(
-            float(self.max_position_size_usd),
-            self.nav * self._position_fraction,
-        )
+        # WS4 PR 3/3: delegate to the SDK's `nav_target_notional` helper.
+        # Returns `min(self.nav * fraction, max_position_size_usd)`. The
+        # accompanying `is_nav_targeted=True` on the emitted TradeIntent
+        # tells the engine's `size_trade` to clamp against NAV rather
+        # than `available_capital` — the right rule for "target X% of
+        # NAV per trade" sizing on a half-deployed strategy.
+        return nav_target_notional(self, self._position_fraction)
 
     # ── Test/runtime helpers ──────────────────────────────────
     # `set_capital` / `set_position` delegate to the SDK base hooks. They

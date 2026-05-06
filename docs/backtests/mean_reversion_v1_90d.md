@@ -46,20 +46,31 @@ Initial capital `$10,000`, fees default `2 bps` round-trip.
 
 ## Results across five seeds
 
+Refreshed for WS4 (NAV-target sizing, position-flip realisation, YR
+backtest driver — see `docs/phase3-plan.md` step 16).
+
 | Seed | Final NAV | Total return | Sharpe (ann.) | Max DD | Trades | Win rate |
 |---:|---:|---:|---:|---:|---:|---:|
-| 17   | $2,398.68 | -76.01% | -20.96 | 76.01% | 654 | 34.5% |
-| 42   | $3,352.57 | -66.47% | -17.08 | 66.67% | 678 | 44.7% |
-| 101  | $2,470.45 | -75.30% | -18.55 | 75.30% | 607 | 37.4% |
-| 314  | $2,227.26 | -77.73% | -17.66 | 77.73% | 652 | 37.7% |
-| 7331 | $2,733.94 | -72.66% | -19.72 | 72.73% | 641 | 40.0% |
-| **median** | **$2,470.45** | **-75.30%** | **-18.55** | **75.30%** | **652** | **37.7%** |
+| 17   | $4,342.52 | -56.57% | -32.50 | 56.57% | 556 | 27.7% |
+| 42   | $4,544.33 | -54.56% | -29.12 | 54.56% | 590 | 36.9% |
+| 101  | $4,319.73 | -56.80% | -31.28 | 56.82% | 524 | 29.4% |
+| 314  | $4,175.06 | -58.25% | -33.24 | 58.25% | 548 | 30.8% |
+| 7331 | $4,699.57 | -53.00% | -30.95 | 53.03% | 550 | 33.1% |
+| **median** | **$4,342.52** | **-56.57%** | **-31.28** | **56.57%** | **550** | **30.8%** |
 
-Across all five seeds the trade count clusters at **640 ± 35** with a
-**38% win rate**, confirming the z-score gate fires consistently and
+Across all five seeds the trade count clusters at **554 ± 33** with a
+**~31% win rate**, confirming the z-score gate fires consistently and
 exits on mean re-crosses as designed. The aggregate negative return
 on zero-drift random walks is the expected outcome — see *what these
 numbers do not signal* below.
+
+WS4 changes versus the prior writeup: trade count dropped ~14% because
+the position-flip path (PR 2/3) now realises P&L on a single fill
+instead of leaving an avg-entry stuck between two opposing legs, and
+the LONG/SHORT entries that previously stacked on top of each other
+without realising are now closed first via `_close_if_flipping`. NAV
+endpoints land lower because realisations land where they should
+instead of being silently absorbed by netted quantities.
 
 ## Representative NAV path (seed 42, median)
 

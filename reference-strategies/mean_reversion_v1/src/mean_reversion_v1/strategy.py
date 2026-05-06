@@ -30,6 +30,7 @@ from __future__ import annotations
 import math
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
+from helios.sizing import nav_target_notional
 
 LOOKBACK_BARS = 16
 
@@ -94,6 +95,7 @@ class MeanReversionStrategy(StrategyAgent):
                 amount_in_usd=self._size(),
                 direction=Direction.LONG,
                 max_slippage_bps=self._max_slippage_bps,
+                is_nav_targeted=True,
             )
 
         # ── Short entry: N-sigma UP, flat-or-long ───────────────────────
@@ -104,6 +106,7 @@ class MeanReversionStrategy(StrategyAgent):
                 amount_in_usd=self._size(),
                 direction=Direction.SHORT,
                 max_slippage_bps=self._max_slippage_bps,
+                is_nav_targeted=True,
             )
 
         # ── Mean re-cross exit: deviation magnitude has fallen below ────
@@ -133,14 +136,12 @@ class MeanReversionStrategy(StrategyAgent):
 
     # ── Internal sizing ───────────────────────────────────────
     def _size(self) -> float:
-        # PR4: scale entries against NAV (cash + held positions
-        # marked-to-market) so a heavily-deployed strategy doesn't
-        # collapse new sizes to the leftover cash slice. `size_trade`
-        # still clamps to free cash.
-        return min(
-            float(self.max_position_size_usd),
-            self.nav * self._position_fraction,
-        )
+        # WS4 PR 3/3: delegate to the SDK's `nav_target_notional` helper.
+        # Returns `min(self.nav * fraction, max_position_size_usd)`. The
+        # accompanying `is_nav_targeted=True` on the emitted TradeIntent
+        # tells the engine's `size_trade` to clamp against NAV rather
+        # than `available_capital`.
+        return nav_target_notional(self, self._position_fraction)
 
     # ── Test/runtime helpers ──────────────────────────────────
     # `set_capital` / `set_position` delegate to the SDK base hooks. They
