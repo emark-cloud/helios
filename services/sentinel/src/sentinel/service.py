@@ -36,7 +36,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from sentinel.allocator import SentinelAllocator
-from sentinel.auth import MetaStrategySignatureError, verify_meta_strategy_signature
+from sentinel.auth import MetaStrategySignatureError, NonceStore, verify_meta_strategy_signature
 from sentinel.schemas import (
     AllocationView,
     DashboardPayload,
@@ -68,6 +68,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-sentinel/0.1"})
     store = AllocatorStore()
+    # [PASSPORT-STUB] replay-protection store; bounded by `valid_until`
+    # eviction. Single-process state — fine for one PM2 worker, see
+    # `docs/phase-3-review.md` for the multi-replica migration note.
+    nonce_store = NonceStore()
     allocator = SentinelAllocator()
     goldsky = AllocatorGoldsky(
         endpoint=cfg.goldsky_endpoint, chain_id=cfg.kite_chain_id, client=http_client
@@ -100,7 +104,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             await loop.stop()
             await http_client.aclose()
 
-    router = _make_router(cfg, store, loop, onchain, goldsky)
+    router = _make_router(cfg, store, loop, onchain, goldsky, nonce_store)
 
     app = create_app(name="sentinel", settings=cfg, routers=[router])
     app.router.lifespan_context = _compose_lifespans(app.router.lifespan_context, lifespan)
@@ -118,6 +122,7 @@ def _make_router(
     loop: AllocatorLoop,
     onchain: AllocatorOnChain,
     goldsky: AllocatorGoldsky,
+    nonce_store: NonceStore,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -139,9 +144,11 @@ def _make_router(
             raise HTTPException(status_code=400, detail="path/body user mismatch")
         # [PASSPORT-STUB] Verify the EOA personal_sign signature server-side.
         # Phase 4 swaps this for AA userOp verification at the EntryPoint —
-        # see docs/kite-passport-notes.md §"Migration plan".
+        # see docs/kite-passport-notes.md §"Migration plan". Nonce + valid_until
+        # checks in `verify_meta_strategy_signature` close the replay hole
+        # called out in `docs/phase-3-review.md`.
         try:
-            verify_meta_strategy_signature(payload)
+            verify_meta_strategy_signature(payload, nonce_store=nonce_store)
         except MetaStrategySignatureError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from None
         meta = payload.to_sdk_meta()

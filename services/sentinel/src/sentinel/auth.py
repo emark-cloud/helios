@@ -12,12 +12,14 @@ from __future__ import annotations
 
 from helios_allocator.service.auth import (
     MetaStrategySignatureError,
+    NonceStore,
     canonical_digest,
     verify_meta_strategy_signature,
 )
 
 __all__ = [
     "MetaStrategySignatureError",
+    "NonceStore",
     "canonical_digest",
     "verify_meta_strategy_signature",
 ]

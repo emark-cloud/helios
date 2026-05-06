@@ -41,6 +41,7 @@ from helios_allocator.service import (
     DashboardPayload,
     MetaStrategyPayload,
     MetaStrategySignatureError,
+    NonceStore,
     StrategyDirectoryRow,
     verify_meta_strategy_signature,
 )
@@ -78,6 +79,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-helix/0.1"})
     store = AllocatorStore()
+    # [PASSPORT-STUB] replay-protection store; see Sentinel for the same wiring.
+    nonce_store = NonceStore()
     allocator = HelixAllocator()
     goldsky = AllocatorGoldsky(
         endpoint=cfg.goldsky_endpoint, chain_id=cfg.kite_chain_id, client=http_client
@@ -110,7 +113,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             await loop.stop()
             await http_client.aclose()
 
-    router = _make_router(cfg, store, loop, onchain, goldsky)
+    router = _make_router(cfg, store, loop, onchain, goldsky, nonce_store)
 
     app = create_app(name="helix", settings=cfg, routers=[router])
     app.router.lifespan_context = _compose_lifespans(app.router.lifespan_context, lifespan)
@@ -128,6 +131,7 @@ def _make_router(
     loop: AllocatorLoop,
     onchain: AllocatorOnChain,
     goldsky: AllocatorGoldsky,
+    nonce_store: NonceStore,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -149,9 +153,10 @@ def _make_router(
             raise HTTPException(status_code=400, detail="path/body user mismatch")
         # [PASSPORT-STUB] — same canonical digest verifier as Sentinel
         # (`helios_allocator.service.auth`); a frontend can sign once and
-        # post to either allocator.
+        # post to either allocator. Nonce + valid_until checks close the
+        # signature-replay hole called out in `docs/phase-3-review.md`.
         try:
-            verify_meta_strategy_signature(payload)
+            verify_meta_strategy_signature(payload, nonce_store=nonce_store)
         except MetaStrategySignatureError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from None
         meta = payload.to_sdk_meta()

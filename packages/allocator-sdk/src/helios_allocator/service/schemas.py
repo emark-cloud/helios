@@ -34,6 +34,12 @@ class MetaStrategyPayload(BaseModel):
     max_fee_rate_bps: int = Field(ge=0, le=10_000)
     rebalance_cadence_sec: int = Field(ge=60)
     valid_until: int = Field(ge=0)
+    # Replay protection: a fresh 64-bit nonce minted by the frontend per
+    # signing attempt. The server records (user_address, nonce) and
+    # rejects duplicates within the `valid_until` window. Without this
+    # field a captured signature could be re-submitted indefinitely up
+    # to its `valid_until`, re-binding a delegation the user revoked.
+    nonce: int = Field(ge=0, lt=2**64)
     # WS7.B reputation cold-start (`Helios.md §8.7`). Defaults match
     # `docs/phase2-plan.md §WS7.B` and the on-chain meta-strategy spec.
     bootstrap_share_bps: int = Field(default=1000, ge=0, le=10_000)
