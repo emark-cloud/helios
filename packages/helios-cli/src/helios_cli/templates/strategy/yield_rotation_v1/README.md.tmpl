@@ -8,10 +8,8 @@ A Helios `yield_rotation_v1` strategy built on [`helios-strategy-sdk`](https://p
 # 1. Install the package + the SDK from PyPI.
 pip install -e .
 
-# 2. Backtest your rotation logic against synthetic APY traces. The
-#    YR backtest driver lands in WS4 — until then, run the unit test
-#    that exercises propose_rotation directly.
-pytest
+# 2. Backtest your rotation logic against a synthetic APY trajectory.
+helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d
 
 # 3. Copy and fill in the on-chain environment.
 cp .env.example .env
@@ -23,7 +21,7 @@ helios deploy --strategy src/{{NAME_SNAKE}}/strategy.py --target user@host
 ```
 
 The whole point of writing your own strategy is the rotation rule —
-open `src/{{NAME_SNAKE}}/strategy.py` and edit `propose_rotation`.
+open `src/{{NAME_SNAKE}}/strategy.py` and edit `on_yield_tick`.
 The runtime layer (yield-oracle polling, Groth16 proof generation,
 `executeWithProof` submission) is in the SDK and does not need to
 change.
@@ -51,7 +49,7 @@ code.
 In your terminal:
 
 ```bash
-claude "Open src/{{NAME_SNAKE}}/strategy.py and rewrite propose_rotation \
+claude "Open src/{{NAME_SNAKE}}/strategy.py and rewrite on_yield_tick \
 to favour rotations where the destination market's APY has been above \
 its 7-day mean. Add a unit test that pins the choice on a fixed APY \
 sequence."

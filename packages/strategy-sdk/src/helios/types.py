@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
 
@@ -87,3 +88,51 @@ class StrategyManifest(BaseModel):
     # declared bounds. Phase 1 deploy script defaults to bytes32(0); real
     # strategies must compute and supply this before registering.
     params_hash: str = "0x" + "0" * 64
+
+
+# ── yield_rotation_v1: yield-driven hooks ───────────────────────────
+#
+# YR strategies fire on yield-oracle ticks rather than per-bar prices, so
+# the SDK ships a separate intent + tick type. The driver in
+# `helios.backtest.run_yield_backtest` wires these into the runtime
+# loop the way the bar engine wires `on_bar` + `TradeIntent`.
+
+
+@dataclass(frozen=True, slots=True)
+class YieldTick:
+    """A single APY observation for a market.
+
+    Mirrors `oracle.yield_state.YieldSnapshot` minus the signature bytes
+    — strategies don't verify oracle signatures locally; that's the
+    on-chain anchor's job.
+    """
+
+    market_id: int
+    """Stable, registry-assigned market identifier (uint64). Both the
+    yield Merkle tree and the operator allowlist key on this id."""
+
+    apy_bps_e6: int
+    """APY in basis-points × 1e6 (so 5.25% APY = 525_000_000)."""
+
+    timestamp_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class RotationIntent:
+    """The operator's intent to rotate capital between two markets.
+
+    Distinct from `TradeIntent` because the field set is different:
+    no asset-in/out, no slippage, no direction enum. The witness
+    builder turns this into a YR-circuit-shaped payload."""
+
+    m_from: int
+    m_to: int
+    amount_in_usd: float
+    apy_from_bps: int
+    apy_to_bps: int
+
+    def __post_init__(self) -> None:
+        if self.m_from == self.m_to:
+            raise ValueError("rotation must change markets")
+        if self.amount_in_usd <= 0:
+            raise ValueError("amount_in_usd must be positive")
