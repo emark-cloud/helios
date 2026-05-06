@@ -569,6 +569,10 @@ contract AllocatorVaultTest is Test {
         bytes32 digest = s.navDigest(nav, ts);
         (uint8 v, bytes32 r, bytes32 sigS) = vm.sign(navOracleKey, digest);
         bytes memory sig = abi.encodePacked(r, sigS, v);
+        // HIGH #7 — reportNAV is operator-or-navOracle restricted. Read the
+        // operator off the manifest so the helper works for both stratA and
+        // stratB without the caller having to thread it through.
+        vm.prank(s.manifest().operator);
         s.reportNAV(abi.encode(nav, ts, sig));
     }
 }

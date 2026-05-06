@@ -132,6 +132,8 @@ contract StrategyVault is
     error StaleNav();
     error NavSignatureInvalid();
     error NavExceedsCap();
+    error NavTooOld();
+    error NotOperatorOrNavOracle();
     error TradeCallFailed(uint256 index);
     error UnknownOracleRoot();
     error UnknownYieldOracleRoot();
@@ -511,6 +513,17 @@ contract StrategyVault is
 
     // ── NAV reporting (off-chain signed) ────────────────────────────
 
+    /// @notice Maximum age of a `reportNAV` signature relative to
+    ///         `block.timestamp`. The monotonicity check on
+    ///         `lastNAVTimestamp` prevents replay of *older-than-current*
+    ///         signatures, but doesn't bound how old a never-applied
+    ///         signature can be — without this gate, a navOracle key
+    ///         compromised at T+N can submit any signature signed during
+    ///         [last_post, T+N). 600s is wide enough to absorb mempool
+    ///         delays, narrow enough that a key rotation is the de-facto
+    ///         expiry. HIGH #7 in `docs/phase-3-review.md`.
+    uint256 internal constant _MAX_NAV_AGE_SEC = 600;
+
     /// @notice Apply an off-chain NAV snapshot signed by `navOracle`.
     /// @dev signedNAV = abi.encode(uint256 totalNAV, uint64 timestamp, bytes signature).
     ///      The signature is EIP-712 typed-data over
@@ -520,10 +533,24 @@ contract StrategyVault is
     ///      a navOracle signature cannot be replayed against a sibling vault
     ///      or onto a different chain. The pre-Phase-2 raw-digest format is
     ///      unsupported — signers must produce typed-data signatures.
+    ///
+    ///      Caller-restricted: only the strategy operator or the navOracle
+    ///      itself may submit. Auth is also enforced cryptographically by
+    ///      the signature recovery, but the caller restriction prevents
+    ///      MEV-bots from front-running legitimate operator submissions
+    ///      with stale-but-valid signatures (HIGH #7).
     function reportNAV(bytes calldata signedNAV) external {
+        if (msg.sender != _manifest.operator && msg.sender != navOracle) {
+            revert NotOperatorOrNavOracle();
+        }
         (uint256 totalNAV_, uint64 timestamp, bytes memory signature) =
             abi.decode(signedNAV, (uint256, uint64, bytes));
         if (timestamp <= lastNAVTimestamp) revert StaleNav();
+        // Bounded replay window: refuse signatures older than
+        // `_MAX_NAV_AGE_SEC` even though they pass the monotonicity check.
+        // This caps how far back a never-applied signature can reach when
+        // the navOracle key is rotated or compromised.
+        if (block.timestamp > timestamp + _MAX_NAV_AGE_SEC) revert NavTooOld();
         // Cap NAV at 10× the manifest's maxCapacity. Without this cap, a
         // compromised navOracle could set _totalNAV near 2^256, after which
         // every read of _navOf overflows in `_totalNAV * _allocationOf[..]`,

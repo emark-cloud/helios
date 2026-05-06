@@ -9,6 +9,17 @@ import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+/// @dev Stand-in for `AllocatorVault` so UserVault's tightening guard
+///      can read a deterministic `userTotalDeployed` without the full
+///      strategy-vault stack standing up here.
+contract MockAllocatorVaultForUser {
+    mapping(address => uint256) public userTotalDeployed;
+
+    function setUserTotalDeployed(address user, uint256 amount) external {
+        userTotalDeployed[user] = amount;
+    }
+}
+
 contract UserVaultTest is Test {
     UserVault internal vault;
     MockERC20 internal usdc;
@@ -153,6 +164,96 @@ contract UserVaultTest is Test {
         assertEq(stored.defundTwapBars, MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS);
         assertEq(stored.defundBondBps, MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS);
         assertEq(stored.defundConfirmBlocks, MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS);
+    }
+
+    // ── HIGH #5: tightening guard while capital is allocated ────────
+
+    /// @dev Set up a delegated user with a mock allocator reporting `deployed` USD.
+    function _seedAllocatedUser(uint256 deployed)
+        internal
+        returns (MockAllocatorVaultForUser allocVault)
+    {
+        allocVault = new MockAllocatorVaultForUser();
+        allocVault.setUserTotalDeployed(user, deployed);
+        vm.startPrank(user);
+        vault.setMetaStrategy(_meta(), "");
+        vault.delegateToAllocator(address(allocVault), 7 days);
+        vm.stopPrank();
+    }
+
+    function test_SetMetaStrategy_TighteningBlockedWhenAllocated() public {
+        _seedAllocatedUser(10_000e6);
+        // Shrink maxCapital — strict tightening, must revert.
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        m.maxCapital = m.maxCapital - 1;
+        vm.prank(user);
+        vm.expectRevert(UserVault.MetaTighteningWhileAllocated.selector);
+        vault.setMetaStrategy(m, "");
+    }
+
+    function test_SetMetaStrategy_LooseningAllowedWhenAllocated() public {
+        _seedAllocatedUser(10_000e6);
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        m.maxCapital = m.maxCapital + 1;
+        m.maxFeeRateBps = m.maxFeeRateBps + 100;
+        m.maxPerStrategyBps = m.maxPerStrategyBps + 500;
+        m.maxStrategiesCount = m.maxStrategiesCount + 1;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+        assertEq(vault.metaStrategyOf(user).maxCapital, m.maxCapital);
+    }
+
+    function test_SetMetaStrategy_RemovingClassBlockedWhenAllocated() public {
+        _seedAllocatedUser(10_000e6);
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        // Drop the only class — would brick allocator settle on positions
+        // in that class.
+        m.allowedStrategyClasses = new bytes32[](0);
+        vm.prank(user);
+        vm.expectRevert(UserVault.MetaTighteningWhileAllocated.selector);
+        vault.setMetaStrategy(m, "");
+    }
+
+    function test_SetMetaStrategy_AddingClassAllowedWhenAllocated() public {
+        _seedAllocatedUser(10_000e6);
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        bytes32[] memory cls = new bytes32[](2);
+        cls[0] = ClassIds.MOMENTUM_V1;
+        cls[1] = ClassIds.MEAN_REVERSION_V1;
+        m.allowedStrategyClasses = cls;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+        assertEq(vault.metaStrategyOf(user).allowedStrategyClasses.length, 2);
+    }
+
+    function test_SetMetaStrategy_TighteningAllowedWhenNoCapitalDeployed() public {
+        // Same setup but `userTotalDeployed = 0` — guard should not trip
+        // because the user has no live position to grief.
+        MockAllocatorVaultForUser allocVault = new MockAllocatorVaultForUser();
+        // userTotalDeployed defaults to 0
+        vm.startPrank(user);
+        vault.setMetaStrategy(_meta(), "");
+        vault.delegateToAllocator(address(allocVault), 7 days);
+        vm.stopPrank();
+
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        m.maxCapital = m.maxCapital - 1;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+        assertEq(vault.metaStrategyOf(user).maxCapital, m.maxCapital);
+    }
+
+    function test_SetMetaStrategy_TighteningAllowedBeforeFirstDelegation() public {
+        // First-set + immediate re-set with no allocator delegation: guard
+        // doesn't trigger. Lets the onboarding flow correct typos freely
+        // before the user actually delegates.
+        vm.prank(user);
+        vault.setMetaStrategy(_meta(), "");
+        MetaStrategyLib.MetaStrategy memory m = _meta();
+        m.maxCapital = m.maxCapital - 1;
+        vm.prank(user);
+        vault.setMetaStrategy(m, "");
+        assertEq(vault.metaStrategyOf(user).maxCapital, m.maxCapital);
     }
 
     // ── deposit ─────────────────────────────────────────────────────

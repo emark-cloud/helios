@@ -17,6 +17,14 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IUserVault } from "./interfaces/IUserVault.sol";
 import { MetaStrategyLib } from "./interfaces/IMetaStrategy.sol";
 
+/// @notice Slim view onto AllocatorVault. UserVault reads it to refuse
+///         meta-strategy tightening updates while the user has live
+///         capital deployed under an allocator whose existing terms could
+///         be griefed (HIGH #5 in `docs/phase-3-review.md`).
+interface IAllocatorVaultForUser {
+    function userTotalDeployed(address user) external view returns (uint256);
+}
+
 /// @title UserVault
 /// @notice Per-user custody + meta-strategy enforcement + allocator delegation.
 ///         Phase 1 simplification:
@@ -76,6 +84,7 @@ contract UserVault is
     error NotDelegatedAllocator();
     error SessionExpired();
     error SessionTTLTooLong();
+    error MetaTighteningWhileAllocated();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -120,6 +129,22 @@ contract UserVault is
                 }
             }
             if (!found) revert MetaAssetNotAllowed();
+        }
+        // HIGH #5 — block tightening updates while the user has capital
+        // deployed under their delegated allocator. Without this, a user
+        // can grief an active position into permanent-revert state by
+        // dropping a class from `allowedStrategyClasses` (subsequent
+        // settle/rebalance reverts on the now-disallowed class) or by
+        // shrinking `maxCapital` / `maxPerStrategyBps` below current
+        // deployment. Loosening (raising caps, adding to allowlists) is
+        // always allowed.
+        UserState storage uState = _users[msg.sender];
+        if (uState.metaSet && uState.allocator != address(0)) {
+            uint256 deployed =
+                IAllocatorVaultForUser(uState.allocator).userTotalDeployed(msg.sender);
+            if (deployed > 0) {
+                _enforceNoTightening(_metas[msg.sender], meta);
+            }
         }
         // WS7.C — fill in the auto-defund defaults when the caller passes
         // zero so existing onboarding payloads keep working unchanged.
@@ -240,5 +265,92 @@ contract UserVault is
 
     function sessionExpiryOf(address user) external view returns (uint64) {
         return _users[user].sessionExpiry;
+    }
+
+    // ── Internal: meta-strategy tightening guard ────────────────────
+
+    /// @dev HIGH #5 — refuse updates that strictly tighten any field a
+    ///      live position depends on. Numeric caps must be ≥ the prior
+    ///      values; allowlists must be supersets of the prior arrays.
+    ///      Free-to-change fields (`drawdownThresholdBps`, defund knobs,
+    ///      `rebalanceCadenceSec`, `validUntil`) are not checked.
+    function _enforceNoTightening(
+        MetaStrategyLib.MetaStrategy memory prev,
+        MetaStrategyLib.MetaStrategy calldata next
+    ) internal pure {
+        if (next.maxCapital < prev.maxCapital) {
+            revert MetaTighteningWhileAllocated();
+        }
+        if (next.maxFeeRateBps < prev.maxFeeRateBps) revert MetaTighteningWhileAllocated();
+        if (next.maxPerStrategyBps < prev.maxPerStrategyBps) revert MetaTighteningWhileAllocated();
+        if (next.maxStrategiesCount < prev.maxStrategiesCount) {
+            revert MetaTighteningWhileAllocated();
+        }
+        if (!_isBytes32Subset(prev.allowedStrategyClasses, next.allowedStrategyClasses)) {
+            revert MetaTighteningWhileAllocated();
+        }
+        if (!_isAddressSubset(prev.allowedAssets, next.allowedAssets)) {
+            revert MetaTighteningWhileAllocated();
+        }
+        if (!_isUint32Subset(prev.allowedChains, next.allowedChains)) {
+            revert MetaTighteningWhileAllocated();
+        }
+    }
+
+    /// @dev O(N×M) subset check. Allowlist arrays in MetaStrategy are
+    ///      bounded by the per-user payload (typically ≤ 5 elements
+    ///      each) so the quadratic cost is fine for a rare call.
+    function _isBytes32Subset(bytes32[] memory subset, bytes32[] calldata superset)
+        internal
+        pure
+        returns (bool)
+    {
+        for (uint256 i = 0; i < subset.length; i++) {
+            bool found;
+            for (uint256 j = 0; j < superset.length; j++) {
+                if (subset[i] == superset[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    function _isAddressSubset(address[] memory subset, address[] calldata superset)
+        internal
+        pure
+        returns (bool)
+    {
+        for (uint256 i = 0; i < subset.length; i++) {
+            bool found;
+            for (uint256 j = 0; j < superset.length; j++) {
+                if (subset[i] == superset[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    function _isUint32Subset(uint32[] memory subset, uint32[] calldata superset)
+        internal
+        pure
+        returns (bool)
+    {
+        for (uint256 i = 0; i < subset.length; i++) {
+            bool found;
+            for (uint256 j = 0; j < superset.length; j++) {
+                if (subset[i] == superset[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
     }
 }

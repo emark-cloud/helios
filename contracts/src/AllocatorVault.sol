@@ -342,6 +342,15 @@ contract AllocatorVault is
         return _accruedFees;
     }
 
+    /// @notice Sum of capital actively deployed across all of `user`'s
+    ///         non-defunded strategies. Read by `UserVault.setMetaStrategy`
+    ///         to refuse tightening updates while the user has live
+    ///         positions whose existing terms could be griefed (HIGH #5
+    ///         in `docs/phase-3-review.md`).
+    function userTotalDeployed(address user) external view returns (uint256) {
+        return _userTotalDeployed[user];
+    }
+
     // ── Internal ────────────────────────────────────────────────────
 
     function _allocateInternal(address user, address strategy, uint256 amount) internal {
