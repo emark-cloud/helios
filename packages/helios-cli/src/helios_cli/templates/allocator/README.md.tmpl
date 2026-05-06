@@ -1,0 +1,62 @@
+# {{NAME}}
+
+A Helios allocator built on [`helios-allocator-sdk`](https://pypi.org/project/helios-allocator-sdk/). Scaffolded by `helios-allocator init`.
+
+## Quickstart
+
+```bash
+# 1. Install the package + the SDK from PyPI.
+pip install -e .
+
+# 2. Copy and fill in the environment.
+cp .env.example .env
+$EDITOR .env
+
+# 3. Run the decision loop.
+python -m {{NAME_SNAKE}}
+```
+
+The default ranker is a Sentinel-style `reputation × capacity × class-fit × binary fee-fit`. The whole point of writing your own allocator is to differentiate that score function — open `src/{{NAME_SNAKE}}/allocator.py` and edit `_score`.
+
+## On-chain setup
+
+Once the allocator is running locally:
+
+```bash
+# Register on AllocatorRegistry. Allocator vault is created in the same tx.
+helios-allocator stake top-up --amount 5000000000 \
+    --rpc-url $KITE_RPC_URL --operator-pk $ALLOCATOR_OPERATOR_PK
+
+# Tail the structured event log.
+helios-allocator logs
+```
+
+## Build with Claude Code
+
+This scaffold is set up so an AI coding agent can iterate on the
+ranker and ship to the marketplace without changing any Helios code.
+
+In your terminal:
+
+```bash
+claude "Open src/{{NAME_SNAKE}}/allocator.py and rewrite _score to weight \
+strategies whose 30d realised P&L is in the top quartile of their \
+class. Use helios_allocator.helpers.* — do not import workspace deps. \
+Add a unit test that pins the ranking under a fixed candidate list."
+```
+
+The repo's [`CLAUDE.md`](https://github.com/emark-cloud/helios/blob/main/CLAUDE.md) is the canonical operational guide for AI agents working on Helios; the SDK's invariants in particular live in `Helios.md §11` and `docs/allocator-guide.md`.
+
+## Layout
+
+```
+{{NAME_KEBAB}}/
+├── pyproject.toml
+├── Dockerfile               # produced by `helios-allocator deploy`
+├── .env.example
+└── src/
+    └── {{NAME_SNAKE}}/
+        ├── __init__.py
+        ├── __main__.py      # boot — `python -m {{NAME_SNAKE}}`
+        └── allocator.py     # your `BaseAllocator` subclass
+```

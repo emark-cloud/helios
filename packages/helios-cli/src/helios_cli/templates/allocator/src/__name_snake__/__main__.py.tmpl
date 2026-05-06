@@ -1,0 +1,44 @@
+"""Run with: `python -m {{NAME_SNAKE}}`.
+
+Boots the SDK's `AllocatorRuntime` with this allocator subclass. All
+network/chain config is read from environment variables (see
+`.env.example` for the complete list); this keeps the scaffold one
+copy-paste away from a Docker container.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+from helios_allocator.runtime import AllocatorLoop, LoopConfig
+from {{NAME_SNAKE}}.allocator import {{NAME_PASCAL}}Allocator
+
+
+def _required(var: str) -> str:
+    val = os.environ.get(var)
+    if not val:
+        sys.exit(
+            f"missing env var {var}. See .env.example for the complete list "
+            "of variables the runtime expects."
+        )
+    return val
+
+
+def main() -> None:
+    config = LoopConfig(
+        rpc_url=_required("KITE_RPC_URL"),
+        goldsky_endpoint=_required("GOLDSKY_ENDPOINT"),
+        allocator_pk=_required("ALLOCATOR_OPERATOR_PK"),
+        allocator_vault=_required("ALLOCATOR_VAULT"),
+        # 60s default — tighten if your strategy ranker prices in fast
+        # regime flips, loosen if a slow rebalance is enough.
+        tick_interval_sec=int(os.environ.get("TICK_INTERVAL_SEC", "60")),
+    )
+    allocator = {{NAME_PASCAL}}Allocator()
+    loop = AllocatorLoop(allocator=allocator, config=config)
+    loop.run_forever()
+
+
+if __name__ == "__main__":
+    main()
