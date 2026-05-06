@@ -7,14 +7,15 @@ name: publish-sdk-testpypi
 # test.pypi.org pointing at this repo + this workflow file +
 # environment `testpypi`. Status:
 #   - helios-strategy-sdk   - registered (publishes since sdk-v0.1.0)
-#   - helios-contracts-abi  - pending registration
-#   - helios-allocator-sdk  - pending registration
-#   - helios-trader-cli     - pending registration
+#   - helios-contracts-abi  - registered (publishes since 2026-05-06)
+#   - helios-allocator-sdk  - registered (publishes since 2026-05-06)
+#   - helios-trader-cli     - registered (publishes since 2026-05-06)
 #
-# The three pending packages are marked `registered: false` and run with
-# `continue-on-error: true` on the publish step so the workflow stays
-# green while registrations are outstanding. Flip a package's flag to
-# `true` once its trusted-publisher entry is live on test.pypi.org.
+# All four packages are now registered. The matrix keeps a `registered:`
+# flag per row that toggles `continue-on-error` on the publish step:
+# `false` is the default for newly added packages so the workflow stays
+# green while a trusted-publisher registration is outstanding; flip to
+# `true` once the entry is live so the publish becomes a real gate.
 
 on:
   push:
@@ -40,13 +41,13 @@ jobs:
             registered: true
           - dist: helios-contracts-abi
             dir: packages/contracts-abi-py
-            registered: false
+            registered: true
           - dist: helios-allocator-sdk
             dir: packages/allocator-sdk
-            registered: false
+            registered: true
           - dist: helios-trader-cli
             dir: packages/helios-cli
-            registered: false
+            registered: true
     steps:
       - uses: actions/checkout@v4
 
