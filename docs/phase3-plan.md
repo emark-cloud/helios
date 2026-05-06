@@ -430,8 +430,8 @@ The constraint when driving this with Claude Code is **PR review attention**, no
 | 8 | `[x]` | **WS3.B — `DeployPhase3.s.sol`** + `AllocatorRegistry.t.sol` extension + write addresses to `kite-testnet.json`. | `forge test -vv` green. (PR #43, merged 2026-05-05) |
 | 9 | `[x]` | **WS6.A — `/allocators` directory + detail.** | Playwright `allocators.spec` green. (PR #44, merged 2026-05-05) |
 | 10 | `[x]` | **WS6.B — `/onboard` allocator-picker** + `OnboardClient.tsx` plumbing. (PR #45, merged 2026-05-05) | Playwright `onboard.spec` green; localStorage choice round-trips. |
-| 11 | `[~]` | **WS6.C — Dashboard allocator leaderboard.** | Playwright dashboard spec green; Sentinel + Helix both render. |
-| 12 | `[ ]` | **WS2.A — `helios-allocator init` scaffold + template + SDK README "Build with Claude Code".** | `pytest packages/helios-cli/tests/test_allocator_init.py` green. |
+| 11 | `[x]` | **WS6.C — Dashboard allocator leaderboard.** (PR #46, merged 2026-05-05) | Playwright dashboard spec green; Sentinel + Helix both render. |
+| 12 | `[~]` | **WS2.A — `helios-allocator init` scaffold + template + SDK README "Build with Claude Code".** | `pytest packages/helios-cli/tests/test_allocator_init.py` green. |
 | 13 | `[ ]` | **WS1.C — Backtest harness** in the SDK. | `pytest packages/allocator-sdk/tests/test_backtest_runner.py` green. |
 | 14 | `[ ]` | **WS2.B — `helios-allocator {backtest, simulate, stake, deploy, logs}`.** | Typer CliRunner smoke tests green. |
 | 15 | `[ ]` | **WS2.C — `helios scaffold-strategy` + Strategy SDK README.** | Scaffold-install-import test green for all three classes. |

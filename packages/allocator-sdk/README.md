@@ -49,3 +49,25 @@ defund triggers, Goldsky reads, ReputationAnchor writes, and Docker packaging.
 Operators implement the ranking + allocation logic.
 
 See [`Helios.md §11`](../../Helios.md) for the full SDK contract.
+
+## Build with Claude Code
+
+The fastest path from idea to a registered allocator is one shell session:
+
+```bash
+pip install helios-trader-cli
+helios-allocator init --name "Acme Allocator" --target-dir ./acme
+cd ./acme && claude "Edit src/acme_allocator/allocator.py: rewrite _score \
+to weight strategies by 30d Sharpe within their class. Use \
+helios_allocator.helpers.* — do not import workspace deps. Add a unit \
+test that pins the ranking under a fixed candidate list."
+```
+
+The scaffold ships with a runnable `BaseAllocator` subclass, a `python -m
+<name>` runtime entrypoint, and a Dockerfile. The agent only edits `_score`
+and (optionally) `allocate`; everything else — drawdown, defund, fee
+crystallization, on-chain submission — is handled by `AllocatorRuntime`.
+
+The repo's [`CLAUDE.md`](https://github.com/emark-cloud/helios/blob/main/CLAUDE.md)
+is the canonical operational guide for AI agents working on Helios; the SDK's
+invariants in particular live in `Helios.md §11` and `docs/allocator-guide.md`.
