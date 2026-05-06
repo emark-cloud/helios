@@ -227,75 +227,97 @@ contract AllocatorVault is
 
     // ── Fee settlement ──────────────────────────────────────────────
 
+    /// @dev Tight bundle of values that flow between `settleStrategyFee`
+    ///      and `_settleFeeMath`. Returning a struct lets the helper
+    ///      release the rest of its locals before the caller does the
+    ///      transfers + storage write — keeps the no-viaIR build (used
+    ///      by `forge coverage`) under the stack-too-deep limit.
+    struct FeeSettlement {
+        uint256 userRealized;
+        uint256 stratFee;
+        uint256 allocFee;
+        uint256 leftover;
+        uint256 newHwm;
+    }
+
     function settleStrategyFee(address user, address strategy) external onlyOperator nonReentrant {
         AllocationRecord storage rec = _allocations[user][strategy];
         if (rec.strategy == address(0)) revert StrategyNotAllocated();
         if (rec.defundedAt != 0) revert AllocationDefunded();
 
-        // Snapshot the user's pre-settle equity *before* distributeRealized
-        // moves money out of the strategy. This is the NAV peak we record
-        // into HWM (HIGH #4 in `docs/phase-3-review.md`). With the previous
-        // `+= realized` accumulator, NAV oscillating across the same range
-        // re-charged fees — every up-leg's distributeRealized triggered a
-        // fresh fee even when the user's actual equity high never moved.
-        uint256 deployed = rec.capitalDeployed;
-        uint256 totalAllocBefore = IStrategyVault(strategy).allocationOf(address(this));
-        uint256 navOfBefore = IStrategyVault(strategy).navOf(address(this));
-        uint256 userNavBefore =
-            totalAllocBefore == 0 ? 0 : (navOfBefore * deployed) / totalAllocBefore;
-
-        // Pull realized PnL from the strategy (allocator-vault-wide), then keep
-        // the user's prorated share. Strategy fee is taken from the user's PnL
-        // share above the per-allocation high-water mark.
-        uint256 balBefore = baseAsset.balanceOf(address(this));
-        IStrategyVault(strategy).distributeRealized(address(this));
-        uint256 realizedTotal = baseAsset.balanceOf(address(this)) - balBefore;
+        // Pull realized PnL from the strategy (allocator-vault-wide).
+        uint256 realizedTotal;
+        {
+            uint256 balBefore = baseAsset.balanceOf(address(this));
+            IStrategyVault(strategy).distributeRealized(address(this));
+            realizedTotal = baseAsset.balanceOf(address(this)) - balBefore;
+        }
         if (realizedTotal == 0) {
             emit StrategyFeeSettled(user, strategy, 0, rec.strategyHighWaterMark);
             return;
         }
 
-        // After distributeRealized, the strategy has reduced totalNAV by exactly
-        // realizedTotal. Apportion to user by their share of allocator deployed.
-        uint256 userRealized =
-            totalAllocBefore == 0 ? realizedTotal : (realizedTotal * deployed) / totalAllocBefore;
-
-        // HWM-gated fee: only the portion of equity above the prior HWM is
-        // fee-eligible. Cap at the realized cash so we never charge a fee
-        // larger than the cash flowing in this settlement. Combined with the
-        // navAtSettlement HWM update below, NAV oscillation cannot re-charge
-        // a fee on the same equity peak twice.
-        uint256 prevHwm = rec.strategyHighWaterMark;
-        uint256 excess = userNavBefore > prevHwm ? userNavBefore - prevHwm : 0;
-        uint256 feeEligible = userRealized < excess ? userRealized : excess;
-
-        uint16 stratFeeBps = IStrategyVault(strategy).manifest().feeRateBps;
-        uint256 stratFee = (feeEligible * stratFeeBps) / 10_000;
-        uint256 allocFee = (feeEligible * allocatorFeeRateBps) / 10_000;
-        uint256 toUser = userRealized - stratFee - allocFee;
+        // HIGH #4 — `_settleFeeMath` snapshots `userNavBefore` from the
+        // strategy's pre-distribute NAV (read into the helper to keep
+        // those locals off this stack). It HWM-gates the fee on
+        // `excess = userNavBefore - prevHWM` so NAV round-trips through
+        // the same range never re-charge fees, and bumps HWM only when
+        // userNavBefore exceeds the prior peak.
+        FeeSettlement memory s = _settleFeeMath(strategy, rec, realizedTotal);
 
         // Strategy fee → strategy operator.
-        if (stratFee > 0) {
-            address stratOp = IStrategyVault(strategy).manifest().operator;
-            baseAsset.safeTransfer(stratOp, stratFee);
+        if (s.stratFee > 0) {
+            baseAsset.safeTransfer(IStrategyVault(strategy).manifest().operator, s.stratFee);
         }
-        // Allocator fee → vault accrual.
-        _accruedFees += allocFee;
+        // Allocator fee + dust → vault accrual.
+        _accruedFees += s.allocFee + s.leftover;
 
         // Net user PnL → user vault.
+        uint256 toUser = s.userRealized - s.stratFee - s.allocFee;
         if (toUser > 0) {
             baseAsset.forceApprove(userVault, toUser);
             IUserVaultForAllocator(userVault).creditFromAllocator(user, toUser);
         }
 
-        // HWM is the peak of NAV at settlement, never the cumulative realized.
-        if (userNavBefore > prevHwm) rec.strategyHighWaterMark = userNavBefore;
+        rec.strategyHighWaterMark = s.newHwm;
+        emit StrategyFeeSettled(user, strategy, s.stratFee, s.newHwm);
+    }
 
-        // Forward any unattributed dust (rounding) to allocator fees.
-        uint256 leftover = realizedTotal - userRealized;
-        if (leftover > 0) _accruedFees += leftover;
+    /// @dev Pure-ish settlement math, factored out of `settleStrategyFee`
+    ///      for stack-depth reasons. Reads the strategy's pre-settle NAV
+    ///      to anchor HWM and derive HWM-gated fees. Returns a
+    ///      `FeeSettlement` struct that the caller uses for transfers +
+    ///      storage write — no transfers happen here.
+    function _settleFeeMath(address strategy, AllocationRecord storage rec, uint256 realizedTotal)
+        internal
+        view
+        returns (FeeSettlement memory s)
+    {
+        // Pre-settle equity: NAV after `distributeRealized` already moved
+        // `realizedTotal` out, so userNavBefore = (post-distribute NAV +
+        // realizedTotal) prorated. Equivalent: the strategy's `navOf`
+        // here is post-distribute; add back realized to recover the peak.
+        uint256 totalAlloc = IStrategyVault(strategy).allocationOf(address(this));
+        uint256 deployed = rec.capitalDeployed;
+        uint256 userRealized =
+            totalAlloc == 0 ? realizedTotal : (realizedTotal * deployed) / totalAlloc;
+        uint256 userNavBefore;
+        {
+            uint256 navAfter = IStrategyVault(strategy).navOf(address(this));
+            uint256 userNavAfter = totalAlloc == 0 ? 0 : (navAfter * deployed) / totalAlloc;
+            userNavBefore = userNavAfter + userRealized;
+        }
 
-        emit StrategyFeeSettled(user, strategy, stratFee, rec.strategyHighWaterMark);
+        uint256 prevHwm = rec.strategyHighWaterMark;
+        uint256 excess = userNavBefore > prevHwm ? userNavBefore - prevHwm : 0;
+        uint256 feeEligible = userRealized < excess ? userRealized : excess;
+
+        uint16 stratFeeBps = IStrategyVault(strategy).manifest().feeRateBps;
+        s.userRealized = userRealized;
+        s.stratFee = (feeEligible * stratFeeBps) / 10_000;
+        s.allocFee = (feeEligible * allocatorFeeRateBps) / 10_000;
+        s.leftover = realizedTotal - userRealized;
+        s.newHwm = userNavBefore > prevHwm ? userNavBefore : prevHwm;
     }
 
     function withdrawAllocatorFees() external onlyOperator nonReentrant {
