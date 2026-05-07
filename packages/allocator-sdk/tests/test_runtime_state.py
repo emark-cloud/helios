@@ -156,6 +156,7 @@ def test_event_dict_shape() -> None:
         "amount_usd": 42,
         "reason": "HWM_BREACH",
         "timestamp": 1_000_000,
+        "tx_hash": "",
     }
 
 

@@ -37,6 +37,20 @@ EventKind = Literal[
     "STRATEGY_DEFUNDED",
     "REBALANCE_COMPLETE",
     "FEE_SETTLED",
+    # Chain-observed events surfaced by `chain_watch.py` (Phase 4 WS-SVC-1).
+    # The decision loop emits `STRATEGY_DEFUNDED` synchronously when it
+    # submits a `defundStrategy` tx; the chain watcher independently
+    # observes the on-chain `StrategyDefunded` log and would emit a
+    # duplicate without `(tx_hash, kind, strategy)` dedup in
+    # `AllocatorStore.emit_event`. The defund-trigger flow is chain-only
+    # — the loop never observes the permissionless triggerDefund/
+    # finalizeDefund cycle, so these kinds always originate from the
+    # chain watcher.
+    "DEFUND_TRIGGERED",
+    "DEFUND_ARMED",
+    "DEFUND_FINALIZED",
+    "DEFUND_CANCELLED",
+    "NAV_DIVERGENCE",
 ]
 
 
@@ -48,6 +62,12 @@ class AllocatorEvent:
     amount_usd: int
     reason: str
     timestamp: int
+    # Populated by chain-observed paths and by the decision loop after a
+    # successful tx submission. Empty string elsewhere. Used by
+    # `AllocatorStore.emit_event` for `(tx_hash, kind, strategy)` dedup
+    # so the activity rail does not show two entries when the loop and
+    # the chain watcher both emit for the same on-chain action.
+    tx_hash: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -57,6 +77,7 @@ class AllocatorEvent:
             "amount_usd": self.amount_usd,
             "reason": self.reason,
             "timestamp": self.timestamp,
+            "tx_hash": self.tx_hash,
         }
 
 
@@ -140,6 +161,12 @@ class AllocatorStore:
         self._users: dict[str, UserState] = {}
         self._events: deque[AllocatorEvent] = deque(maxlen=_EVENT_RING_CAP)
         self._subscribers: dict[str, set[asyncio.Queue[AllocatorEvent]]] = {}
+        # Bounded dedup ring for `(tx_hash, kind, strategy_id)` keys.
+        # Sized to comfortably exceed the chain watcher's per-cycle log
+        # batch so cross-restart replays at the same checkpoint don't
+        # double-emit. Entries with empty `tx_hash` skip the ring.
+        self._dedup: deque[tuple[str, str, str | None]] = deque(maxlen=4_096)
+        self._dedup_set: set[tuple[str, str, str | None]] = set()
 
     # ── Users ─────────────────────────────────────────────────
     def upsert_user(self, meta: MetaStrategy) -> UserState:
@@ -196,6 +223,14 @@ class AllocatorStore:
     def emit_event(self, event: AllocatorEvent) -> None:
         dead: list[asyncio.Queue[AllocatorEvent]] = []
         with self._lock:
+            if event.tx_hash:
+                key = (event.tx_hash, event.kind, event.strategy_id)
+                if key in self._dedup_set:
+                    return
+                if len(self._dedup) == self._dedup.maxlen:
+                    self._dedup_set.discard(self._dedup[0])
+                self._dedup.append(key)
+                self._dedup_set.add(key)
             self._events.append(event)
             queues = list(self._subscribers.get(event.user_address, set()))
         for q in queues:
