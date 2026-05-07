@@ -146,6 +146,7 @@ export function CustomizationPanel({
               patch("max_strategies_count", Number.parseInt(e.target.value, 10))
             }
             className="flex-1 accent-amber"
+            aria-label="Max strategies"
           />
           <Numeric>{value.max_strategies_count}</Numeric>
         </div>
@@ -184,6 +185,7 @@ export function CustomizationPanel({
                     max={500}
                     step={10}
                     value={value.min_attested_trades}
+                    aria-label="Graduation threshold"
                     onChange={(e: ChangeEvent<HTMLInputElement>) =>
                       patch("min_attested_trades", Number.parseInt(e.target.value, 10))
                     }
@@ -355,6 +357,7 @@ function BpsSlider({
           max={max}
           step={step}
           value={value}
+          aria-label={label}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onChange(Number.parseInt(e.target.value, 10))
           }

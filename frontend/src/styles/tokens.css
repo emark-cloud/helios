@@ -36,11 +36,13 @@
 
   /* ── Data signal — green/red ONLY for numeric direction ── */
   /* Calm green, warm red. Never used on buttons or decorations. */
-  --signal-positive:        #4f9d6e;
-  --signal-positive-strong: #66b585;
+  /* Foreground variants meet WCAG AA (4.5:1) on `--surface-panel`. */
+  /* Strong / dim variants are reserved for borders + accents.       */
+  --signal-positive:        #6cb486;
+  --signal-positive-strong: #84c79c;
   --signal-positive-dim:    #2d5841;
-  --signal-negative:        #c8503f;
-  --signal-negative-strong: #de6957;
+  --signal-negative:        #e87b6e;
+  --signal-negative-strong: #f29387;
   --signal-negative-dim:    #6e2d24;
 
   /* ── Chain indicators (muted, low-saturation) ───────────── */
