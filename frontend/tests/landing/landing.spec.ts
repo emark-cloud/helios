@@ -47,17 +47,19 @@ test.describe("/ landing", () => {
 
     await page.goto("/");
 
+    // Visible mark is the "Helios." masthead (sr-only h1 carries the name);
+    // the thesis deck below it carries the discoverable headline copy.
     await expect(
-      page.getByRole("heading", { level: 1, name: /capital market for AI strategies/i }),
+      page.getByText(/A capital market for AI strategies/i),
     ).toBeVisible();
 
     const enter = page.getByRole("link", { name: /enter app/i });
     await expect(enter).toBeVisible();
     await expect(enter).toHaveAttribute("href", "/onboard");
 
-    const judge = page.getByRole("link", { name: /read the spec/i });
-    await expect(judge).toBeVisible();
-    await expect(judge).toHaveAttribute("href", "/judge");
+    const spec = page.getByRole("link", { name: /read the spec/i });
+    await expect(spec).toBeVisible();
+    await expect(spec).toHaveAttribute("href", /github\.com\/.+Helios\.md$/);
 
     // Stats band — three of the four cells render finite numbers from
     // the deterministic fixture.
