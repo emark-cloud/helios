@@ -101,13 +101,20 @@ contract StrategyVault is
     mapping(address => uint256) internal _allocationOf;
     mapping(bytes32 => bool) internal _seenTradeHash;
 
-    /// @notice Anchors that authenticate `oracle_root` / `yield_oracle_root`
-    ///         public inputs. Without these the prover can mint a Poseidon
-    ///         root over fictitious prices and pass the verifier — Helios.md
-    ///         §9.3 requires the trade's oracle root be one the off-chain
-    ///         oracle has actually attested.
-    address public priceAnchor;
-    address public yieldAnchor;
+    /// @dev Storage slots that USED to hold `priceAnchor` / `yieldAnchor`
+    ///      back when the addresses were configured at `initialize`. Phase-3
+    ///      review HIGH #6 fix replaces `IOracleAnchor.isKnownRoot` with a
+    ///      freshness check that the deployed (immutable, non-upgradeable)
+    ///      anchors don't expose — so we must redeploy them, but the proxy
+    ///      had no admin path to repoint these. Solution: bake new anchor
+    ///      addresses into the impl bytecode as constructor immutables
+    ///      (`priceAnchor`/`yieldAnchor` below). These slots stay reserved
+    ///      so existing proxies keep their layout but the values are dead.
+    ///      `initialize` continues to populate them so cross-impl readers
+    ///      that haven't migrated still see a non-zero value, but the
+    ///      execute path reads the immutable.
+    address private _priceAnchorDeprecated;
+    address private _yieldAnchorDeprecated;
 
     /// @dev O(1) universe-membership lookup populated at `initialize`.
     ///      Replaces a linear scan over `_manifest.assetUniverse` that ran
@@ -186,8 +193,22 @@ contract StrategyVault is
         address owner;
     }
 
+    /// @notice Anchors that authenticate `oracle_root` / `yield_oracle_root`
+    ///         public inputs. Without these the prover can mint a Poseidon
+    ///         root over fictitious prices and pass the verifier — Helios.md
+    ///         §9.3 requires the trade's oracle root be one the off-chain
+    ///         oracle has actually attested. Baked into the impl at deploy
+    ///         time so a UUPS upgrade can repoint the proxy at fresh anchors
+    ///         (Phase-3 HIGH #6, `docs/phase-3-deploy-plan.md` Unit 2).
+    address public immutable priceAnchor;
+    address public immutable yieldAnchor;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    constructor(address priceAnchor_, address yieldAnchor_) {
+        if (priceAnchor_ == address(0) || yieldAnchor_ == address(0)) revert ZeroAddress();
+        priceAnchor = priceAnchor_;
+        yieldAnchor = yieldAnchor_;
         _disableInitializers();
     }
 
@@ -211,8 +232,12 @@ contract StrategyVault is
         allowedRouter = p.allowedRouter;
         navOracle = p.navOracle;
         allocatorVault = p.allocatorVault;
-        priceAnchor = p.priceAnchor;
-        yieldAnchor = p.yieldAnchor;
+        // Write the InitParams anchor addresses to the deprecated slots so
+        // any external reader still sees a non-zero value during transition.
+        // The execute path uses the constructor immutables — the impl's
+        // `priceAnchor()` / `yieldAnchor()` getters return those, not these.
+        _priceAnchorDeprecated = p.priceAnchor;
+        _yieldAnchorDeprecated = p.yieldAnchor;
 
         // PR5 (item 19): populate the universe-membership mapping once at
         // init so per-trade calldata binding is an O(1) sload instead of

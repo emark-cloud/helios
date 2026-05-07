@@ -81,7 +81,7 @@ contract RegisterFreshStrategy is Script {
     }
 
     function _deployFresh(Inputs memory i, address deployer) internal returns (address) {
-        StrategyVault impl = new StrategyVault();
+        StrategyVault impl = new StrategyVault(i.oraclePriceAnchor, i.oracleYieldAnchor);
         address[] memory universe = new address[](1);
         universe[0] = i.usdc;
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({

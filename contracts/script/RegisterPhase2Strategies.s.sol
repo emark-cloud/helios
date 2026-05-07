@@ -125,7 +125,7 @@ contract RegisterPhase2Strategies is Script {
         bytes32 paramsHash,
         string memory label
     ) internal returns (address) {
-        StrategyVault impl = new StrategyVault();
+        StrategyVault impl = new StrategyVault(i.oraclePriceAnchor, i.oracleYieldAnchor);
         address[] memory universe = new address[](1);
         universe[0] = i.usdc;
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({

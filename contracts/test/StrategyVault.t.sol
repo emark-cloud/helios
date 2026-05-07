@@ -81,7 +81,7 @@ contract StrategyVaultTest is Test {
             paramsHash: bytes32(uint256(0xfee5))
         });
 
-        impl = new StrategyVault();
+        impl = new StrategyVault(priceAnchor, yieldAnchor);
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,
             baseAsset: usdc,
@@ -154,8 +154,61 @@ contract StrategyVaultTest is Test {
 
     // ── Initialization ───────────────────────────────────────────────
 
+    function test_Constructor_RevertsOnZeroAnchor() public {
+        // Sanity: constructor itself rejects zero anchors. The runtime
+        // execute path reads from the immutable, so a misconfigured impl
+        // would make every trade revert with `UnknownOracleRoot` — better
+        // to fail at deploy than to silently brick a vault.
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        new StrategyVault(address(0), yieldAnchor);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        new StrategyVault(priceAnchor, address(0));
+    }
+
+    function test_PriceAnchor_ReturnsImmutable_NotStorageSlot() public {
+        // The execute path reads anchor addresses from the constructor
+        // immutable, not from the deprecated storage slot that
+        // `initialize` still populates. Confirm that by deploying an
+        // impl whose constructor anchors differ from what `InitParams`
+        // sets, then asserting the public getters surface the impl's
+        // immutable values. This is the load-bearing invariant for the
+        // Phase-3 oracle redeploy (`docs/phase-3-deploy-plan.md` Unit 2).
+        address ctorPrice = makeAddr("ctorPrice");
+        address ctorYield = makeAddr("ctorYield");
+        address legacyPrice = makeAddr("legacyPrice");
+        address legacyYield = makeAddr("legacyYield");
+        StrategyVault impl2 = new StrategyVault(ctorPrice, ctorYield);
+        address[] memory universe = new address[](1);
+        universe[0] = address(usdc);
+        IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
+            declaredClass: CLASS,
+            assetUniverse: universe,
+            maxCapacity: 1,
+            feeRateBps: 0,
+            operator: operator,
+            stakeAmount: 0,
+            paramsHash: bytes32(0)
+        });
+        StrategyVault.InitParams memory p = StrategyVault.InitParams({
+            manifest: m,
+            baseAsset: usdc,
+            registry: registry,
+            verifier: address(verifier),
+            allowedRouter: allowedRouter,
+            navOracle: navOracle,
+            allocatorVault: allocatorVault,
+            priceAnchor: legacyPrice,
+            yieldAnchor: legacyYield,
+            owner: owner
+        });
+        bytes memory initData = abi.encodeCall(StrategyVault.initialize, (p));
+        StrategyVault v = StrategyVault(address(new ERC1967Proxy(address(impl2), initData)));
+        assertEq(v.priceAnchor(), ctorPrice, "priceAnchor() must return ctor immutable");
+        assertEq(v.yieldAnchor(), ctorYield, "yieldAnchor() must return ctor immutable");
+    }
+
     function test_Initialize_RevertsOnZeroOperator() public {
-        StrategyVault freshImpl = new StrategyVault();
+        StrategyVault freshImpl = new StrategyVault(priceAnchor, yieldAnchor);
         address[] memory universe = new address[](1);
         universe[0] = address(usdc);
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
@@ -772,7 +825,7 @@ contract StrategyVaultTest is Test {
                 stakeAmount: 5000e18,
                 paramsHash: bytes32(uint256(0xfee5))
             });
-            StrategyVault siblingImpl = new StrategyVault();
+            StrategyVault siblingImpl = new StrategyVault(priceAnchor, yieldAnchor);
             StrategyVault.InitParams memory p = StrategyVault.InitParams({
                 manifest: m,
                 baseAsset: usdc,

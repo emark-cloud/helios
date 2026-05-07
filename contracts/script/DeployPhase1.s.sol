@@ -188,7 +188,7 @@ contract DeployPhase1 is Script {
         bytes32 declaredClass,
         string memory label
     ) internal returns (address) {
-        StrategyVault impl = new StrategyVault();
+        StrategyVault impl = new StrategyVault(a.oraclePriceAnchor, a.oracleYieldAnchor);
         address[] memory universe = new address[](1);
         universe[0] = a.usdc;
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
