@@ -137,7 +137,7 @@ export function formatStrategyClass(cls: string): string {
   if (!cls) return cls;
   if (isBytes32(cls)) {
     const slug = HASH_TO_SLUG[cls.toLowerCase()];
-    return slug ? SLUG_TO_LABEL[slug]! : cls;
+    return slug ? SLUG_TO_LABEL[slug]! : formatHash(cls);
   }
   return SLUG_TO_LABEL[cls] ?? cls;
 }
