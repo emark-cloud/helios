@@ -63,6 +63,20 @@ services:
       - "127.0.0.1:8004:8004"
     depends_on:
       - redis
+    # Phase-3 review MEDIUM: snarkjs proof generation can hang on a
+    # malformed witness or a leaked file descriptor; without a
+    # healthcheck Docker has no signal to recycle the container — the
+    # event loop just stops draining requests. `/health` is a cheap
+    # in-process route in services/prover/src/index.js. Three failures
+    # at 30s intervals give us a 90-second worst-case detection window
+    # before the container restarts.
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget --quiet --spider http://localhost:8004/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ── Python services ──────────────────────────────────────
   # Each one builds from python.Dockerfile with its package + module args.
