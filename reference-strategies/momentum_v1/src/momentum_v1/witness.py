@@ -67,6 +67,7 @@ def build_momentum_witness(
     stop_loss_price_e18: int,
     is_signal_flip: bool,
     is_stop_loss: bool,
+    was_long: bool = True,
 ) -> WitnessRequest:
     """Pure helper — no I/O. Tests construct the same payload to assert
     on shape + invariants."""
@@ -156,6 +157,11 @@ def build_momentum_witness(
         "is_exit": str(is_exit),
         "is_signal_flip": str(int(is_signal_flip)),
         "is_stop_loss": str(int(is_stop_loss)),
+        # was_long: side held *before* this trade fires. The circuit's
+        # signal-flip exit branches on it (HIGH #11 — short→long flips
+        # were previously unprovable). Operator must declare honestly;
+        # a wrong value fails the in-circuit threshold check.
+        "was_long": str(int(was_long)),
     }
     return WitnessRequest(
         strategy_class="momentum_v1",
