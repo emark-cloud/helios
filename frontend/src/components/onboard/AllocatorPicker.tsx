@@ -13,6 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import type { Route } from "next";
 
 import {
   pinReferenceBrandsFirst,
@@ -127,7 +128,10 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
                 {selected ? "Selected" : "Tap to select"}
               </span>
               <Link
-                href={`/allocators/${encodeURIComponent(displayName)}` as never}
+                // Phase-3 review MEDIUM: was `as never`, which silently
+                // bypassed Next's typedRoutes. Cast to `Route` so the
+                // dynamic `[name]` slot is enforced at the type level.
+                href={`/allocators/${encodeURIComponent(displayName)}` as Route}
                 onClick={(e) => e.stopPropagation()}
                 className="font-mono uppercase tracking-[0.12em] hover:text-amber"
               >

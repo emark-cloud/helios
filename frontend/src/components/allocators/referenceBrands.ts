@@ -54,13 +54,25 @@ export function referenceBrandFor(name: string): ReferenceBrand | null {
 const PIN_ORDER: string[] = ["helios sentinel", "helios helix"];
 
 export function pinReferenceBrandsFirst<T extends { name: string }>(rows: T[]): T[] {
-  const pinned: T[] = [];
+  // Phase-3 review MEDIUM: previously this populated a sparse array via
+  // `pinned[idx] = row` then collapsed with `.filter(Boolean)`. The
+  // sparse-then-filter pattern silently dropped duplicate matches
+  // (e.g., production + shadow rows for the same brand both hashing to
+  // the same `idx` overwrote each other) and produced fragile-looking
+  // index-based writes. Densely allocate a `T | null` slot per pin
+  // position and route duplicates into `rest` so every input row
+  // reaches the consumer.
+  const pinned: Array<T | null> = PIN_ORDER.map(() => null);
   const rest: T[] = [];
   for (const row of rows) {
     const key = row.name.toLowerCase().replace(/-shadow$/, "");
     const idx = PIN_ORDER.indexOf(key);
-    if (idx >= 0) pinned[idx] = row;
-    else rest.push(row);
+    if (idx >= 0 && pinned[idx] == null) {
+      pinned[idx] = row;
+    } else {
+      rest.push(row);
+    }
   }
-  return [...pinned.filter(Boolean), ...rest];
+  const placed = pinned.filter((r): r is T => r !== null);
+  return [...placed, ...rest];
 }
