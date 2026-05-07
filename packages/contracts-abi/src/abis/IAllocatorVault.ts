@@ -91,6 +91,24 @@ export const IAllocatorVaultAbi = [
   },
   {
     "type": "function",
+    "name": "cancelDefund",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "defundStrategy",
     "inputs": [
       {
@@ -111,6 +129,80 @@ export const IAllocatorVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finalizeDefund",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "pendingDefundOf",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IAllocatorVault.PendingDefund",
+        "components": [
+          {
+            "name": "firstObservedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "firstObservedBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "lastObservedBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "breachCount",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "triggerer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bondAmount",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -138,6 +230,24 @@ export const IAllocatorVaultAbi = [
   {
     "type": "function",
     "name": "settleStrategyFee",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "triggerDefund",
     "inputs": [
       {
         "name": "user",
@@ -262,6 +372,180 @@ export const IAllocatorVaultAbi = [
   },
   {
     "type": "event",
+    "name": "DefundArmed",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "armedAtBlock",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DefundCancelled",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DefundFinalized",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "triggerer",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "refunded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reward",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "slashedToUser",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DefundObserved",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "triggerer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "breachCount",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "observedDrawdownBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bondAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DefundRewardCapUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "next",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OracleAnchorUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "StrategyDefunded",
     "inputs": [
       {
@@ -329,12 +613,42 @@ export const IAllocatorVaultAbi = [
   },
   {
     "type": "error",
+    "name": "BarTooSoon",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ConfirmWindowNotElapsed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DefundNotArmed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DefundNotPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "DrawdownNotBreached",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotAllocator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleAnchorNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleStale",
     "inputs": []
   }
 ] as const;

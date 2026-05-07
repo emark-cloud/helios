@@ -91,6 +91,25 @@ export const IOracleAnchorAbi = [
   },
   {
     "type": "function",
+    "name": "freshness",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hashCommit",
     "inputs": [
       {
@@ -210,12 +229,38 @@ export const IOracleAnchorAbi = [
   },
   {
     "type": "function",
+    "name": "revokeRoot",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setSigner",
     "inputs": [
       {
         "name": "signer_",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unrevokeRoot",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -260,6 +305,32 @@ export const IOracleAnchorAbi = [
   },
   {
     "type": "event",
+    "name": "RootRevoked",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RootUnrevoked",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SignerUpdated",
     "inputs": [
       {
@@ -294,7 +365,17 @@ export const IOracleAnchorAbi = [
   },
   {
     "type": "error",
+    "name": "RootNotRevoked",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UnknownIndex",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownRoot",
     "inputs": []
   },
   {
