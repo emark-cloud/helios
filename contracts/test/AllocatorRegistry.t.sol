@@ -145,6 +145,37 @@ contract AllocatorRegistryTest is Test {
         registry.registerAllocator("", vault, bytes32(0), _supportedClasses(), FEE_BPS, STAKE);
     }
 
+    function test_RegisterAllocator_NormalizesWhitespaceAndZeroWidth() public {
+        // MEDIUM in `docs/phase-3-review.md`: trailing space, leading
+        // space, ZWSP (U+200B = 0xE2 0x80 0x8B), ZWNJ (U+200C), ZWJ
+        // (U+200D), and BOM (U+FEFF = 0xEF 0xBB 0xBF) are all stripped
+        // before key derivation, so brand-impersonation variants collide
+        // with the canonical registration.
+        _register("Sigma");
+
+        address otherVault = makeAddr("zwOther");
+        bytes memory zwsp = abi.encodePacked("Sigma", hex"E2808B"); // Sigma + ZWSP
+        vm.prank(operator);
+        vm.expectRevert(AllocatorRegistry.NameAlreadyTaken.selector);
+        registry.registerAllocator(
+            string(zwsp), otherVault, bytes32(0), _supportedClasses(), FEE_BPS, STAKE
+        );
+
+        bytes memory trailingSpace = abi.encodePacked("Sigma  ");
+        vm.prank(operator);
+        vm.expectRevert(AllocatorRegistry.NameAlreadyTaken.selector);
+        registry.registerAllocator(
+            string(trailingSpace), otherVault, bytes32(0), _supportedClasses(), FEE_BPS, STAKE
+        );
+
+        bytes memory bom = abi.encodePacked(hex"EFBBBF", "sigma"); // BOM + lowercase
+        vm.prank(operator);
+        vm.expectRevert(AllocatorRegistry.NameAlreadyTaken.selector);
+        registry.registerAllocator(
+            string(bom), otherVault, bytes32(0), _supportedClasses(), FEE_BPS, STAKE
+        );
+    }
+
     // ── reserveName + assignReferenceBrand ──────────────────────────
 
     function test_ReserveName_OwnerOnly() public {

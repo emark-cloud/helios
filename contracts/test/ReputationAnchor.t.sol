@@ -129,6 +129,31 @@ contract ReputationAnchorTest is Test {
         assertEq(anchor.oApp(), newOApp);
     }
 
+    function test_Pause_BlocksPostUpdate() public {
+        // MEDIUM in `docs/phase-3-review.md`: pause() must halt new
+        // reputation posts so a compromised signer can't keep writing
+        // while the team rotates keys.
+        IReputationAnchor.ReputationData memory d =
+            _data(750, block.number, IReputationAnchor.ActorType.STRATEGY);
+        bytes memory sig = _sign(stratVault, IReputationAnchor.ActorType.STRATEGY, d);
+
+        vm.prank(owner);
+        anchor.pause();
+        vm.expectRevert(); // EnforcedPause / Pausable revert
+        anchor.postReputationUpdate(stratVault, IReputationAnchor.ActorType.STRATEGY, d, sig);
+
+        vm.prank(owner);
+        anchor.unpause();
+        anchor.postReputationUpdate(stratVault, IReputationAnchor.ActorType.STRATEGY, d, sig);
+        assertEq(anchor.reputationOf(stratVault).currentScore, 750);
+    }
+
+    function test_Pause_OnlyOwner() public {
+        vm.prank(makeAddr("rando"));
+        vm.expectRevert();
+        anchor.pause();
+    }
+
     // ── postReputationUpdate ────────────────────────────────────────
 
     function test_PostUpdate_Strategy_PushesToRegistry() public {

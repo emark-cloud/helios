@@ -1062,10 +1062,15 @@ contract StrategyVaultTest is Test {
     }
 
     function test_ExecuteYieldRotationWithProof_RevertsOnBadProof() public {
-        // Re-deploy a verifier that returns false to force the InvalidProof path.
+        // TAV's `registerVerifier` is first-set-only post-Phase-3 (MEDIUM
+        // in `docs/phase-3-review.md`); flipping to a "false" verifier
+        // requires the propose/commit timelock dance.
         MockGroth16Verifier badInner = new MockGroth16Verifier(false);
         vm.prank(owner);
-        verifier.registerVerifier(CLASS, address(badInner));
+        verifier.proposeVerifierChange(CLASS, address(badInner));
+        vm.warp(block.timestamp + verifier.CHANGE_DELAY());
+        vm.prank(owner);
+        verifier.commitVerifierChange(CLASS);
 
         uint256[] memory pi = _yrInputs();
         IStrategyVault.Call[] memory trades = new IStrategyVault.Call[](0);

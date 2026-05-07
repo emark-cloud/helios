@@ -62,12 +62,98 @@ contract TradeAttestationVerifierTest is Test {
         v.registerVerifier(CLASS_MOMENTUM, address(0));
     }
 
-    function test_RegisterVerifier_OverwritesExisting() public {
+    function test_RegisterVerifier_RevertsOnSecondCallForSameClass() public {
+        // MEDIUM in `docs/phase-3-review.md`: registerVerifier is now a
+        // one-shot per class. Replacements must go through propose/commit.
         vm.prank(owner);
         v.registerVerifier(CLASS_MOMENTUM, address(momVerifier));
         vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.AlreadyRegistered.selector);
         v.registerVerifier(CLASS_MOMENTUM, address(meanRevVerifier));
+    }
+
+    function test_ProposeCommit_HappyPath() public {
+        vm.prank(owner);
+        v.registerVerifier(CLASS_MOMENTUM, address(momVerifier));
+
+        vm.prank(owner);
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(meanRevVerifier));
+
+        // Commit before delay → revert.
+        vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.ChangeNotReady.selector);
+        v.commitVerifierChange(CLASS_MOMENTUM);
+
+        vm.warp(block.timestamp + v.CHANGE_DELAY());
+        vm.expectEmit(true, false, false, true);
+        emit ITradeAttestationVerifier.VerifierRegistered(CLASS_MOMENTUM, address(meanRevVerifier));
+        vm.prank(owner);
+        v.commitVerifierChange(CLASS_MOMENTUM);
+
         assertEq(v.verifierOf(CLASS_MOMENTUM), address(meanRevVerifier));
+        // Pending cleared.
+        (address pendV, uint64 pendAt) = v.pendingChanges(CLASS_MOMENTUM);
+        assertEq(pendV, address(0));
+        assertEq(pendAt, 0);
+    }
+
+    function test_Propose_OwnerOnly() public {
+        vm.prank(randomCaller);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, randomCaller)
+        );
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(momVerifier));
+    }
+
+    function test_Propose_RevertsOnZero() public {
+        vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.ZeroAddress.selector);
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(0));
+    }
+
+    function test_Propose_OverwritesPriorPending() public {
+        vm.prank(owner);
+        v.registerVerifier(CLASS_MOMENTUM, address(momVerifier));
+        vm.prank(owner);
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(meanRevVerifier));
+        // New propose with a different verifier resets the timer.
+        vm.warp(block.timestamp + 1 hours);
+        MockGroth16Verifier other = new MockGroth16Verifier(true);
+        vm.prank(owner);
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(other));
+        // Try commit at original ETA → not ready (delay re-armed).
+        vm.warp(block.timestamp + v.CHANGE_DELAY() - 2 hours);
+        vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.ChangeNotReady.selector);
+        v.commitVerifierChange(CLASS_MOMENTUM);
+    }
+
+    function test_Cancel_DiscardsPending() public {
+        vm.prank(owner);
+        v.registerVerifier(CLASS_MOMENTUM, address(momVerifier));
+        vm.prank(owner);
+        v.proposeVerifierChange(CLASS_MOMENTUM, address(meanRevVerifier));
+
+        vm.expectEmit(true, true, false, false);
+        emit TradeAttestationVerifier.VerifierChangeCancelled(
+            CLASS_MOMENTUM, address(meanRevVerifier)
+        );
+        vm.prank(owner);
+        v.cancelVerifierChange(CLASS_MOMENTUM);
+
+        // Cancelling twice reverts.
+        vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.NoPendingChange.selector);
+        v.cancelVerifierChange(CLASS_MOMENTUM);
+
+        // Active verifier untouched.
+        assertEq(v.verifierOf(CLASS_MOMENTUM), address(momVerifier));
+    }
+
+    function test_Commit_RevertsWithoutProposal() public {
+        vm.prank(owner);
+        vm.expectRevert(TradeAttestationVerifier.NoPendingChange.selector);
+        v.commitVerifierChange(CLASS_MOMENTUM);
     }
 
     function test_Verify_DispatchesToCorrectClass() public {

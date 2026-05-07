@@ -245,20 +245,53 @@ contract AllocatorRegistry is IAllocatorRegistry, Ownable, ReentrancyGuard {
         emit NameReserved(name);
     }
 
-    /// @dev Lower-case the name before hashing so "Helios Sentinel" and
-    ///      "helios sentinel" collide. ASCII-only — Unicode tricks are
-    ///      a documented v1 weakness.
+    /// @dev Normalize the name before hashing so visually-identical
+    ///      handles collide. Steps:
+    ///        1. Strip ASCII whitespace (space, tab, CR, LF) and the most
+    ///           common zero-width Unicode bytes (U+200B…U+200D, U+FEFF
+    ///           encoded as their UTF-8 byte sequences) anywhere in the
+    ///           string. Phase-3 review MEDIUM in
+    ///           `docs/phase-3-review.md`: trailing space and zero-width
+    ///           tricks were brand-impersonation vectors.
+    ///        2. ASCII-lower-case A-Z. Non-ASCII Unicode case folding is
+    ///           still a documented v1 weakness — full ICU normalization
+    ///           is a Phase 4+ item.
     function _nameKey(string memory name) internal pure returns (bytes32) {
         bytes memory b = bytes(name);
         bytes memory out = new bytes(b.length);
+        uint256 j;
         for (uint256 i = 0; i < b.length; i++) {
             uint8 c = uint8(b[i]);
+            // ASCII whitespace.
+            if (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D) continue;
+            // Zero-width and BOM, encoded as UTF-8: U+200B 0xE2 0x80 0x8B,
+            // U+200C 0xE2 0x80 0x8C, U+200D 0xE2 0x80 0x8D,
+            // U+FEFF 0xEF 0xBB 0xBF. Detect the 3-byte prefix and skip the
+            // run.
+            if (c == 0xE2 && i + 2 < b.length && uint8(b[i + 1]) == 0x80) {
+                uint8 third = uint8(b[i + 2]);
+                if (third == 0x8B || third == 0x8C || third == 0x8D) {
+                    i += 2;
+                    continue;
+                }
+            }
+            if (c == 0xEF && i + 2 < b.length && uint8(b[i + 1]) == 0xBB && uint8(b[i + 2]) == 0xBF)
+            {
+                i += 2;
+                continue;
+            }
+            // ASCII upper -> lower.
             if (c >= 0x41 && c <= 0x5A) {
-                out[i] = bytes1(c + 32);
+                out[j++] = bytes1(c + 32);
             } else {
-                out[i] = b[i];
+                out[j++] = b[i];
             }
         }
-        return keccak256(out);
+        // Truncate to actual written length before hashing.
+        bytes memory packed = new bytes(j);
+        for (uint256 k = 0; k < j; k++) {
+            packed[k] = out[k];
+        }
+        return keccak256(packed);
     }
 }

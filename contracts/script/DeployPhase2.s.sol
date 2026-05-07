@@ -146,10 +146,26 @@ contract DeployPhase2 is Script {
         a.yieldRotationVerifierAdapter = address(new YieldRotationV1VerifierAdapter(address(yrRaw)));
     }
 
+    /// @dev TAV's `registerVerifier` is now first-set-only (Phase-3 review
+    ///      MEDIUM). For each class, register if unset, otherwise queue a
+    ///      timelocked replacement via `proposeVerifierChange`. The caller
+    ///      is responsible for `commitVerifierChange` after `CHANGE_DELAY`.
+    ///      Phase 6 mainnet deploys a fresh TAV, so it always takes the
+    ///      `registerVerifier` branch in production.
     function _rotateClassMap(TradeAttestationVerifier tav, Phase2Addresses memory a) internal {
-        tav.registerVerifier(CLASS_MOM, a.momentumVerifierAdapter);
-        tav.registerVerifier(CLASS_MR, a.meanReversionVerifierAdapter);
-        tav.registerVerifier(CLASS_YR, a.yieldRotationVerifierAdapter);
+        _registerOrPropose(tav, CLASS_MOM, a.momentumVerifierAdapter);
+        _registerOrPropose(tav, CLASS_MR, a.meanReversionVerifierAdapter);
+        _registerOrPropose(tav, CLASS_YR, a.yieldRotationVerifierAdapter);
+    }
+
+    function _registerOrPropose(TradeAttestationVerifier tav, bytes32 class, address newVerifier)
+        internal
+    {
+        if (tav.verifierOf(class) == address(0)) {
+            tav.registerVerifier(class, newVerifier);
+        } else {
+            tav.proposeVerifierChange(class, newVerifier);
+        }
     }
 
     function _deployAnchors(
