@@ -16,6 +16,8 @@ import { AllocatorCard } from "@/components/dashboard/AllocatorCard";
 import { AllocatorLeaderboard } from "@/components/dashboard/AllocatorLeaderboard";
 import { DashboardTopStrip } from "@/components/dashboard/DashboardTopStrip";
 import { WithdrawControl } from "@/components/dashboard/WithdrawControl";
+import { DashboardCascade } from "@/components/motion/DashboardCascade";
+import { SentinelStreamProvider } from "@/components/motion/SentinelStream";
 import { fetchDashboard, type DashboardPayload } from "@/lib/sentinel";
 
 export function DashboardClient(): JSX.Element {
@@ -65,33 +67,42 @@ export function DashboardClient(): JSX.Element {
   const unreachable = query.isError ? query.error.message : null;
 
   return (
-    <div className="flex flex-col gap-6">
-      {unreachable ? <UnreachableBanner message={unreachable} /> : null}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex flex-col gap-6">
-          <DashboardTopStrip
-            totalNavUsd={data.total_nav_usd}
-            totalCapitalUsd={data.total_capital_usd}
-            realizedPnlUsd={data.realized_pnl_usd}
-            feesPaidUsd={data.fees_paid_usd}
-          />
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,300px)]">
-            <AllocatorCard name={data.allocator_name} feeRateBps={data.allocator_fee_rate_bps} />
-            <WithdrawControl totalNavUsd={data.total_nav_usd} />
+    <SentinelStreamProvider user={address as string}>
+      <div className="flex flex-col gap-6">
+        {unreachable ? <UnreachableBanner message={unreachable} /> : null}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex flex-col gap-6">
+            <DashboardTopStrip
+              totalNavUsd={data.total_nav_usd}
+              totalCapitalUsd={data.total_capital_usd}
+              realizedPnlUsd={data.realized_pnl_usd}
+              feesPaidUsd={data.fees_paid_usd}
+            />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,300px)]">
+              <AllocatorCard name={data.allocator_name} feeRateBps={data.allocator_fee_rate_bps} />
+              <WithdrawControl totalNavUsd={data.total_nav_usd} />
+            </div>
+            {data.allocations.length > 0 ? (
+              <DashboardCascade
+                allocations={data.allocations}
+                allocatorName={data.allocator_name}
+                totalCapitalUsd={data.total_capital_usd}
+              />
+            ) : null}
+            <section>
+              <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+                Active allocations
+              </h2>
+              <AllocationsTable allocations={data.allocations} />
+            </section>
+            <AllocatorLeaderboard />
           </div>
-          <section>
-            <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
-              Active allocations
-            </h2>
-            <AllocationsTable allocations={data.allocations} />
-          </section>
-          <AllocatorLeaderboard />
-        </div>
-        <div className="lg:sticky lg:top-16 lg:h-[calc(100vh-6rem)]">
-          <ActivityRail user={address as string} />
+          <div className="lg:sticky lg:top-16 lg:h-[calc(100vh-6rem)]">
+            <ActivityRail />
+          </div>
         </div>
       </div>
-    </div>
+    </SentinelStreamProvider>
   );
 }
 

@@ -1,90 +1,117 @@
 /**
- * Landing placeholder. Phase 0 renders the design tokens visibly so the brand
- * direction is verifiable. DESIGN.md §9.1 specifies the real landing —
- * live stats band, confident headline, two CTAs — which lands in Phase 4.
+ * `/` landing — DESIGN.md §9.1.
+ *
+ * Calm and confident. Headline states the thesis. Live stats band
+ * pulls from the subgraph (refresh on a 30s cadence). Two CTAs lead
+ * into the app + the judge eval. Secondary links sit beneath in the
+ * monospace key-value style used everywhere else.
+ *
+ * One-screen on desktop; one-tall-scroll on mobile. Amber appears
+ * exactly twice — the "Enter app" CTA and the headline accent — so
+ * the page sits inside the §4.3 amber budget without taking the
+ * dashboard's share.
  */
-export default function LandingPage() {
+
+import Link from "next/link";
+import type { Route } from "next";
+
+import { LandingStatsBand } from "@/components/landing/LandingStatsBand";
+
+export const metadata = {
+  title: "Helios — capital market for AI strategies",
+  description:
+    "A programmatic capital market for AI trading agents on Kite. One meta-strategy, autonomous allocation, ZK-attested trades, cross-chain reputation.",
+};
+
+export default function LandingPage(): JSX.Element {
   return (
-    <main className="min-h-screen bg-surface-base px-12 py-24 text-fg">
-      <header className="mb-24 max-w-4xl">
-        <p className="text-fg-muted text-xs uppercase tracking-[0.2em]">
-          Phase 0 · scaffold
-        </p>
-        <h1 className="mt-4 font-display text-5xl font-semibold leading-tight">
-          Helios
-        </h1>
-        <p className="text-fg-secondary mt-3 max-w-2xl text-base leading-relaxed">
-          A programmatic capital market for AI trading agents on Kite. One meta-strategy,
-          autonomous allocation, ZK-attested trades, cross-chain reputation.
-        </p>
-      </header>
+    <main className="min-h-[calc(100vh-3rem)] bg-surface-base">
+      <section className="mx-auto flex max-w-5xl flex-col gap-12 px-6 pb-16 pt-20 lg:gap-16 lg:px-12 lg:pt-28">
+        <header className="flex flex-col gap-5">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-fg-muted">
+            Capital market · ZK-attested · Kite
+          </p>
+          <h1 className="font-display text-4xl font-semibold leading-[1.05] tracking-[-0.01em] text-fg-primary lg:text-5xl">
+            A capital market for AI strategies.{" "}
+            <span className="text-amber">ZK-attested.</span>
+          </h1>
+          <p className="max-w-2xl text-base leading-relaxed text-fg-secondary lg:text-lg">
+            Sign one meta-strategy. An allocator routes your capital across competing AI
+            strategies. Every trade carries a Groth16 proof bound to the strategy&apos;s declared
+            class. Reputation accrues from realized, attested performance and flows across
+            chains via LayerZero.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Link
+              href="/onboard"
+              className="rounded-sm border border-amber bg-amber/10 px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-amber transition-none hover:bg-amber/20"
+            >
+              Enter app →
+            </Link>
+            <Link
+              href="/judge"
+              className="rounded-sm border border-surface-line px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-fg-secondary transition-none hover:border-fg-muted hover:text-fg-primary"
+            >
+              Read the spec
+            </Link>
+          </div>
+        </header>
 
-      <section className="grid grid-cols-2 gap-12 max-w-5xl">
-        <TokenSwatch label="Surface base" token="--surface-base" />
-        <TokenSwatch label="Surface panel" token="--surface-panel" />
-        <TokenSwatch label="Surface elev" token="--surface-elev" />
-        <TokenSwatch label="Surface hover" token="--surface-hover" />
-        <TokenSwatch label="Amber accent" token="--accent-amber" />
-        <TokenSwatch label="Amber bright" token="--accent-amber-bright" />
-        <TokenSwatch label="Signal positive" token="--signal-positive" />
-        <TokenSwatch label="Signal negative" token="--signal-negative" />
-        <TokenSwatch label="Chain · Kite" token="--chain-kite" />
-        <TokenSwatch label="Chain · Base" token="--chain-base" />
-        <TokenSwatch label="Chain · Arbitrum" token="--chain-arbitrum" />
-      </section>
+        <LandingStatsBand />
 
-      <section className="mt-24 max-w-4xl">
-        <h2 className="font-display text-xs uppercase tracking-[0.2em] text-fg-muted">
-          Numerics sample
-        </h2>
-        <div className="border-subtle mt-4 rounded-md bg-surface-panel p-6">
-          <table className="w-full text-sm">
-            <thead className="text-fg-muted text-xs uppercase tracking-wider">
-              <tr>
-                <th className="text-left font-normal pb-3">Strategy</th>
-                <th className="text-right font-normal pb-3">NAV</th>
-                <th className="text-right font-normal pb-3">P&L %</th>
-                <th className="text-right font-normal pb-3">Drawdown</th>
-              </tr>
-            </thead>
-            <tbody className="num">
-              <tr className="border-t border-surface-line">
-                <td className="py-2 text-fg-secondary">MomentumKite-A</td>
-                <td className="py-2 text-right">$1,247.32</td>
-                <td className="py-2 text-right text-signal-positive">+1.27%</td>
-                <td className="py-2 text-right text-fg-muted">−2.1%</td>
-              </tr>
-              <tr className="border-t border-surface-line">
-                <td className="py-2 text-fg-secondary">MeanRevBase-B</td>
-                <td className="py-2 text-right">$987.04</td>
-                <td className="py-2 text-right text-signal-negative">−1.30%</td>
-                <td className="py-2 text-right text-fg-muted">−4.8%</td>
-              </tr>
-              <tr className="border-t border-surface-line">
-                <td className="py-2 text-fg-secondary">MomentumArb-C</td>
-                <td className="py-2 text-right">$1,103.18</td>
-                <td className="py-2 text-right text-signal-positive">+3.31%</td>
-                <td className="py-2 text-right text-fg-muted">−1.9%</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <SecondaryLinks />
       </section>
     </main>
   );
 }
 
-function TokenSwatch({ label, token }: { label: string; token: string }) {
+function SecondaryLinks(): JSX.Element {
+  // Plain key-value rows. Mirrors the dashboard's density without
+  // pulling the eye — the goal is "discoverable, not loud."
+  type ExternalLink = { label: string; href: string; external: true };
+  type InternalLink = { label: string; href: Route; external?: false };
+  const links: Array<ExternalLink | InternalLink> = [
+    { label: "Source", href: "https://github.com/anthropics/helios", external: true },
+    { label: "Docs", href: "https://github.com/anthropics/helios/tree/main/docs", external: true },
+    { label: "Operator guide", href: "https://github.com/anthropics/helios/blob/main/docs/operator-guide.md", external: true },
+    { label: "Allocator guide", href: "https://github.com/anthropics/helios/blob/main/docs/allocator-guide.md", external: true },
+    { label: "Judge eval", href: "/judge" as Route },
+    { label: "Strategies", href: "/strategies" as Route },
+  ];
   return (
-    <div className="border-subtle flex items-center gap-4 rounded-md bg-surface-panel p-4">
-      <span
-        className="h-10 w-10 rounded-sm border-subtle"
-        style={{ backgroundColor: `var(${token})` }}
-      />
-      <div>
-        <div className="text-fg-primary text-sm">{label}</div>
-        <div className="text-fg-muted font-mono text-xs">{token}</div>
-      </div>
-    </div>
+    <nav aria-label="Secondary navigation">
+      <h2 className="mb-3 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        Resources
+      </h2>
+      <ul className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-surface-line bg-surface-line sm:grid-cols-2 lg:grid-cols-3">
+        {links.map((link) => (
+          <li key={link.href} className="bg-surface-panel">
+            {link.external ? (
+              <a
+                href={link.href}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-baseline justify-between px-4 py-3 text-sm hover:bg-surface-elev"
+              >
+                <span className="text-fg-primary">{link.label}</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+                  github ↗
+                </span>
+              </a>
+            ) : (
+              <Link
+                href={link.href}
+                className="flex items-baseline justify-between px-4 py-3 text-sm hover:bg-surface-elev"
+              >
+                <span className="text-fg-primary">{link.label}</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+                  →
+                </span>
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

@@ -32,11 +32,12 @@ const WalletChip = dynamic(
   },
 );
 
-const NAV_LINKS: Array<{ href: "/dashboard" | "/strategies" | "/allocators" | "/onboard"; label: string; chord: string }> = [
+const NAV_LINKS: Array<{ href: "/dashboard" | "/strategies" | "/allocators" | "/onboard" | "/judge"; label: string; chord: string }> = [
   { href: "/dashboard", label: "Dashboard", chord: "g d" },
   { href: "/strategies", label: "Strategies", chord: "g s" },
   { href: "/allocators", label: "Allocators", chord: "g a" },
   { href: "/onboard", label: "Onboard", chord: "g o" },
+  { href: "/judge", label: "Judge", chord: "g j" },
 ];
 
 export function TopNav(): JSX.Element {
@@ -49,6 +50,7 @@ export function TopNav(): JSX.Element {
     { combo: "g s", handler: () => router.push("/strategies") },
     { combo: "g a", handler: () => router.push("/allocators") },
     { combo: "g o", handler: () => router.push("/onboard") },
+    { combo: "g j", handler: () => router.push("/judge") },
     { combo: "?", handler: () => setHotkeysOpen((v) => !v) },
     { combo: "escape", handler: () => setHotkeysOpen(false), enabled: hotkeysOpen },
   ]);
@@ -128,6 +130,7 @@ function HotkeyOverlay({ onClose }: { onClose: () => void }): JSX.Element {
           <Row chord="G S" label="Strategies" />
           <Row chord="G A" label="Allocators" />
           <Row chord="G O" label="Onboard" />
+          <Row chord="G J" label="Judge" />
           <Row chord="/" label="Focus search" />
           <Row chord="J / K" label="Move row down / up" />
           <Row chord="?" label="Toggle this panel" />

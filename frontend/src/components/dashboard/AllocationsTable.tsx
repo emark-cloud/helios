@@ -7,6 +7,11 @@
 
 import { ChainBadge } from "@/components/atoms/ChainBadge";
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
+import { DigitTicker } from "@/components/motion/DigitTicker";
+import {
+  useSentinelStream,
+  type DefundRowState,
+} from "@/components/motion/SentinelStream";
 import {
   explorerAddressUrl,
   formatAddress,
@@ -17,7 +22,13 @@ import {
 } from "@/lib/format";
 import type { AllocationView } from "@/lib/sentinel";
 
+/** Cap per-row stagger so the cascade lands in <1s even if the
+ *  allocator deployed many strategies. Inside the cap, each row has
+ *  its own 80ms delay (DESIGN §10.1). */
+const MAX_CASCADE_DELAY_MS = 800;
+
 export function AllocationsTable({ allocations }: { allocations: AllocationView[] }): JSX.Element {
+  const { defundOf, repPulseOf } = useSentinelStream();
   if (allocations.length === 0) {
     // Reaching this branch means the user has a signed meta-strategy
     // (DashboardClient short-circuits the no-meta case to a 404 CTA);
@@ -44,24 +55,67 @@ export function AllocationsTable({ allocations }: { allocations: AllocationView[
           </tr>
         </thead>
         <tbody>
-          {allocations.map((a) => (
-            <Row key={a.strategy_id} alloc={a} />
-          ))}
+          {allocations.map((a, i) => {
+            const sid = a.strategy_id.toLowerCase();
+            const liveDefund = defundOf.get(sid);
+            const repPulse = repPulseOf.get(sid)?.firedAt;
+            return (
+              <Row
+                key={a.strategy_id}
+                alloc={a}
+                index={i}
+                liveDefund={liveDefund}
+                repPulseKey={repPulse}
+              />
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function Row({ alloc }: { alloc: AllocationView }): JSX.Element {
+function Row({
+  alloc,
+  index,
+  liveDefund,
+  repPulseKey,
+}: {
+  alloc: AllocationView;
+  index: number;
+  liveDefund: DefundRowState | undefined;
+  repPulseKey: number | undefined;
+}): JSX.Element {
   const pnl = alloc.current_nav_usd - alloc.high_water_mark_usd;
   const pnlPct = alloc.high_water_mark_usd > 0 ? (pnl / alloc.high_water_mark_usd) * 100 : 0;
   const explorer = explorerAddressUrl(alloc.chain_id, alloc.strategy_id);
 
+  // Live event takes precedence over the static `defunded` flag so a
+  // mid-flight cascade reads the chain-watcher state (triggered →
+  // armed → finalizing) rather than the polled REST snapshot.
+  const defundState: DefundRowState | undefined =
+    liveDefund ?? (alloc.defunded ? "breaching" : undefined);
+
+  // Once the chain confirms `STRATEGY_DEFUNDED` the capital column
+  // ticks down to zero across DESIGN §10.2's 2-second window.
+  const targetCapital =
+    defundState === "finalizing" || defundState === "breaching"
+      ? 0
+      : alloc.capital_deployed_usd;
+
+  // 80ms per-row stagger. DESIGN §10.1 — cascade.
+  const cascadeDelayMs = Math.min(index * 80, MAX_CASCADE_DELAY_MS);
+
   return (
     <tr
       className="border-b border-surface-line last:border-b-0"
-      data-defund-state={alloc.defunded ? "breaching" : undefined}
+      data-defund-state={defundState}
+      data-strategy-id={alloc.strategy_id}
+      style={{
+        animation: "helios-cascade-row-in 1ms linear forwards",
+        animationDelay: `${cascadeDelayMs}ms`,
+        opacity: 0,
+      }}
     >
       <td className="px-3 py-2.5">
         <div className="text-fg-primary">{formatStrategyClass(alloc.declared_class)}</div>
@@ -76,10 +130,18 @@ function Row({ alloc }: { alloc: AllocationView }): JSX.Element {
         </div>
       </td>
       <td className="px-3 py-2.5">
-        <ChainBadge chainId={alloc.chain_id} />
+        <ChainBadge
+          chainId={alloc.chain_id}
+          pulseKey={repPulseKey}
+          inFlight={repPulseKey != null}
+        />
       </td>
       <td className="px-3 py-2.5 text-right">
-        <Numeric align="right">{formatUsd(alloc.capital_deployed_usd, { cents: false })}</Numeric>
+        <DigitTicker
+          value={targetCapital}
+          format={(n) => formatUsd(n, { cents: false })}
+          align="right"
+        />
       </td>
       <td className="px-3 py-2.5 text-right">
         <Numeric align="right">{formatUsd(alloc.current_nav_usd, { cents: false })}</Numeric>
