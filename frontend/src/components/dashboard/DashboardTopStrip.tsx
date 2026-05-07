@@ -53,7 +53,7 @@ export function DashboardTopStrip({
 function Stat({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div className="rounded-md border border-surface-line bg-surface-panel px-4 py-3">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</div>
+      <div className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</div>
       <div className="mt-1.5 text-lg">{children}</div>
     </div>
   );

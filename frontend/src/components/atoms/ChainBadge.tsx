@@ -45,7 +45,7 @@ export function ChainBadge({
       <span
         key={pulseKey ?? "static"}
         className={cn(
-          "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.16em] font-mono",
+          "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[12px] uppercase tracking-[0.16em] font-mono",
           CHAIN_TOKEN[name],
         )}
         style={

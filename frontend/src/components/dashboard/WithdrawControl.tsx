@@ -70,15 +70,15 @@ export function WithdrawControl({ totalNavUsd }: { totalNavUsd: number }): JSX.E
   return (
     <div className="flex items-center justify-between gap-4 rounded-md border border-surface-line bg-surface-panel px-4 py-3">
       <div>
-        <div className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">Withdrawable</div>
+        <div className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Withdrawable</div>
         <div className="mt-1 text-base">
           <Numeric>{formatUsd(totalNavUsd, { cents: false })}</Numeric>
         </div>
         {state.kind === "error" ? (
-          <p className="mt-1 font-mono text-[10px] text-signal-negative">{state.message}</p>
+          <p className="mt-1 font-mono text-[12px] text-signal-negative">{state.message}</p>
         ) : null}
         {state.kind === "ok" ? (
-          <p className="mt-1 font-mono text-[10px] text-signal-positive">
+          <p className="mt-1 font-mono text-[12px] text-signal-positive">
             Withdrawn — tx {shorten(state.txHash)}
           </p>
         ) : null}

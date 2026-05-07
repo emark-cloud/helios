@@ -112,7 +112,7 @@ export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTa
   return (
     <div className="overflow-x-auto rounded-md border border-surface-line bg-surface-panel">
       <table className="w-full text-sm">
-        <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           <tr>
             {COLUMNS.map((col) => (
               <th

@@ -90,7 +90,7 @@ export function DashboardClient(): JSX.Element {
               />
             ) : null}
             <section>
-              <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+              <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
                 Active allocations
               </h2>
               <AllocationsTable allocations={data.allocations} />
@@ -168,7 +168,7 @@ function UnreachableBanner({ message }: { message: string }): JSX.Element {
           Sentinel unreachable —{" "}
           <span className="font-mono text-fg-muted">{message}</span>
         </p>
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Showing empty state
         </span>
       </div>

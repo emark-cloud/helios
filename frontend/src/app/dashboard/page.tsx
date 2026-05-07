@@ -28,7 +28,7 @@ export default function DashboardPage(): JSX.Element {
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Phase 1 · live"
+        eyebrow="Your dashboard"
         title="Dashboard"
         summary="Your capital, the allocator's decisions, and a live event rail. Reads from the Helios subgraph and the Sentinel service."
       />

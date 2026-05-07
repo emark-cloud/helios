@@ -32,12 +32,12 @@ export function RecentTrades({
   return (
     <section data-testid="recent-trades">
       <header className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Recent trades
         </h2>
         <Link
           href={`/audit/strategy/${strategyId.toLowerCase()}` as Route}
-          className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg-muted hover:text-amber"
+          className="font-mono text-[12px] uppercase tracking-[0.12em] text-fg-muted hover:text-amber"
         >
           Full audit →
         </Link>
@@ -51,7 +51,7 @@ export function RecentTrades({
       ) : (
         <div className="overflow-x-auto rounded-md border border-surface-line bg-surface-panel">
           <table className="w-full text-sm">
-            <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+            <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
               <tr>
                 <th className="px-3 py-2.5 text-left font-normal">When</th>
                 <th className="px-3 py-2.5 text-left font-normal">Direction</th>
@@ -85,7 +85,7 @@ function Row({ chainId, trade }: { chainId: number; trade: StrategyTradeRow }): 
     <tr className="border-b border-surface-line last:border-b-0 hover:bg-surface-elev">
       <td className="px-3 py-2.5">
         <div className="text-fg-primary">{formatRelative(ts)}</div>
-        <div className="font-mono text-[10px] text-fg-muted">
+        <div className="font-mono text-[12px] text-fg-muted">
           block {trade.blockWindowEnd}
         </div>
       </td>

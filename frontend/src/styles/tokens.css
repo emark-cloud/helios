@@ -1,3 +1,43 @@
+/* Self-hosted fonts — see frontend/public/fonts/. We bypass
+   next/font/google because the dev environment has flaky outbound
+   DNS to Google Fonts, which leaves every face on its Arial
+   metric-fallback. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif-italic-400.woff2") format("woff2");
+}
+
 /**
  * Helios design tokens. Single source of truth.
  *
@@ -51,9 +91,11 @@
   --chain-arbitrum: #5396b8;
 
   /* ── Typography ────────────────────────────────────────── */
-  --font-sans: "JetBrains Sans", "Söhne", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Söhne Mono", "SF Mono", "Menlo", monospace;
+  --font-sans: "IBM Plex Sans", "Söhne", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", "SF Mono", "Menlo", monospace;
   --font-display: var(--font-sans);  /* same as sans by default; can swap */
+  /* Editorial face for landing hero + audit page only (DESIGN.md §4.4). */
+  --font-serif: "Instrument Serif", "Times New Roman", Times, serif;
 
   /* tabular numerics — every numeric column applies this */
   --font-numeric-features: "tnum" 1, "lnum" 1, "ss01" 1;

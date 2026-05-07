@@ -15,7 +15,7 @@ export function CommitmentSummary({ form }: { form: TemplateForm }): JSX.Element
 
   return (
     <div className="rounded-md border border-surface-line bg-surface-panel p-6">
-      <h3 className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">You are signing</h3>
+      <h3 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">You are signing</h3>
       <ul className="mt-3 flex flex-col gap-2 text-sm text-fg-secondary">
         <li>
           Allocator routes capital across {classes} strategies trading {assets}.

@@ -57,7 +57,7 @@ export function AllocatorCard({ row, supportedClasses }: AllocatorCardProps): JS
             </h2>
             {row.isReferenceBrand || brand ? <ReferenceBadge /> : null}
             {!row.active ? (
-              <span className="rounded-sm border border-signal-negative-dim px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-signal-negative">
+              <span className="rounded-sm border border-signal-negative-dim px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-signal-negative">
                 Inactive
               </span>
             ) : null}
@@ -68,7 +68,7 @@ export function AllocatorCard({ row, supportedClasses }: AllocatorCardProps): JS
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+          <div className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
             Reputation
           </div>
           <Numeric tone={reputation > 50 ? "positive" : reputation > 0 ? "default" : "muted"}>
@@ -92,7 +92,7 @@ export function AllocatorCard({ row, supportedClasses }: AllocatorCardProps): JS
       </dl>
 
       {supportedClasses && supportedClasses.length > 0 ? (
-        <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[11px]">
+        <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[12px]">
           {supportedClasses.map((cls) => (
             <span
               key={cls}
@@ -104,7 +104,7 @@ export function AllocatorCard({ row, supportedClasses }: AllocatorCardProps): JS
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-center justify-between text-[11px] text-fg-muted">
+      <div className="mt-4 flex items-center justify-between text-[12px] text-fg-muted">
         <span className="font-mono">Operator · {formatAddress(row.operator)}</span>
         {brand ? (
           <a
@@ -126,7 +126,7 @@ export function AllocatorCard({ row, supportedClasses }: AllocatorCardProps): JS
 
 function ReferenceBadge(): JSX.Element {
   return (
-    <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+    <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-amber">
       Official Reference
     </span>
   );
@@ -143,10 +143,10 @@ function Stat({
 }): JSX.Element {
   return (
     <div>
-      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
+      <dt className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
       <dd className="mt-1">
         <Numeric>{value}</Numeric>
-        {hint ? <span className="ml-1 font-mono text-[10px] text-fg-muted">· {hint}</span> : null}
+        {hint ? <span className="ml-1 font-mono text-[12px] text-fg-muted">· {hint}</span> : null}
       </dd>
     </div>
   );

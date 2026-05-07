@@ -32,11 +32,11 @@ export function JudgeRecentTrades(): JSX.Element {
       <div className="mb-3 flex items-baseline justify-between">
         <h2
           id="judge-recent"
-          className="text-[10px] uppercase tracking-[0.16em] text-fg-muted"
+          className="text-[12px] uppercase tracking-[0.16em] text-fg-muted"
         >
           Recent attested trades
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           {query.data ? `${query.data.recentTrades.length} rows` : "loading"}
         </span>
       </div>
@@ -45,7 +45,7 @@ export function JudgeRecentTrades(): JSX.Element {
         className="overflow-hidden rounded-md border border-surface-line bg-surface-panel"
       >
         <table className="w-full text-sm">
-          <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+          <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
             <tr>
               <th className="px-3 py-2.5 text-left font-normal">When</th>
               <th className="px-3 py-2.5 text-left font-normal">Class</th>
@@ -79,12 +79,12 @@ export function JudgeRecentTrades(): JSX.Element {
                           href={explorer}
                           target="_blank"
                           rel="noreferrer"
-                          className="font-mono text-[11px] text-amber hover:underline"
+                          className="font-mono text-[12px] text-amber hover:underline"
                         >
                           {row.txHash.slice(0, 10)}… ↗
                         </a>
                       ) : (
-                        <span className="font-mono text-[11px] text-fg-muted">—</span>
+                        <span className="font-mono text-[12px] text-fg-muted">—</span>
                       )}
                     </td>
                   </tr>

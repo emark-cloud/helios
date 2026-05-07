@@ -46,13 +46,13 @@ export function NavTimeline({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX
       <div className="rounded-md border border-surface-line bg-surface-panel p-4">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">Latest NAV</p>
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Latest NAV</p>
             <Numeric className="font-mono text-2xl">
               {formatUsd(points[points.length - 1]!.nav, { compact: false, cents: false })}
             </Numeric>
           </div>
           <div className="text-right">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
               Window P&amp;L
             </p>
             <Numeric tone={toneFor(headlinePnL)} className="font-mono text-lg">
@@ -75,7 +75,7 @@ function SectionHeader({
 }): JSX.Element {
   return (
     <header className="mb-2 flex items-baseline justify-between">
-      <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">NAV timeline</h2>
+      <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">NAV timeline</h2>
       <div className="flex gap-1">
         {(["24h", "7d", "30d"] as Window[]).map((w) => (
           <button
@@ -83,7 +83,7 @@ function SectionHeader({
             type="button"
             onClick={() => onWindow(w)}
             className={cn(
-              "rounded-sm border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]",
+              "rounded-sm border px-2 py-0.5 font-mono text-[12px] uppercase tracking-[0.12em]",
               window === w
                 ? "border-amber/50 text-amber"
                 : "border-surface-line text-fg-muted hover:border-amber/30 hover:text-fg-primary",

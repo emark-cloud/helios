@@ -22,7 +22,7 @@ export function PnLCurve({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX.El
   if (points.length < 2) {
     return (
       <section data-testid="pnl-curve">
-        <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Cumulative P&amp;L
         </h2>
         <div className="rounded-md border border-surface-line bg-surface-panel p-8 text-center text-sm text-fg-muted">
@@ -40,20 +40,20 @@ export function PnLCurve({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX.El
 
   return (
     <section data-testid="pnl-curve">
-      <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+      <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
         Cumulative P&amp;L
       </h2>
       <div className="rounded-md border border-surface-line bg-surface-panel p-4">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">Cumulative</p>
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Cumulative</p>
             <Numeric tone={toneFor(last.pnl)} className="font-mono text-2xl">
               {last.pnl >= 0 ? "+" : ""}
               {formatUsd(last.pnl, { compact: true, cents: false })}
             </Numeric>
           </div>
           <div className="text-right">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
               Recent change
             </p>
             <Numeric tone={toneFor(headlinePct)} className="font-mono text-lg">

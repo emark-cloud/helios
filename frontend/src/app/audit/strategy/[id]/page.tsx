@@ -18,6 +18,7 @@ import type { Route } from "next";
 import { useState } from "react";
 
 import { ChainBadge } from "@/components/atoms/ChainBadge";
+import { CopyButton } from "@/components/atoms/CopyButton";
 import { Numeric } from "@/components/atoms/Numeric";
 import { ComponentBreakdown } from "@/components/audit/ComponentBreakdown";
 import { AuditTradeRow } from "@/components/audit/strategy/AuditTradeRow";
@@ -71,7 +72,7 @@ export default function StrategyAuditPage({
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Forensic audit · §12"
+        eyebrow="Trade audit"
         title={
           strategy
             ? `Audit · ${formatStrategyClass(strategy.declaredClass)}`
@@ -155,14 +156,23 @@ function HeaderCard({
             </h2>
             <ChainBadge chainId={strategy.chainId} />
           </div>
-          <p className="mt-1 font-mono text-xs text-fg-muted" title={strategy.id}>
+          <p className="mt-1 flex items-center gap-2 text-xs">
             {explorer ? (
-              <a href={explorer} target="_blank" rel="noreferrer" className="hover:text-amber">
-                {strategy.id}
+              <a
+                href={explorer}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-fg-muted hover:text-amber"
+                title={strategy.id}
+              >
+                {formatAddress(strategy.id)} ↗
               </a>
             ) : (
-              strategy.id
+              <span className="font-mono text-fg-muted" title={strategy.id}>
+                {formatAddress(strategy.id)}
+              </span>
             )}
+            <CopyButton value={strategy.id} ariaLabel="Copy strategy address" />
           </p>
         </div>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
@@ -196,7 +206,7 @@ function ReputationInputsPanel({ reputation }: { reputation: AuditPayload }): JS
   const dominant = dominantComponent(reputation.components, reputation.weights);
   return (
     <section>
-      <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+      <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
         Reputation calculation inputs
       </h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -263,10 +273,10 @@ function TradesTable({
   return (
     <section data-testid="audit-trades">
       <header className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Attested trades — every record
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.12em] text-fg-muted">
           page {page + 1} / {totalPages}
           {isFetching ? " · loading…" : ""}
         </span>
@@ -279,7 +289,7 @@ function TradesTable({
       ) : (
         <div className="overflow-x-auto rounded-md border border-surface-line bg-surface-panel">
           <table className="w-full text-sm">
-            <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+            <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
               <tr>
                 <th className="px-3 py-2.5 text-left font-normal">Timestamp (UTC)</th>
                 <th className="px-3 py-2.5 text-center font-normal">Proof</th>
@@ -329,7 +339,7 @@ function TradesTable({
 function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
+      <dt className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
       <dd className="mt-0.5 font-mono">{children}</dd>
     </div>
   );

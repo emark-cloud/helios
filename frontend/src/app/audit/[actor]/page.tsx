@@ -17,12 +17,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { CopyButton } from "@/components/atoms/CopyButton";
 import { Numeric } from "@/components/atoms/Numeric";
 import { ComponentBreakdown } from "@/components/audit/ComponentBreakdown";
 import { CohortDistribution } from "@/components/audit/CohortDistribution";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
-import { formatAddress, formatStrategyClass } from "@/lib/format";
+import { formatAddress, formatHash, formatStrategyClass } from "@/lib/format";
 import {
   ReputationError,
   fetchAuditForActor,
@@ -47,7 +48,7 @@ export default function AuditPage({ params }: { params: { actor: string } }): JS
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Reputation audit · §8.2"
+        eyebrow="Reputation audit"
         title={data ? formatStrategyClass(data.declaredClass) : "Audit"}
         summary={
           <>
@@ -72,17 +73,28 @@ export default function AuditPage({ params }: { params: { actor: string } }): JS
 
       <div className="mb-6 flex flex-col gap-2 rounded-md border border-surface-line bg-surface-panel p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">Actor</p>
+          <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Actor</p>
           <p className="mt-0.5 font-mono text-sm text-fg-primary" title={actor}>
             {formatAddress(actor)}
           </p>
         </div>
         {data ? (
           <div className="text-right">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">componentsHash</p>
-            <p className="mt-0.5 break-all font-mono text-[11px] text-fg-secondary">
-              {data.components_hash}
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
+              Component commitment
             </p>
+            <div className="mt-0.5 flex items-center justify-end gap-2">
+              <code
+                className="font-mono text-[12px] text-fg-secondary"
+                title={data.components_hash}
+              >
+                {formatHash(data.components_hash)}
+              </code>
+              <CopyButton
+                value={data.components_hash}
+                ariaLabel="Copy component commitment hash"
+              />
+            </div>
           </div>
         ) : null}
       </div>
@@ -112,7 +124,7 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
       <section className="rounded-md border border-surface-line bg-surface-panel p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">Aggregate score</p>
+            <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Aggregate score</p>
             <div className="mt-1 flex items-baseline gap-2">
               <Numeric tone="amber" className="font-mono text-4xl">
                 {score100.toFixed(2)}
@@ -120,7 +132,7 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
               <span className="font-mono text-sm text-fg-muted">/ 100</span>
             </div>
           </div>
-          <p className="max-w-md text-[11px] leading-snug text-fg-muted">
+          <p className="max-w-md text-[12px] leading-snug text-fg-muted">
             Score = 0.40·perf + 0.25·risk + 0.15·proof + 0.10·stake + 0.10·age. Components
             below sum to this score; any change recomputes the{" "}
             <code className="font-mono text-fg-secondary">componentsHash</code> shown above.
@@ -130,7 +142,7 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
 
       {/* Five components */}
       <section>
-        <h2 className="mb-3 text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-3 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Components
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -179,7 +191,7 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
 
       {/* Cohort distribution per window */}
       <section>
-        <h2 className="mb-3 text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-3 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Cohort distribution
         </h2>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -206,7 +218,7 @@ function AuditBody({ data }: { data: AuditPayload }): JSX.Element {
 
       {/* Inputs */}
       <section>
-        <h2 className="mb-3 text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-3 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Inputs
         </h2>
         <InputsTable data={data} />

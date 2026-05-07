@@ -40,12 +40,12 @@ export function AllocatorLeaderboard(): JSX.Element {
   return (
     <section data-testid="allocator-leaderboard">
       <header className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Allocator leaderboard
         </h2>
         <Link
           href={"/allocators" as Route}
-          className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg-muted hover:text-amber"
+          className="font-mono text-[12px] uppercase tracking-[0.12em] text-fg-muted hover:text-amber"
         >
           View all →
         </Link>
@@ -82,7 +82,7 @@ function Table({ rows }: { rows: AllocatorLeaderboardRow[] }): JSX.Element {
   return (
     <div className="overflow-hidden rounded-md border border-surface-line bg-surface-panel">
       <table className="w-full text-sm">
-        <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           <tr>
             <th className="px-3 py-2.5 text-left font-normal">#</th>
             <th className="px-3 py-2.5 text-left font-normal">Allocator</th>
@@ -122,7 +122,7 @@ function Row({
       className="border-b border-surface-line last:border-b-0"
       data-allocator-name={displayName}
     >
-      <td className="px-3 py-2.5 font-mono text-[11px] text-fg-muted">{rank}</td>
+      <td className="px-3 py-2.5 font-mono text-[12px] text-fg-muted">{rank}</td>
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-2">
           <Link
@@ -132,7 +132,7 @@ function Row({
             {displayName}
           </Link>
           {isReference ? (
-            <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+            <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-amber">
               Reference
             </span>
           ) : null}

@@ -218,7 +218,7 @@ function SegmentTooltip({
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-mono text-fg-primary">{segment.label}</span>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">{ring}</span>
+        <span className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{ring}</span>
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-3 text-fg-secondary">
         <span>
@@ -231,7 +231,7 @@ function SegmentTooltip({
         ) : null}
       </div>
       {pnl != null ? (
-        <div className="mt-1 flex items-baseline justify-between gap-3 text-[11px] text-fg-muted">
+        <div className="mt-1 flex items-baseline justify-between gap-3 text-[12px] text-fg-muted">
           <span>P&amp;L</span>
           <Numeric tone={toneFor(pnl)} align="right">
             {pnl >= 0 ? "+" : ""}

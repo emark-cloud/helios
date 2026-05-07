@@ -33,11 +33,11 @@ export function ManifestHeader({ strategy }: { strategy: StrategyDetail }): JSX.
             </h2>
             <ChainBadge chainId={strategy.chainId} />
             {strategy.active ? (
-              <span className="rounded-sm border border-signal-positive-dim bg-signal-positive-dim/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-signal-positive">
+              <span className="rounded-sm border border-signal-positive-dim bg-signal-positive-dim/30 px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-signal-positive">
                 Active
               </span>
             ) : (
-              <span className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+              <span className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
                 Retired
               </span>
             )}
@@ -105,7 +105,7 @@ export function ManifestHeader({ strategy }: { strategy: StrategyDetail }): JSX.
 function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
+      <dt className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
       <dd className="mt-0.5 font-mono">{children}</dd>
     </div>
   );

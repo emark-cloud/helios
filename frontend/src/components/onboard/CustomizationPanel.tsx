@@ -157,7 +157,7 @@ export function CustomizationPanel({
           type="button"
           onClick={() => setAdvancedOpen((v) => !v)}
           aria-expanded={advancedOpen}
-          className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-secondary"
+          className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-secondary"
         >
           <span aria-hidden>{advancedOpen ? "▾" : "▸"}</span>
           Advanced
@@ -215,7 +215,7 @@ function Field({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <div className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">{label}</div>
+        <div className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</div>
         {hint ? <div className="mt-1 text-xs text-fg-secondary">{hint}</div> : null}
       </div>
       {children}
@@ -239,7 +239,7 @@ function DefundControls({
   }
   return (
     <div className="rounded-md border border-surface-line bg-surface-base/40 p-4">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+      <div className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
         Auto-defund safety
       </div>
       <p className="mt-2 text-xs text-fg-secondary">
@@ -306,7 +306,7 @@ function DefundSlider({
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-[0.14em] text-fg-muted">{label}</span>
+        <span className="text-[12px] uppercase tracking-[0.14em] text-fg-muted">{label}</span>
         <Numeric>
           {value}
           {unit ? <span className="ml-0.5 text-fg-muted">{unit}</span> : null}
@@ -324,7 +324,7 @@ function DefundSlider({
         className="mt-1.5 w-full accent-amber"
         aria-label={label}
       />
-      <p className="mt-1 text-[11px] text-fg-secondary">{hint}</p>
+      <p className="mt-1 text-[12px] text-fg-secondary">{hint}</p>
     </div>
   );
 }

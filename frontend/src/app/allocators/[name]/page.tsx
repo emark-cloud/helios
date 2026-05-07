@@ -176,7 +176,7 @@ function DelegatedUsers({
       <h2 className="font-display text-sm font-semibold text-fg-primary">
         Delegated users · {delegations.length}
       </h2>
-      <p className="mt-1 text-[11px] text-fg-muted">
+      <p className="mt-1 text-[12px] text-fg-muted">
         Capital shown is the most recent allocation event per user. P&L vs HWM
         will populate once `services/reputation` lifts components into the
         subgraph (Phase 5 follow-up).
@@ -198,7 +198,7 @@ function DelegatedUsers({
 function Stat({ label, value }: { label: string; value: React.ReactNode }): JSX.Element {
   return (
     <div>
-      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
+      <dt className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
       <dd className="mt-1 text-sm text-fg-primary">{value}</dd>
     </div>
   );

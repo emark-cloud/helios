@@ -21,10 +21,10 @@ export function AllocatorCard({
     <div className="rounded-md border border-surface-line bg-surface-panel p-5">
       <div className="flex items-baseline justify-between">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">Allocator</div>
+          <div className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Allocator</div>
           <div className="mt-1.5 font-display text-base font-semibold text-fg-primary">{name}</div>
         </div>
-        <span className="rounded-sm border border-amber/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+        <span className="rounded-sm border border-amber/40 px-2 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-amber">
           Official Reference
         </span>
       </div>

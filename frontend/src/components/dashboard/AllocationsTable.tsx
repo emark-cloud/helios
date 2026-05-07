@@ -58,7 +58,7 @@ export function AllocationsTable({ allocations }: { allocations: AllocationView[
   return (
     <div className="overflow-x-auto rounded-md border border-surface-line bg-surface-panel">
       <table className="w-full text-sm">
-        <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           <tr>
             <th className="px-3 py-2.5 text-left font-normal">Strategy</th>
             <th className="px-3 py-2.5 text-left font-normal">Chain</th>
@@ -142,7 +142,7 @@ function Row({
     >
       <td className="px-3 py-2.5">
         <div className="text-fg-primary">{formatStrategyClass(alloc.declared_class)}</div>
-        <div className="font-mono text-[11px] text-fg-muted">
+        <div className="font-mono text-[12px] text-fg-muted">
           {explorer ? (
             <a href={explorer} target="_blank" rel="noreferrer" className="hover:text-amber">
               {formatAddress(alloc.strategy_id)}

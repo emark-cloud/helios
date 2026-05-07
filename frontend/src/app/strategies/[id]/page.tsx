@@ -71,7 +71,7 @@ export default function StrategyDetailPage({
         summary={
           <>
             Manifest, reputation breakdown, recent trades, current
-            allocators, paramsHash rotations, and the NAV timeline —
+            allocators, parameter changes, and the NAV timeline —
             every input the strategy makes available, in one read.
           </>
         }
@@ -140,7 +140,7 @@ function ReputationSection({
   if (isLoading) {
     return (
       <section>
-        <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Reputation breakdown
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -161,7 +161,7 @@ function ReputationSection({
         : "Reputation engine unreachable. Showing on-chain data only.";
     return (
       <section>
-        <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Reputation breakdown
         </h2>
         <div className="rounded-md border border-surface-line bg-surface-panel p-4 text-xs text-fg-muted">
@@ -176,10 +176,10 @@ function ReputationSection({
   return (
     <section>
       <header className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Reputation breakdown
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.12em] text-fg-muted">
           aggregate{" "}
           <Numeric tone="amber" className="text-amber">
             {(audit.score_e4 / 100).toFixed(1)}

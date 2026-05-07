@@ -65,6 +65,14 @@ export function formatAddress(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+/** Truncate a 32-byte hash for inline display. Keeps a longer prefix
+ *  than `formatAddress` because hashes don't have the `0x{N:42}` shape
+ *  users instinctively recognize as a wallet/contract. */
+export function formatHash(hash: string): string {
+  if (!hash || hash.length < 14) return hash ?? "—";
+  return `${hash.slice(0, 10)}…${hash.slice(-6)}`;
+}
+
 /** Relative time with terse units. "12s ago", "5m ago", "3h ago", "2d ago". */
 export function formatRelative(tsSec: number, nowSec: number = Math.floor(Date.now() / 1000)): string {
   const dt = nowSec - tsSec;

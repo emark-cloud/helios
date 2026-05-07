@@ -21,8 +21,8 @@ export function ParamsRotationTimeline({
   if (rotations.length === 0) {
     return (
       <section data-testid="params-rotations">
-        <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
-          paramsHash rotations
+        <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
+          Parameter changes
         </h2>
         <div className="rounded-md border border-surface-line bg-surface-panel p-4 text-center text-xs text-fg-muted">
           No rotations recorded. The strategy still operates on its
@@ -34,16 +34,16 @@ export function ParamsRotationTimeline({
 
   return (
     <section data-testid="params-rotations">
-      <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+      <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
         paramsHash rotations
       </h2>
       <div className="overflow-hidden rounded-md border border-surface-line bg-surface-panel">
         <table className="w-full text-sm">
-          <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+          <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
             <tr>
               <th className="px-3 py-2.5 text-left font-normal">When</th>
-              <th className="px-3 py-2.5 text-left font-normal">Old hash</th>
-              <th className="px-3 py-2.5 text-left font-normal">New hash</th>
+              <th className="px-3 py-2.5 text-left font-normal">Previous</th>
+              <th className="px-3 py-2.5 text-left font-normal">New</th>
               <th className="px-3 py-2.5 text-right font-normal">Tx</th>
             </tr>
           </thead>
@@ -53,10 +53,10 @@ export function ParamsRotationTimeline({
                 <td className="px-3 py-2.5 text-fg-secondary">
                   {formatTimestamp(Number(r.timestamp))}
                 </td>
-                <td className="px-3 py-2.5 font-mono text-[11px] text-fg-muted" title={r.oldHash}>
+                <td className="px-3 py-2.5 font-mono text-[12px] text-fg-muted" title={r.oldHash}>
                   {trimHash(r.oldHash)}
                 </td>
-                <td className="px-3 py-2.5 font-mono text-[11px] text-fg-primary" title={r.newHash}>
+                <td className="px-3 py-2.5 font-mono text-[12px] text-fg-primary" title={r.newHash}>
                   {trimHash(r.newHash)}
                 </td>
                 <td className="px-3 py-2.5 text-right">

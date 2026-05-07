@@ -328,7 +328,7 @@ function SignPanel({
   return (
     <div className="flex flex-col justify-between gap-3 rounded-md border border-surface-line bg-surface-panel p-6">
       <div>
-        <h3 className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        <h3 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           {passport ? "One passkey prompt" : "Sign once"}
         </h3>
         <p className="mt-3 text-xs text-fg-secondary">
@@ -377,13 +377,13 @@ function SignPanel({
             <button
               type="button"
               onClick={onToggleRaw}
-              className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-primary"
+              className="mt-2 font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-primary"
             >
               {showRaw ? "Hide" : "Show"} technical detail
             </button>
           ) : null}
           {showRaw && errorRaw ? (
-            <pre className="mt-2 overflow-x-auto rounded-sm border border-surface-line bg-surface-base px-2 py-1.5 font-mono text-[11px] text-fg-muted">
+            <pre className="mt-2 overflow-x-auto rounded-sm border border-surface-line bg-surface-base px-2 py-1.5 font-mono text-[12px] text-fg-muted">
               {errorRaw}
             </pre>
           ) : null}

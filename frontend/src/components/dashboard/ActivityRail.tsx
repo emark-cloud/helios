@@ -29,7 +29,7 @@ export function ActivityRail(): JSX.Element {
   return (
     <aside className="flex h-full flex-col rounded-md border border-surface-line bg-surface-panel">
       <header className="flex items-baseline justify-between border-b border-surface-line px-4 py-2.5">
-        <h3 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">Activity</h3>
+        <h3 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Activity</h3>
         <ConnDot state={connState} />
       </header>
       <ol className="flex-1 overflow-y-auto">
@@ -63,7 +63,7 @@ function ConnDot({ state }: { state: ConnState }): JSX.Element {
           ? "Disconnected"
           : "Closed";
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-fg-muted">
+    <span className="inline-flex items-center gap-1.5 font-mono text-[12px] uppercase tracking-wider text-fg-muted">
       <span className={cn("h-1.5 w-1.5 rounded-full", tone)} aria-hidden />
       {label}
     </span>
@@ -85,10 +85,10 @@ function Entry({ evt, index }: { evt: SentinelEvent; index: number }): JSX.Eleme
       style={{ animation: "helios-rail-in 1ms linear forwards", animationDelay: `${delayMs}ms`, opacity: 0 }}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-secondary">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-secondary">
           {KIND_LABEL[evt.kind] ?? evt.kind}
         </span>
-        <Numeric tone="muted" className="text-[10px]">
+        <Numeric tone="muted" className="text-[12px]">
           {formatRelative(evt.timestamp)}
         </Numeric>
       </div>

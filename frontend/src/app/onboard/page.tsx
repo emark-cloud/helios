@@ -25,7 +25,7 @@ export default function OnboardPage(): JSX.Element {
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Phase 1 · onboarding"
+        eyebrow="Set up a meta-strategy"
         title="Meta-strategy"
         summary="Pick a template, adjust the constraints if you want to, sign once. The allocator handles the rest."
       />

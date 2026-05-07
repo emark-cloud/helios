@@ -113,7 +113,7 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
                     <h3 className="font-display text-sm font-semibold text-fg-primary">
                       {displayName}
                     </h3>
-                    <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+                    <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[12px] uppercase tracking-[0.16em] text-amber">
                       Official Reference
                     </span>
                   </div>
@@ -130,7 +130,7 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
                 <Stat label="Reputation" value={readReputation(row.currentReputation).toFixed(1)} />
               </dl>
             </button>
-            <div className="flex items-center justify-between border-t border-surface-line px-5 py-2 text-[11px] text-fg-muted">
+            <div className="flex items-center justify-between border-t border-surface-line px-5 py-2 text-[12px] text-fg-muted">
               <span className="font-mono uppercase tracking-[0.12em]">
                 {selected ? "Selected" : "Tap to select"}
               </span>
@@ -166,7 +166,7 @@ function SelectedDot({ selected }: { selected: boolean }): JSX.Element {
 function Stat({ label, value }: { label: string; value: string }): JSX.Element {
   return (
     <div>
-      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
+      <dt className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</dt>
       <dd className="mt-0.5">
         <Numeric>{value}</Numeric>
       </dd>

@@ -23,6 +23,8 @@
 import Link from "next/link";
 import type { Route } from "next";
 
+import { AppShell } from "@/components/chrome/AppShell";
+import { CopyableEndpoint } from "@/components/judge/CopyableEndpoint";
 import { LandingStatsBand } from "@/components/landing/LandingStatsBand";
 import { JudgeRecentTrades } from "@/components/judge/JudgeRecentTrades";
 import { CHAIN_ADDRESSES, CHAIN_IDS, type HeliosAddresses } from "@/lib/addresses";
@@ -41,8 +43,8 @@ const GOLDSKY_DEFAULT =
 
 export default function JudgePage(): JSX.Element {
   return (
-    <main className="bg-surface-base">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 pb-20 pt-12 lg:px-12 lg:pt-16">
+    <AppShell>
+      <div className="flex flex-col gap-10">
         <Header />
         <DemoBlock />
         <LandingStatsBand />
@@ -52,14 +54,14 @@ export default function JudgePage(): JSX.Element {
         <JudgeRecentTrades />
         <ResourceLinks />
       </div>
-    </main>
+    </AppShell>
   );
 }
 
 function Header(): JSX.Element {
   return (
     <header className="flex flex-col gap-3">
-      <p className="text-[10px] uppercase tracking-[0.24em] text-fg-muted">
+      <p className="text-[12px] uppercase tracking-[0.24em] text-fg-muted">
         Hackathon judge eval
       </p>
       <h1 className="font-display text-3xl font-semibold leading-tight tracking-[-0.01em] text-fg-primary lg:text-4xl">
@@ -88,14 +90,14 @@ function DemoBlock(): JSX.Element {
         <div className="flex flex-col gap-1">
           <h2
             id="judge-demo"
-            className="text-[10px] uppercase tracking-[0.18em] text-fg-muted"
+            className="text-[12px] uppercase tracking-[0.18em] text-fg-muted"
           >
             3-minute demo
           </h2>
           <p className="text-base text-fg-primary">
             Walks through cascade → auto-defund → cross-chain reputation.
           </p>
-          <p className="font-mono text-[11px] text-fg-muted">
+          <p className="font-mono text-[12px] text-fg-muted">
             90-second backup link below the player.
           </p>
         </div>
@@ -112,7 +114,7 @@ function DemoBlock(): JSX.Element {
             href="https://vimeo.com/helios-demo-90s"
             target="_blank"
             rel="noreferrer"
-            className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg-secondary hover:text-fg-primary"
+            className="font-mono text-[12px] uppercase tracking-[0.18em] text-fg-secondary hover:text-fg-primary"
           >
             90s backup
           </a>
@@ -171,7 +173,7 @@ function EvalChecklist(): JSX.Element {
     <section aria-labelledby="judge-eval">
       <h2
         id="judge-eval"
-        className="mb-3 text-[10px] uppercase tracking-[0.16em] text-fg-muted"
+        className="mb-3 text-[12px] uppercase tracking-[0.16em] text-fg-muted"
       >
         5-step eval checklist
       </h2>
@@ -182,14 +184,14 @@ function EvalChecklist(): JSX.Element {
               href={step.href}
               className="flex items-baseline gap-4 px-5 py-4 text-sm hover:bg-surface-elev"
             >
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+              <span className="font-mono text-[12px] uppercase tracking-[0.18em] text-fg-muted">
                 {String(step.n).padStart(2, "0")}
               </span>
               <span className="flex flex-1 flex-col gap-1">
                 <span className="text-fg-primary">{step.label}</span>
                 <span className="text-fg-secondary">{step.description}</span>
               </span>
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+              <span className="font-mono text-[12px] uppercase tracking-[0.18em] text-fg-muted">
                 go →
               </span>
             </Link>
@@ -210,17 +212,17 @@ function AddressTable(): JSX.Element {
       <div className="mb-3 flex items-baseline justify-between">
         <h2
           id="judge-addresses"
-          className="text-[10px] uppercase tracking-[0.16em] text-fg-muted"
+          className="text-[12px] uppercase tracking-[0.16em] text-fg-muted"
         >
           Deployed addresses
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           chain {kiteId} · kite testnet
         </span>
       </div>
       <div className="overflow-hidden rounded-md border border-surface-line bg-surface-panel">
         <table className="w-full text-sm">
-          <thead className="border-b border-surface-line text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+          <thead className="border-b border-surface-line text-[12px] uppercase tracking-[0.16em] text-fg-muted">
             <tr>
               <th className="px-3 py-2.5 text-left font-normal">Contract</th>
               <th className="px-3 py-2.5 text-left font-normal">Address</th>
@@ -242,12 +244,12 @@ function AddressTable(): JSX.Element {
                         href={url}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[11px] text-amber hover:underline"
+                        className="font-mono text-[12px] text-amber hover:underline"
                       >
                         {row.value ? formatAddress(row.value) : "—"} ↗
                       </a>
                     ) : (
-                      <span className="font-mono text-[11px] text-fg-muted">—</span>
+                      <span className="font-mono text-[12px] text-fg-muted">—</span>
                     )}
                   </td>
                 </tr>
@@ -256,7 +258,7 @@ function AddressTable(): JSX.Element {
           </tbody>
         </table>
       </div>
-      <ul className="mt-3 grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-3">
+      <ul className="mt-3 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
         <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
           <span className="text-fg-muted">RPC </span>
           <code className="font-mono text-fg-primary">{KITE_RPC}</code>
@@ -272,12 +274,15 @@ function AddressTable(): JSX.Element {
             testnet.kitescan.ai
           </a>
         </li>
-        <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
-          <span className="text-fg-muted">Subgraph </span>
-          <code className="font-mono text-[10px] text-fg-primary">{GOLDSKY_DEFAULT}</code>
+        <li>
+          <CopyableEndpoint
+            label="Subgraph"
+            url={GOLDSKY_DEFAULT}
+            caption="POST GraphQL queries here"
+          />
         </li>
       </ul>
-      <p className="mt-2 font-mono text-[10px] text-fg-muted">
+      <p className="mt-2 font-mono text-[12px] text-fg-muted">
         Mainnet (chain 2366) + Base/Arbitrum sepolia rows reserved for Phase 5/6.
       </p>
     </section>
@@ -314,7 +319,7 @@ function VerifyBlock(): JSX.Element {
     <section aria-labelledby="judge-verify" className="flex flex-col gap-3">
       <h2
         id="judge-verify"
-        className="text-[10px] uppercase tracking-[0.16em] text-fg-muted"
+        className="text-[12px] uppercase tracking-[0.16em] text-fg-muted"
       >
         Verify a trade yourself
       </h2>
@@ -325,7 +330,7 @@ function VerifyBlock(): JSX.Element {
       <pre className="overflow-x-auto rounded-md border border-surface-line bg-surface-elev px-4 py-3 font-mono text-[12px] text-fg-primary">
         {command}
       </pre>
-      <p className="font-mono text-[10px] text-fg-muted">
+      <p className="font-mono text-[12px] text-fg-muted">
         verify-trade.js full implementation lands Phase 6 (TODO.md line 473). The command
         contract is fixed; the binary it invokes is stubbed until then.
       </p>
@@ -341,10 +346,10 @@ function ResourceLinks(): JSX.Element {
     {
       label: "Code",
       items: [
-        { label: "github.com/anthropics/helios", href: "https://github.com/anthropics/helios", mono: true },
-        { label: "Subgraph", href: "https://github.com/anthropics/helios/tree/main/subgraph" },
-        { label: "Circuits", href: "https://github.com/anthropics/helios/tree/main/circuits" },
-        { label: "Contracts", href: "https://github.com/anthropics/helios/tree/main/contracts" },
+        { label: "github.com/emark-cloud/helios", href: "https://github.com/emark-cloud/helios", mono: true },
+        { label: "Subgraph", href: "https://github.com/emark-cloud/helios/tree/main/subgraph" },
+        { label: "Circuits", href: "https://github.com/emark-cloud/helios/tree/main/circuits" },
+        { label: "Contracts", href: "https://github.com/emark-cloud/helios/tree/main/contracts" },
       ],
     },
     {
@@ -353,16 +358,16 @@ function ResourceLinks(): JSX.Element {
         { label: "helios-strategy-sdk (PyPI)", href: "https://pypi.org/project/helios-strategy-sdk/" },
         { label: "helios-allocator-sdk (PyPI)", href: "https://pypi.org/project/helios-allocator-sdk/" },
         { label: "helios-trader-cli (PyPI)", href: "https://pypi.org/project/helios-trader-cli/" },
-        { label: "@helios/contracts-abi", href: "https://github.com/anthropics/helios/tree/main/packages/contracts-abi" },
+        { label: "@helios/contracts-abi", href: "https://github.com/emark-cloud/helios/tree/main/packages/contracts-abi" },
       ],
     },
     {
       label: "Docs",
       items: [
-        { label: "Operator guide", href: "https://github.com/anthropics/helios/blob/main/docs/operator-guide.md" },
-        { label: "Allocator guide", href: "https://github.com/anthropics/helios/blob/main/docs/allocator-guide.md" },
-        { label: "Reputation math", href: "https://github.com/anthropics/helios/blob/main/docs/reputation-math.md" },
-        { label: "Threat model", href: "https://github.com/anthropics/helios/blob/main/docs/threat-model.md" },
+        { label: "Operator guide", href: "https://github.com/emark-cloud/helios/blob/main/docs/operator-guide.md" },
+        { label: "Allocator guide", href: "https://github.com/emark-cloud/helios/blob/main/docs/allocator-guide.md" },
+        { label: "Reputation math", href: "https://github.com/emark-cloud/helios/blob/main/docs/reputation-math.md" },
+        { label: "Threat model", href: "https://github.com/emark-cloud/helios/blob/main/docs/threat-model.md" },
       ],
     },
   ];
@@ -370,14 +375,14 @@ function ResourceLinks(): JSX.Element {
     <section aria-labelledby="judge-resources">
       <h2
         id="judge-resources"
-        className="mb-3 text-[10px] uppercase tracking-[0.16em] text-fg-muted"
+        className="mb-3 text-[12px] uppercase tracking-[0.16em] text-fg-muted"
       >
         Resources
       </h2>
       <div className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-surface-line bg-surface-line lg:grid-cols-3">
         {groups.map((group) => (
           <div key={group.label} className="bg-surface-panel p-5">
-            <h3 className="mb-3 text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+            <h3 className="mb-3 text-[12px] uppercase tracking-[0.18em] text-fg-muted">
               {group.label}
             </h3>
             <ul className="flex flex-col gap-2 text-sm">

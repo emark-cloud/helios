@@ -145,7 +145,7 @@ function Row({ chord, label }: { chord: string; label: string }): JSX.Element {
   return (
     <>
       <dt>
-        <kbd className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+        <kbd className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[12px] text-fg-secondary">
           {chord}
         </kbd>
       </dt>

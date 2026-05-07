@@ -26,7 +26,7 @@ export function AllocatorsPanel({ strategy }: { strategy: StrategyDetail }): JSX
 
   return (
     <section data-testid="strategy-allocators">
-      <h2 className="mb-2 text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+      <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
         Current allocators
       </h2>
       {aggregated.length === 0 ? (
@@ -117,7 +117,7 @@ function AllocatorCard({
         <Link href={detailHref} className="text-sm text-fg-primary hover:text-amber">
           {entry.allocatorName}
         </Link>
-        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
           <span className="text-fg-muted">Capital</span>
           <Numeric align="right">{formatUsd(entry.totalCapital, { compact: true, cents: false })}</Numeric>
           <span className="text-fg-muted">Users</span>

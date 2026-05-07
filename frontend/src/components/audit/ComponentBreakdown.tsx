@@ -44,8 +44,8 @@ export function ComponentBreakdown({
       )}
     >
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">{label}</span>
-        <span className="font-mono text-[11px] text-fg-muted">w={weight.toFixed(2)}</span>
+        <span className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</span>
+        <span className="font-mono text-[12px] text-fg-muted">w={weight.toFixed(2)}</span>
       </div>
 
       <div className="mt-3 flex items-baseline justify-between">
@@ -53,7 +53,7 @@ export function ComponentBreakdown({
           {formatValue(value, signed)}
         </Numeric>
         <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">contribution</p>
+          <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">contribution</p>
           <Numeric tone={contributionTone(contribution)} className="font-mono text-sm">
             {formatContribution(contribution)}
           </Numeric>
@@ -62,7 +62,7 @@ export function ComponentBreakdown({
 
       <ValueBar value={value} signed={signed} highlighted={highlighted} />
 
-      {hint ? <p className="mt-3 text-[11px] leading-snug text-fg-muted">{hint}</p> : null}
+      {hint ? <p className="mt-3 text-[12px] leading-snug text-fg-muted">{hint}</p> : null}
     </div>
   );
 }

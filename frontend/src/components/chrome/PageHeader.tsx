@@ -24,7 +24,7 @@ export function PageHeader({ eyebrow, title, summary, actions }: PageHeaderProps
   return (
     <header className="mb-8 flex flex-col gap-4 border-b border-surface-line pb-6 lg:flex-row lg:items-end lg:justify-between">
       <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-fg-muted">{eyebrow}</p>
+        <p className="text-[12px] uppercase tracking-[0.2em] text-fg-muted">{eyebrow}</p>
         <h1 className="mt-1.5 font-display text-2xl font-semibold text-fg-primary">{title}</h1>
         {summary ? <p className="mt-2 max-w-2xl text-sm text-fg-secondary">{summary}</p> : null}
       </div>

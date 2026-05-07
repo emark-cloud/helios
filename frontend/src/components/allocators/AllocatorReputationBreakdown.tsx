@@ -67,7 +67,7 @@ export function AllocatorReputationBreakdown({
           href="https://github.com/emark-cloud/helios/blob/main/docs/reputation-math.md"
           target="_blank"
           rel="noreferrer"
-          className="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-secondary hover:text-amber"
+          className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-secondary hover:text-amber"
         >
           docs/reputation-math.md →
         </a>
@@ -81,7 +81,7 @@ export function AllocatorReputationBreakdown({
         <Numeric tone={reputation > 50 ? "positive" : reputation > 0 ? "default" : "muted"}>
           {reputation.toFixed(1)}
         </Numeric>
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Aggregate score · most recent on-chain update
         </span>
       </div>
@@ -91,7 +91,7 @@ export function AllocatorReputationBreakdown({
           <div key={c.key} className="grid grid-cols-[120px_1fr] items-baseline gap-3">
             <div className="flex items-baseline gap-2">
               <Numeric tone="amber">{(c.weight * 100).toFixed(0)}%</Numeric>
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+              <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
                 {c.label}
               </span>
             </div>

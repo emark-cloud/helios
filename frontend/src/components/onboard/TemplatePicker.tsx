@@ -40,13 +40,13 @@ export function TemplatePicker({
             <div className="flex items-baseline justify-between">
               <span className="font-display text-base font-semibold text-fg-primary">{t.label}</span>
               {active ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+                <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-amber">
                   Selected
                 </span>
               ) : null}
             </div>
             <p className="mt-2 text-xs leading-relaxed text-fg-secondary">{t.blurb}</p>
-            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
               <Stat label="Max per strategy">
                 <Numeric>{formatBpsAsPct(t.form.max_per_strategy_bps)}</Numeric>
               </Stat>

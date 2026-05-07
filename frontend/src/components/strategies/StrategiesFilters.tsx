@@ -66,7 +66,7 @@ export function StrategiesFilters({
 function FilterRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">{label}</span>
+      <span className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{label}</span>
       <div className="flex gap-1">{children}</div>
     </div>
   );
@@ -86,7 +86,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-sm border px-2 py-1 font-mono text-[11px] uppercase tracking-wider",
+        "rounded-sm border px-2 py-1 font-mono text-[12px] uppercase tracking-wider",
         active
           ? "border-amber/60 text-amber"
           : "border-surface-line text-fg-secondary hover:border-surface-line-strong hover:text-fg-primary",

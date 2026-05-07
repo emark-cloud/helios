@@ -59,10 +59,10 @@ export function DashboardCascade({
       className="rounded-md border border-surface-line bg-surface-panel p-5"
     >
       <div className="flex items-baseline justify-between">
-        <h2 className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <h2 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           Cascade
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
           {strategies.length} strategies
         </span>
       </div>

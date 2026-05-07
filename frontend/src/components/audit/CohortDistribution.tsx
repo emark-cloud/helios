@@ -41,8 +41,8 @@ export function CohortDistribution({
   return (
     <div className="flex flex-col rounded-md border border-surface-line bg-surface-panel p-4">
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">{windowLabel}</span>
-        <span className="font-mono text-[11px] text-fg-muted">
+        <span className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">{windowLabel}</span>
+        <span className="font-mono text-[12px] text-fg-muted">
           n={cohort.size}
           {fallback ? " · fallback" : ""}
         </span>
@@ -50,11 +50,11 @@ export function CohortDistribution({
 
       <div className="mt-3 flex items-baseline justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">sharpe</p>
+          <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">sharpe</p>
           <Numeric className="font-mono text-sm">{formatSigned(rawSharpe, 3)}</Numeric>
         </div>
         <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">norm</p>
+          <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">norm</p>
           <Numeric tone={normTone(normalized, fallback)} className="font-mono text-sm">
             {formatSigned(normalized, 3)}
           </Numeric>
@@ -93,13 +93,13 @@ export function CohortDistribution({
         />
       </div>
 
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-fg-muted">
+      <div className="mt-2 flex justify-between font-mono text-[12px] text-fg-muted">
         <span>{AXIS_MIN.toFixed(1)}σ</span>
         <span>median</span>
         <span>+{AXIS_MAX.toFixed(1)}σ</span>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-[11px] text-fg-muted">
+      <div className="mt-3 flex items-center justify-between text-[12px] text-fg-muted">
         <span>
           median{" "}
           <span className="font-mono text-fg-secondary">{formatSigned(cohort.median, 3)}</span>

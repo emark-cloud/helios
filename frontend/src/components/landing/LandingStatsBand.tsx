@@ -28,26 +28,22 @@ export function LandingStatsBand(): JSX.Element {
   // here so the formatter doesn't have to know.
   const totalUsd = data ? Number(BigInt(data.totalCapitalUsdE6)) / 1_000_000 : null;
 
-  const cells: Array<{ label: string; value: string; help?: string }> = [
+  const cells: Array<{ label: string; value: string }> = [
     {
       label: "Capital under attestation",
       value: totalUsd != null ? formatUsd(totalUsd, { compact: true, cents: false }) : "—",
-      help: "Σ Allocation.capitalDeployed",
     },
     {
       label: "Active strategies",
       value: data ? data.activeStrategies.toString() : "—",
-      help: "Strategy.active = true",
     },
     {
       label: "Attested trades",
       value: data ? data.attestedTrades.toString() : "—",
-      help: "Σ Strategy.totalAttestedTrades",
     },
     {
       label: "Active allocators",
       value: data ? data.activeAllocators.toString() : "—",
-      help: "Allocator.active = true",
     },
   ];
 
@@ -57,16 +53,13 @@ export function LandingStatsBand(): JSX.Element {
       className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-surface-line bg-surface-line sm:grid-cols-4"
     >
       {cells.map((cell) => (
-        <div key={cell.label} className="flex flex-col gap-2 bg-surface-panel px-5 py-5">
-          <span className="text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+        <div key={cell.label} className="flex flex-col gap-3 bg-surface-panel px-6 py-6">
+          <span className="text-[12px] uppercase tracking-[0.18em] text-fg-muted">
             {cell.label}
           </span>
-          <Numeric align="left" className="font-display text-3xl">
+          <Numeric align="left" className="font-display text-3xl lg:text-4xl">
             {cell.value}
           </Numeric>
-          {cell.help ? (
-            <span className="font-mono text-[10px] text-fg-muted">{cell.help}</span>
-          ) : null}
         </div>
       ))}
     </section>

@@ -94,7 +94,7 @@ export default function StrategiesPage(): JSX.Element {
           onChainFilter={setChainFilter}
         />
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-[0.16em] text-fg-muted">
+          <span className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
             Search
           </span>
           <input
@@ -112,10 +112,10 @@ export default function StrategiesPage(): JSX.Element {
               }
             }}
             placeholder="Address / class"
-            className="w-48 rounded-sm border border-surface-line bg-surface-panel px-2 py-1 font-mono text-[11px] text-fg-primary placeholder:text-fg-muted"
+            className="w-48 rounded-sm border border-surface-line bg-surface-panel px-2 py-1 font-mono text-[12px] text-fg-primary placeholder:text-fg-muted"
             aria-label="Search strategies"
           />
-          <kbd className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
+          <kbd className="rounded-sm border border-surface-line bg-surface-elev px-1.5 py-0.5 font-mono text-[12px] text-fg-muted">
             /
           </kbd>
         </div>

@@ -60,7 +60,7 @@ export function VerifyYourselfModal({
           <CloseIcon className="h-4 w-4" />
         </button>
 
-        <p className="text-[11px] uppercase tracking-[0.16em] text-amber">Verify yourself</p>
+        <p className="text-[12px] uppercase tracking-[0.16em] text-amber">Verify yourself</p>
         <h2 className="mt-1 font-display text-xl text-fg-primary">
           Re-verify this Groth16 proof
         </h2>
@@ -86,7 +86,7 @@ export function VerifyYourselfModal({
           </li>
         </ul>
 
-        <details className="mt-4 rounded-sm border border-surface-line bg-surface-elev/40 p-3 text-[11px] text-fg-muted">
+        <details className="mt-4 rounded-sm border border-surface-line bg-surface-elev/40 p-3 text-[12px] text-fg-muted">
           <summary className="cursor-pointer font-mono text-fg-secondary">
             Phase status
           </summary>
@@ -113,7 +113,7 @@ function CopyableCommand({ command }: { command: string }): JSX.Element {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        className="rounded-sm border border-amber/40 px-2 py-1 font-mono text-[11px] uppercase tracking-[0.12em] text-amber hover:border-amber/80"
+        className="rounded-sm border border-amber/40 px-2 py-1 font-mono text-[12px] uppercase tracking-[0.12em] text-amber hover:border-amber/80"
       >
         {copied ? "Copied" : "Copy"}
       </button>
