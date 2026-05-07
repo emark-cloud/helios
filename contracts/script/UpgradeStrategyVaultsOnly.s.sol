@@ -86,7 +86,9 @@ contract UpgradeStrategyVaultsOnly is Script {
         for (uint256 i = 0; i <= b.length; i++) {
             if (i == b.length || b[i] == ",") {
                 bytes memory slice = new bytes(i - start);
-                for (uint256 j = 0; j < slice.length; j++) slice[j] = b[start + j];
+                for (uint256 j = 0; j < slice.length; j++) {
+                    slice[j] = b[start + j];
+                }
                 out[idx++] = vm.parseAddress(string(slice));
                 start = i + 1;
             }
