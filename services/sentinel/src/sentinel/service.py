@@ -9,10 +9,11 @@ REST surface (`Helios.md §11.3`):
   * `GET  /v1/strategies`                 — public directory with filters
   * `WS   /v1/users/{user}/events`        — per-user event stream
 
-`POST /v1/users/{user}/meta-strategy` is the user's entry point. The
-sigfield is stored verbatim — Phase 1 doesn't verify it (the user IS
-the caller off the AA stack, [PASSPORT-STUB]); it does the same forward
-preservation that `UserVault.setMetaStrategy` does.
+`POST /v1/users/{user}/meta-strategy` is the user's entry point.
+Sentinel verifies the EIP-191 signature for `auth: "eip191"` payloads
+and trusts the on-chain userOp for `auth: "passport"` payloads (Phase
+4 WS-FE-1) — both paths still enforce the `(user, nonce)` /
+`valid_until` replay window via `verify_meta_strategy_signature`.
 """
 
 from __future__ import annotations
@@ -94,8 +95,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-sentinel/0.1"})
     store = AllocatorStore()
-    # [PASSPORT-STUB] replay-protection store; bounded by `valid_until`
-    # eviction. Single-process state — fine for one PM2 worker, see
+    # Replay-protection store; bounded by `valid_until` eviction.
+    # Single-process state — fine for one PM2 worker, see
     # `docs/phase-3-review.md` for the multi-replica migration note.
     nonce_store = NonceStore()
     allocator = SentinelAllocator()
@@ -202,11 +203,11 @@ def _make_router(
     async def set_meta_strategy(user: str, payload: MetaStrategyPayload) -> dict[str, object]:
         if user.lower() != payload.user_address.lower():
             raise HTTPException(status_code=400, detail="path/body user mismatch")
-        # [PASSPORT-STUB] Verify the EOA personal_sign signature server-side.
-        # Phase 4 swaps this for AA userOp verification at the EntryPoint —
-        # see docs/kite-passport-notes.md §"Migration plan". Nonce + valid_until
-        # checks in `verify_meta_strategy_signature` close the replay hole
-        # called out in `docs/phase-3-review.md`.
+        # Verify per `payload.auth`: EIP-191 recovery for legacy/dev,
+        # nonce + valid_until enforcement for Passport (the userOp at
+        # the EntryPoint is the user's on-chain authorization there).
+        # Both paths still close the replay hole called out in
+        # `docs/phase-3-review.md`.
         try:
             verify_meta_strategy_signature(payload, nonce_store=nonce_store)
         except MetaStrategySignatureError as exc:

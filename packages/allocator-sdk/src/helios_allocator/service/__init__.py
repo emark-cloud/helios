@@ -2,15 +2,19 @@
 
 Sentinel, Helix, and any third-party allocator scaffolded via
 `helios-allocator init` all expose the same `/v1/users/{user}/...`
-surface to the frontend. The Phase 1 [PASSPORT-STUB] meta-strategy
-digest is part of that contract — divergence between allocators would
-silently reject signatures cross-service. Pulling the canonical
-digest, signature recovery, and request/response schemas here keeps
-that contract single-sourced.
+surface to the frontend. The meta-strategy digest is part of that
+contract — divergence between allocators would silently reject
+signatures cross-service. Pulling the canonical digest, signature
+recovery, and request/response schemas here keeps that contract
+single-sourced.
 
-Phase 4's Passport rebuild swaps `verify_meta_strategy_signature` for
-AA-userOp verification at the EntryPoint; until then this module is
-the verifier.
+Phase 4 (WS-FE-1) introduced the `auth` enum on `MetaStrategyPayload`:
+`"passport"` payloads skip EIP-191 verification (the userOp at the
+EntryPoint is the user's authorization on chain) while `"eip191"`
+payloads still verify the canonical digest signature. Both paths
+enforce the `(user, nonce)` / `valid_until` replay window. Phase 5
+will swap the EIP-191 path for an EIP-1271 verification against the
+AA wallet.
 """
 
 from helios_allocator.service.auth import (

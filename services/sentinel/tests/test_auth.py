@@ -1,8 +1,10 @@
-"""Server-side verification of `[PASSPORT-STUB]` signatures.
+"""Server-side verification of meta-strategy signatures.
 
 Bit-exact against the frontend's `OnboardClient.tsx::canonicalDigest`:
-sorted keys, no whitespace, prefix `"Helios meta-strategy v1\\n"`,
-EIP-191 personal_sign envelope.
+sorted keys (excluding `signature` and `auth`), no whitespace, prefix
+`"Helios meta-strategy v1\\n"`, EIP-191 personal_sign envelope. Phase
+4 (WS-FE-1) added the Passport path which skips signature recovery
+but still enforces the replay window — exercised below.
 """
 
 from __future__ import annotations
@@ -134,6 +136,33 @@ def test_verify_accepts_fresh_nonce_after_replay() -> None:
     second = _payload(nonce=2)
     second = second.model_copy(update={"signature": _sign(second)})
     verify_meta_strategy_signature(second, now=_NOW, nonce_store=store)
+
+
+def test_passport_mode_skips_signature_check_but_enforces_window() -> None:
+    """Phase 4 (WS-FE-1): Passport-onboarded payloads carry `auth: "passport"`
+    and a `0x` signature. The userOp at the EntryPoint is the user's
+    authorization on chain; Sentinel only enforces `valid_until` and the
+    nonce-replay window."""
+    p = _payload(auth="passport", signature="0x")
+    recovered = verify_meta_strategy_signature(p, now=_NOW)
+    assert recovered == p.user_address
+
+
+def test_passport_mode_still_rejects_expired() -> None:
+    p = _payload(auth="passport", signature="0x", valid_until=_NOW - 1)
+    with pytest.raises(MetaStrategySignatureError, match="expired"):
+        verify_meta_strategy_signature(p, now=_NOW)
+
+
+def test_passport_mode_still_rejects_replayed_nonce() -> None:
+    """Without the nonce check, a captured Passport payload could be
+    re-POSTed against a different allocator instance to re-bind a
+    delegation the user revoked."""
+    store = NonceStore()
+    p = _payload(auth="passport", signature="0x", nonce=99)
+    verify_meta_strategy_signature(p, now=_NOW, nonce_store=store)
+    with pytest.raises(MetaStrategySignatureError, match="already used"):
+        verify_meta_strategy_signature(p, now=_NOW, nonce_store=store)
 
 
 def test_nonce_store_evicts_expired_entries() -> None:

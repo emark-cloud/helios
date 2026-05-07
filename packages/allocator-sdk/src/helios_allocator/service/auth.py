@@ -1,31 +1,28 @@
-"""Server-side verification of `[PASSPORT-STUB]` meta-strategy signatures.
+"""Server-side verification of meta-strategy submissions.
 
-The frontend (`frontend/src/components/onboard/OnboardClient.tsx`) calls
-`personal_sign` over a stable canonical digest:
+Phase 4 (WS-FE-1) supports two authorization paths, distinguished by
+`MetaStrategyPayload.auth`:
 
-    "Helios meta-strategy v1\\n" + JSON.stringify(<sorted payload sans signature>)
+  * `"eip191"` (anvil/dev) — frontend signs `canonical_digest(payload)`
+    with `personal_sign`; this module recovers the signer and asserts
+    it matches `user_address`.
+  * `"passport"` (production) — frontend submits a batched userOp via
+    Kite Passport that already authorized `UserVault.setMetaStrategy`
+    on chain. The on-chain side of that path is the user's signature;
+    Sentinel only enforces the `(user, nonce)` / `valid_until` replay
+    window so a captured payload cannot be re-POSTed against another
+    allocator instance to re-bind a revoked delegation.
 
-This module reproduces that digest and recovers the signer via EIP-191
-`personal_sign`. A mismatch → 401 at the REST boundary.
+The canonical digest excludes both `signature` and `auth` so EIP-191
+clients written before the Phase 4 enum existed still verify against
+payloads that now carry the field. Shared across allocators: the
+digest format IS the wire contract. If Sentinel and Helix used
+different digest implementations a payload signed by the user could
+be rejected by one allocator and accepted by the other.
 
-Shared across allocators: the digest format IS the wire contract. If
-Sentinel and Helix used different digest implementations a payload
-signed by the user could be rejected by one allocator and accepted by
-the other — a class of bug we close by keeping a single canonical
-implementation here in the SDK.
-
-Replay protection: every payload carries a fresh 64-bit `nonce` minted
-by the frontend. Verification enforces (a) `valid_until > now` so an
-expired signature cannot be replayed, and (b) per-user nonce dedup
-through an injected `NonceStore` so a captured payload cannot be
-re-submitted before it expires. Without both checks a captured
-signature could indefinitely re-bind a delegation the user revoked
-off-chain.
-
-The Phase 4 Passport rebuild (`docs/kite-passport-notes.md §"Migration
-plan"`) replaces the EOA `personal_sign` with an AA userOp signature
-verified at the EntryPoint; until then the `[PASSPORT-STUB]` server
-verifier closes the open hole that the unsigned-write path exposes.
+Phase 5 will replace the EIP-191 path with an EIP-1271 verification
+against the AA wallet at the EntryPoint, removing the off-chain
+EOA-signing path entirely.
 """
 
 from __future__ import annotations
@@ -102,9 +99,13 @@ def canonical_digest(payload: MetaStrategyPayload) -> str:
     """Reproduce the digest produced by `OnboardClient.tsx::canonicalDigest`.
 
     Stable JSON: keys sorted lexicographically, no whitespace, sequences
-    serialized in insertion order.
+    serialized in insertion order. The digest excludes both the
+    signature (which the digest authenticates) and the auth-mode tag
+    (which selects the verification path on the server) so that an
+    EIP-191 signature produced before the Phase 4 enum existed still
+    recovers correctly against a payload that now carries `auth`.
     """
-    raw = payload.model_dump(exclude={"signature"})
+    raw = payload.model_dump(exclude={"signature", "auth"})
     ordered_keys = sorted(raw.keys())
     body: dict[str, Any] = {k: _coerce(raw[k]) for k in ordered_keys}
     return _DIGEST_PREFIX + json.dumps(body, separators=(",", ":"))
@@ -122,40 +123,56 @@ def verify_meta_strategy_signature(
     now: int | None = None,
     nonce_store: NonceStore | None = None,
 ) -> str:
-    """Recover the signer of `payload.signature` against `payload.user_address`.
+    """Authorize a meta-strategy submission.
 
-    Enforces, in order:
-      1. Signature recovery succeeds and matches `user_address`.
-      2. `payload.valid_until > now` (signature is not expired).
-      3. If `nonce_store` is provided, `payload.nonce` has not been seen
-         under this user before within an unexpired window.
+    Behaviour depends on `payload.auth`:
 
-    Returns the recovered checksum address on success. Raises
+      * `"eip191"` (default) — recover the EIP-191 personal_sign over
+        `canonical_digest(payload)` and assert it matches
+        `user_address`. Then enforce `valid_until > now` and the
+        nonce-replay window.
+      * `"passport"` — skip signature recovery (the user's
+        authorization lives at the EntryPoint via the userOp the
+        frontend already submitted). Still enforce `valid_until > now`
+        and the nonce-replay window so a captured payload can't be
+        re-POSTed against a different allocator instance.
+
+    Returns the user's checksum address on success. Raises
     `MetaStrategySignatureError` on any failure.
 
     `now` and `nonce_store` are injected so unit tests can drive
     deterministic time + dedup state. Production callers pass a
     long-lived `NonceStore` shared by the request handler.
     """
-    sig = payload.signature
-    if not sig or sig == "0x":
-        raise MetaStrategySignatureError("missing signature")
-    digest = canonical_digest(payload)
-    encoded = encode_defunct(text=digest)
-    try:
-        recovered = Account.recover_message(encoded, signature=sig)
-    except Exception as exc:  # malformed hex, wrong length, etc.
-        raise MetaStrategySignatureError(f"signature recovery failed: {exc}") from None
-    if recovered.lower() != payload.user_address.lower():
-        raise MetaStrategySignatureError(
-            f"signer {recovered} does not match user_address {payload.user_address}"
-        )
-
     current = int(time.time()) if now is None else now
     if payload.valid_until <= current:
         raise MetaStrategySignatureError(
             f"signature expired: valid_until={payload.valid_until} <= now={current}"
         )
+
+    if payload.auth == "passport":
+        # Passport mode: the on-chain userOp is the user's signature.
+        # Sentinel cannot independently re-derive that authorization
+        # without an RPC round-trip, so we trust the on-chain truth and
+        # only enforce the replay window. The Phase 5 cutover will add
+        # an EIP-1271 verification against the AA wallet at the EntryPoint.
+        recovered = payload.user_address
+    else:
+        sig = payload.signature
+        if not sig or sig == "0x":
+            raise MetaStrategySignatureError("missing signature")
+        digest = canonical_digest(payload)
+        encoded = encode_defunct(text=digest)
+        try:
+            recovered = Account.recover_message(encoded, signature=sig)
+        except Exception as exc:  # malformed hex, wrong length, etc.
+            raise MetaStrategySignatureError(
+                f"signature recovery failed: {exc}"
+            ) from None
+        if recovered.lower() != payload.user_address.lower():
+            raise MetaStrategySignatureError(
+                f"signer {recovered} does not match user_address {payload.user_address}"
+            )
 
     if nonce_store is not None and not nonce_store.claim(
         payload.user_address, payload.nonce, payload.valid_until, now=current

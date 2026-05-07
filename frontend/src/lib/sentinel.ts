@@ -127,8 +127,22 @@ export type MetaStrategyPayload = {
    */
   bootstrap_share_bps: number;
   min_attested_trades: number;
-  /** [PASSPORT-STUB] EOA EIP-712 sig today; Passport sig once unblocked. */
+  /**
+   * Off-chain signature over `canonicalDigest(payload)`. Used by the
+   * `eip191` path (anvil/dev) where Sentinel verifies the signature
+   * before recording. Set to `"0x"` for the `passport` path, where
+   * the userOp at the EntryPoint is the user's authorization and
+   * Sentinel only enforces the `(user, nonce)` / `valid_until`
+   * replay window.
+   */
   signature: string;
+  /**
+   * Authentication mode used to produce this payload. `"passport"`
+   * indicates the user signed via Kite Passport's batched userOp;
+   * `"eip191"` indicates wagmi `personal_sign`. Server uses this to
+   * decide whether to verify the EIP-191 signature.
+   */
+  auth?: "passport" | "eip191";
 };
 
 export class SentinelError extends Error {

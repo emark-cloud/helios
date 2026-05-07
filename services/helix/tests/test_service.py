@@ -91,8 +91,8 @@ def test_post_meta_strategy_creates_user(app_client: tuple[object, TestClient]) 
 def test_post_meta_strategy_rejects_unsigned_stub(
     app_client: tuple[object, TestClient],
 ) -> None:
-    """Same [PASSPORT-STUB] hardening Sentinel applies — server must
-    verify, not just store. Helix must not be a softer target."""
+    """Same EIP-191 hardening Sentinel applies — server must verify,
+    not just store. Helix must not be a softer target."""
     _app, client = app_client
     payload = _signed_payload()
     payload["signature"] = "0x"
