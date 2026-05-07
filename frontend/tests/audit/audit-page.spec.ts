@@ -26,9 +26,10 @@ test.describe("/audit/<actor>", () => {
       await page.goto(`/audit/${fixture.actor}`);
 
       // Wait for the data-driven body to replace the loading skeleton:
-      // the components_hash hex is unique per fixture, so its presence
-      // proves the page rendered the response (not the skeleton).
-      await expect(page.getByText(fixture.components_hash)).toBeVisible();
+      // the components_hash hex is unique per fixture and is rendered
+      // truncated; the full hash is preserved on the chip's `title` and
+      // on the CopyButton's value, so we wait on either.
+      await expect(page.locator(`[title="${fixture.components_hash}"]`)).toBeVisible();
 
       await expect(page).toHaveScreenshot(`${slug}.png`, { fullPage: true });
     });
