@@ -145,7 +145,11 @@ class RotationIntent:
 
     m_from: int
     m_to: int
-    amount_in_usd: int
+    # `int | float` accepted at the public boundary so operator code
+    # (`self._size()`, backtest fixtures) doesn't have to wrap with
+    # `int(...)`. `__post_init__` normalizes to `int` so the downstream
+    # witness builder's `int(value * 10**18)` never sees a float.
+    amount_in_usd: int | float
     apy_from_bps: int
     apy_to_bps: int
 
