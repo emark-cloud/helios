@@ -44,7 +44,13 @@ import { addressesForChainId } from "@/lib/addresses";
 import { readAllocatorChoice, writeAllocatorChoice } from "@/lib/onboard-storage";
 import { type AuthMode } from "@/lib/passport";
 import { postMetaStrategyTo, type AllocatorChoice, type MetaStrategyPayload } from "@/lib/sentinel";
-import { TEMPLATES, type TemplateForm, type TemplateKey } from "@/lib/templates";
+import {
+  DEFUND_PRESETS,
+  TEMPLATES,
+  type DefundForm,
+  type TemplateForm,
+  type TemplateKey,
+} from "@/lib/templates";
 import { IUserVaultAbi } from "@helios/contracts-abi";
 
 const VALID_FOR_DAYS = 90;
@@ -69,6 +75,7 @@ export function OnboardClient(): JSX.Element {
 
   const [templateKey, setTemplateKey] = useState<TemplateKey>("balanced");
   const [form, setForm] = useState<TemplateForm>(TEMPLATES.balanced.form);
+  const [defundForm, setDefundForm] = useState<DefundForm>(DEFUND_PRESETS.balanced);
   const [allocatorChoice, setAllocatorChoiceState] = useState<AllocatorChoice>("sentinel");
 
   // Hydrate from localStorage after mount.
@@ -81,16 +88,24 @@ export function OnboardClient(): JSX.Element {
     writeAllocatorChoice(next);
   }
 
+  // Two-phase error model so the user never loses a signed payload to
+  // a flaky Sentinel. `signing-failed` is unrecoverable (the wallet
+  // rejected or the userOp itself reverted). `allocator-unreachable`
+  // keeps the signed payload around so retry skips re-signing.
+  type Signed = { payload: MetaStrategyPayload; auth: AuthMode; txHash: string | null };
   const [submitState, setSubmitState] = useState<
     | { kind: "idle" }
     | { kind: "submitting"; stage: string }
     | { kind: "ok"; user: string; auth: AuthMode; txHash: string | null }
-    | { kind: "error"; message: string }
+    | { kind: "signing-failed"; message: string; raw: string | null }
+    | { kind: "allocator-unreachable"; message: string; raw: string | null; signed: Signed }
   >({ kind: "idle" });
+  const [showRaw, setShowRaw] = useState(false);
 
   function pickTemplate(next: TemplateKey): void {
     setTemplateKey(next);
     setForm(TEMPLATES[next].form);
+    setDefundForm(DEFUND_PRESETS[next]);
   }
 
   // Effective wallet address: Passport AA when enabled + signed in,
@@ -108,12 +123,25 @@ export function OnboardClient(): JSX.Element {
       await passport.login();
       setSubmitState({ kind: "idle" });
     } catch (err) {
-      setSubmitState({ kind: "error", message: errorMessage(err) });
+      setSubmitState({
+        kind: "signing-failed",
+        message: classifySigningError(err, true),
+        raw: errorMessage(err),
+      });
     }
   }
 
   async function onSign(): Promise<void> {
     if (!userAddress) return;
+    setShowRaw(false);
+    // Replay path: a previous attempt signed successfully but Sentinel
+    // POST failed. Don't burn another passkey/personal_sign — replay
+    // the cached signed payload.
+    if (submitState.kind === "allocator-unreachable") {
+      void retryPost(submitState.signed);
+      return;
+    }
+
     const validUntil = Math.floor(Date.now() / 1000) + VALID_FOR_DAYS * 86_400;
     const nonce = mintNonce();
 
@@ -127,27 +155,51 @@ export function OnboardClient(): JSX.Element {
     };
 
     setSubmitState({ kind: "submitting", stage: "Preparing meta-strategy…" });
+    let signed: MetaStrategyPayload;
+    let txHash: string | null = null;
     try {
-      let signed: MetaStrategyPayload;
-      let txHash: string | null = null;
       if (passport.enabled) {
         // Single-passkey batched userOp lands the deposit + the
         // setMetaStrategy + the allocator delegation atomically.
-        // Sentinel still receives the off-chain payload so it can
-        // mirror the meta-strategy without polling Goldsky.
-        txHash = await sendOnboardingUserOp(passport, basePayload);
+        txHash = await sendOnboardingUserOp(passport, basePayload, defundForm);
         signed = { ...basePayload, signature: "0x", auth: "passport" };
-        setSubmitState({ kind: "submitting", stage: "Recording with allocator…" });
       } else {
         const digest = canonicalDigest(basePayload);
         const sig = await signMessageAsync({ message: digest });
         signed = { ...basePayload, signature: sig, auth: "eip191" };
       }
-      await postMetaStrategyTo(allocatorChoice, signed);
-      setSubmitState({ kind: "ok", user: userAddress, auth: signed.auth ?? "eip191", txHash });
+    } catch (err) {
+      setSubmitState({
+        kind: "signing-failed",
+        message: classifySigningError(err, passport.enabled),
+        raw: errorMessage(err),
+      });
+      return;
+    }
+    await retryPost({ payload: signed, auth: signed.auth ?? "eip191", txHash });
+  }
+
+  async function retryPost(signed: Signed): Promise<void> {
+    setSubmitState({ kind: "submitting", stage: "Recording with allocator…" });
+    try {
+      await postMetaStrategyTo(allocatorChoice, signed.payload);
+      setSubmitState({
+        kind: "ok",
+        user: signed.payload.user_address,
+        auth: signed.auth,
+        txHash: signed.txHash,
+      });
       router.push("/dashboard");
     } catch (err) {
-      setSubmitState({ kind: "error", message: errorMessage(err) });
+      // Signature is intact — surface a retryable state so the user
+      // doesn't have to re-sign (which would burn another passkey
+      // prompt and roll the nonce).
+      setSubmitState({
+        kind: "allocator-unreachable",
+        message: "Signed, but the allocator service didn't acknowledge. Retry without re-signing.",
+        raw: errorMessage(err),
+        signed,
+      });
     }
   }
 
@@ -165,7 +217,12 @@ export function OnboardClient(): JSX.Element {
       </Section>
 
       <Section step="2" title="Constraints">
-        <CustomizationPanel value={form} onChange={setForm} />
+        <CustomizationPanel
+          value={form}
+          onChange={setForm}
+          defundValue={defundForm}
+          onDefundChange={setDefundForm}
+        />
       </Section>
 
       <Section step="3" title="Allocator">
@@ -179,13 +236,32 @@ export function OnboardClient(): JSX.Element {
             connected={connected}
             isSigning={isSigning || submitState.kind === "submitting"}
             stage={submitState.kind === "submitting" ? submitState.stage : null}
-            error={submitState.kind === "error" ? submitState.message : null}
+            errorKind={
+              submitState.kind === "signing-failed"
+                ? "signing"
+                : submitState.kind === "allocator-unreachable"
+                  ? "allocator"
+                  : null
+            }
+            errorMessage={
+              submitState.kind === "signing-failed" || submitState.kind === "allocator-unreachable"
+                ? submitState.message
+                : null
+            }
+            errorRaw={
+              submitState.kind === "signing-failed" || submitState.kind === "allocator-unreachable"
+                ? submitState.raw
+                : null
+            }
+            showRaw={showRaw}
+            onToggleRaw={() => setShowRaw((v) => !v)}
             ok={submitState.kind === "ok"}
             canSubmit={Boolean(canSubmit)}
             onSign={() => void onSign()}
             onConnect={() => void onConnect()}
             authMode={passport.enabled ? "passport" : "eip191"}
             txHash={submitState.kind === "ok" ? submitState.txHash : null}
+            isRetry={submitState.kind === "allocator-unreachable"}
           />
         </div>
       </Section>
@@ -219,24 +295,34 @@ function SignPanel({
   connected,
   isSigning,
   stage,
-  error,
+  errorKind,
+  errorMessage: errorMsg,
+  errorRaw,
+  showRaw,
+  onToggleRaw,
   ok,
   canSubmit,
   onSign,
   onConnect,
   authMode,
   txHash,
+  isRetry,
 }: {
   connected: boolean;
   isSigning: boolean;
   stage: string | null;
-  error: string | null;
+  errorKind: "signing" | "allocator" | null;
+  errorMessage: string | null;
+  errorRaw: string | null;
+  showRaw: boolean;
+  onToggleRaw: () => void;
   ok: boolean;
   canSubmit: boolean;
   onSign: () => void;
   onConnect: () => void;
   authMode: AuthMode;
   txHash: string | null;
+  isRetry: boolean;
 }): JSX.Element {
   const passport = authMode === "passport";
   return (
@@ -274,10 +360,34 @@ function SignPanel({
         </p>
       ) : null}
 
-      {error ? (
-        <p className="rounded-sm border border-signal-negative-dim bg-surface-elev px-3 py-2 font-mono text-xs text-signal-negative">
-          {error}
-        </p>
+      {errorKind ? (
+        <div
+          role="alert"
+          className={
+            errorKind === "allocator"
+              ? "rounded-sm border border-amber/40 bg-amber/10 px-3 py-2 text-xs text-amber-bright"
+              : "rounded-sm border border-signal-negative-dim bg-surface-elev px-3 py-2 text-xs text-signal-negative"
+          }
+        >
+          <p className="font-mono">
+            {errorKind === "allocator" ? "Allocator unreachable" : "Signing failed"}
+          </p>
+          <p className="mt-1 text-fg-secondary">{errorMsg}</p>
+          {errorRaw ? (
+            <button
+              type="button"
+              onClick={onToggleRaw}
+              className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-muted hover:text-fg-primary"
+            >
+              {showRaw ? "Hide" : "Show"} technical detail
+            </button>
+          ) : null}
+          {showRaw && errorRaw ? (
+            <pre className="mt-2 overflow-x-auto rounded-sm border border-surface-line bg-surface-base px-2 py-1.5 font-mono text-[11px] text-fg-muted">
+              {errorRaw}
+            </pre>
+          ) : null}
+        </div>
       ) : null}
 
       {ok ? (
@@ -294,7 +404,13 @@ function SignPanel({
         disabled={!canSubmit || isSigning}
         className="rounded-md border border-amber bg-amber/10 px-4 py-2.5 font-mono text-sm uppercase tracking-[0.16em] text-amber-bright hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {isSigning ? "Working…" : passport ? "Confirm with passkey" : "Sign meta-strategy"}
+        {isSigning
+          ? "Working…"
+          : isRetry
+            ? "Retry — keep signature"
+            : passport
+              ? "Confirm with passkey"
+              : "Sign meta-strategy"}
       </button>
     </div>
   );
@@ -310,6 +426,7 @@ function SignPanel({
 async function sendOnboardingUserOp(
   passport: ReturnType<typeof usePassport>,
   payload: MetaStrategyPayload,
+  defundForm: DefundForm,
 ): Promise<string> {
   if (!passport.enabled || passport.session === null) {
     throw new Error("Passport not signed in.");
@@ -328,7 +445,7 @@ async function sendOnboardingUserOp(
 
   const aa = passport.session.aaAddress;
   const depositAmount = parseUnits(payload.max_capital_usd.toString(), USDC_DECIMALS);
-  const metaStruct = formToContractStruct(payload, addrs.usdc);
+  const metaStruct = formToContractStruct(payload, addrs.usdc, defundForm);
 
   const callDatas: Hex[] = [
     encodeFunctionData({
@@ -393,6 +510,7 @@ async function sendOnboardingUserOp(
 function formToContractStruct(
   payload: MetaStrategyPayload,
   usdc: `0x${string}`,
+  defundForm: DefundForm,
 ): {
   metaStrategyHash: Hex;
   allowedStrategyClasses: Hex[];
@@ -429,9 +547,9 @@ function formToContractStruct(
     maxFeeRateBps: payload.max_fee_rate_bps,
     rebalanceCadenceSec: BigInt(payload.rebalance_cadence_sec),
     validUntil: BigInt(payload.valid_until),
-    defundTwapBars: 0,
-    defundBondBps: 0,
-    defundConfirmBlocks: 0,
+    defundTwapBars: defundForm.defund_twap_bars,
+    defundBondBps: defundForm.defund_bond_bps,
+    defundConfirmBlocks: defundForm.defund_confirm_blocks,
   };
 }
 
@@ -462,6 +580,31 @@ function shorten(hash: string): string {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return "Onboarding failed.";
+}
+
+/**
+ * Map a thrown error from the signing path into a user-facing
+ * message. The wallet/Passport SDKs throw a wide variety of strings;
+ * we collapse them into "rejected" / "passkey failed" / "userOp
+ * reverted" so the primary error line reads naturally and the raw
+ * message stays available behind the technical-detail toggle.
+ */
+function classifySigningError(err: unknown, isPassport: boolean): string {
+  const raw = errorMessage(err).toLowerCase();
+  if (raw.includes("user reject") || raw.includes("user denied") || raw.includes("rejected")) {
+    return isPassport
+      ? "Passkey approval was cancelled. Try again to sign."
+      : "Signature rejected in your wallet. Try again to sign.";
+  }
+  if (raw.includes("passkey") || raw.includes("webauthn")) {
+    return "Passkey authentication failed. Try again, or check that the passkey for this site is still registered on your device.";
+  }
+  if (raw.includes("userop") || raw.includes("revert") || raw.includes("execution reverted")) {
+    return "The on-chain userOp reverted. Your wallet was not charged; check the technical detail for the failure reason.";
+  }
+  return isPassport
+    ? "Passkey signing did not complete."
+    : "The wallet did not return a signature.";
 }
 
 /**

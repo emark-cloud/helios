@@ -9,6 +9,7 @@
 
 "use client";
 
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
 import { useMemo, useState } from "react";
@@ -16,6 +17,7 @@ import { useMemo, useState } from "react";
 import { ChainBadge } from "@/components/atoms/ChainBadge";
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
 import { ArrowDownIcon, ArrowUpIcon } from "@/components/icon";
+import { useTableRowNav } from "@/hooks/useTableRowNav";
 import { cn } from "@/lib/cn";
 import {
   classSlugToHash,
@@ -57,6 +59,7 @@ export type StrategiesTableProps = {
 export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTableProps): JSX.Element {
   const [sortKey, setSortKey] = useState<SortKey>("currentReputation");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const router = useRouter();
 
   const filtered = useMemo(() => {
     // Subgraph emits `declaredClass` as the bytes32 hash; filter chips
@@ -89,6 +92,14 @@ export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTa
       setSortDir("desc");
     }
   }
+
+  const { selectedIndex } = useTableRowNav({
+    rowCount: sorted.length,
+    onActivate: (i) => {
+      const target = sorted[i];
+      if (target) router.push(`/strategies/${target.id.toLowerCase()}` as Route);
+    },
+  });
 
   if (sorted.length === 0) {
     return (
@@ -139,8 +150,8 @@ export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTa
           </tr>
         </thead>
         <tbody>
-          {sorted.map((row) => (
-            <Row key={row.id} row={row} />
+          {sorted.map((row, i) => (
+            <Row key={row.id} row={row} selected={i === selectedIndex} />
           ))}
         </tbody>
       </table>
@@ -148,7 +159,7 @@ export function StrategiesTable({ rows, classFilter, chainFilter }: StrategiesTa
   );
 }
 
-function Row({ row }: { row: StrategyDirectoryRow }): JSX.Element {
+function Row({ row, selected }: { row: StrategyDirectoryRow; selected: boolean }): JSX.Element {
   const reputation = readReputation(row);
   const pnl = readPnL(row);
   const stake = readStake(row);
@@ -157,7 +168,13 @@ function Row({ row }: { row: StrategyDirectoryRow }): JSX.Element {
   const detailHref = `/strategies/${row.id.toLowerCase()}` as Route;
 
   return (
-    <tr className="border-b border-surface-line last:border-b-0 hover:bg-surface-elev">
+    <tr
+      data-row-selected={selected ? "true" : undefined}
+      aria-selected={selected ? "true" : undefined}
+      className={cn(
+        "border-b border-surface-line last:border-b-0 hover:bg-surface-elev",
+        selected && "bg-surface-elev",
+      )}>
       <td className="px-3 py-2.5 text-fg-primary">
         <Link href={detailHref} className="hover:text-amber">
           {operatorLabel(row)}
