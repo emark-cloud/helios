@@ -26,7 +26,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from eth_abi import encode as abi_encode
+from eth_abi.abi import encode as abi_encode
 from helios_allocator.runtime import AllocatorEvent, AllocatorStore
 from helios_allocator.runtime.state import AllocationState, UserState
 from helios_allocator.types import MetaStrategy
