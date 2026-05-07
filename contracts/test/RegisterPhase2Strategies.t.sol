@@ -122,7 +122,7 @@ contract RegisterPhase2StrategiesTest is Test {
     }
 
     function _deployPrimary(bytes32 declaredClass) internal returns (address) {
-        StrategyVault impl = new StrategyVault();
+        StrategyVault impl = new StrategyVault(address(priceAnchor), address(yieldAnchor));
         address[] memory universe = new address[](1);
         universe[0] = address(usdc);
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({

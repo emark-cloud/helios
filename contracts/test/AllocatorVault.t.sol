@@ -138,7 +138,7 @@ contract AllocatorVaultTest is Test {
         internal
         returns (StrategyVault s)
     {
-        StrategyVault impl = new StrategyVault();
+        StrategyVault impl = new StrategyVault(priceAnchor, yieldAnchor);
         address[] memory universe = new address[](1);
         universe[0] = address(usdc);
         IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
