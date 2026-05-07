@@ -145,8 +145,8 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - yield_rotation_v1 → `0xda1572e9e8466e04a160af33ad29b569117be7be` (raw `0x065b22534b54a719de3a47bce8082b9383421764`)
   - `reputationAnchor` (V1, registry-bound) `0x51c07adf596b1e72697a9b8232d061ed006943dc`
   - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
-  - `oraclePriceAnchor` `0x90e7a456404e73466e71a190dbb5a5a3490776a8`
-  - `oracleYieldAnchor` `0x1e458d57f9fe0cf50f82366c258b05a254d8fa6f`
+  - `oraclePriceAnchor` `0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4` (Phase-3 redeploy 2026-05-07; supersedes `0x90e7a456…` which lacked `freshness()` / `unrevokeRoot()` from HIGH #6/#9)
+  - `oracleYieldAnchor` `0x345cd375ec42476eb95c5903fb3abb27f9400f9d` (Phase-3 redeploy 2026-05-07; supersedes `0x1e458d57…`)
   - Three deployed strategy vaults per class (base + Variant2 + Variant3); see JSON for the full nine.
 - **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
 - **Base Sepolia (84532)**: *(Phase 5)*
