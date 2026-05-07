@@ -47,6 +47,19 @@ interface IStrategyVault {
     );
     event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
+    /// @notice Emitted on the second consecutive `reportNAV` whose
+    ///         signed NAV falls below the strategy vault's cash floor
+    ///         by more than `navDivergenceThresholdBps`. Helios.md
+    ///         §6.4 (Phase 4) — Helios multi-sig watches off-chain
+    ///         and executes `StrategyRegistry.slash`.
+    event NavDivergenceObserved(
+        address indexed strategy,
+        uint256 signedNAV,
+        uint256 markedFloor,
+        uint64 snapshotNonce
+    );
+    /// @notice Owner-only divergence-threshold rotation.
+    event NavDivergenceThresholdUpdated(uint16 previous, uint16 next);
     /// @notice Emitted when a yield_rotation_v1 trade is attested. The
     ///         private witnesses (signal_threshold, bridging_cost,
     ///         markets_allowlist_root) are committed inside the proof's

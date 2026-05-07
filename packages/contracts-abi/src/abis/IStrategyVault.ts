@@ -361,6 +361,56 @@ export const IStrategyVaultAbi = [
   },
   {
     "type": "event",
+    "name": "NavDivergenceObserved",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "signedNAV",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "markedFloor",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snapshotNonce",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NavDivergenceThresholdUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "next",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RealizedDistributed",
     "inputs": [
       {
