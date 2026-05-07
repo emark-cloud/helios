@@ -245,9 +245,7 @@ class ChainWatcher:
         self._allocator_vault_lc = config.addresses.allocator_vault.lower()
         self._strategy_vaults_lc = {a.lower() for a in config.addresses.strategy_vaults}
         self._live = bool(
-            config.rpc_url
-            and config.addresses.allocator_vault
-            and config.chain_id > 0
+            config.rpc_url and config.addresses.allocator_vault and config.chain_id > 0
         )
         # Lazy Web3 init — same posture as AllocatorOnChain so dry-run
         # tests don't dial the RPC.
@@ -292,9 +290,7 @@ class ChainWatcher:
             except Exception as exc:  # pragma: no cover — defensive
                 _log.warning("chain_watch.tick_failed", err=str(exc), exc_info=True)
             try:
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=self._cfg.poll_interval_sec
-                )
+                await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.poll_interval_sec)
             except TimeoutError:
                 continue
 
@@ -311,9 +307,7 @@ class ChainWatcher:
         latest = await asyncio.to_thread(lambda: w3.eth.block_number)
         cp = self._checkpoint
         if cp.last_scanned_block == 0:
-            cp.last_scanned_block = (
-                int(latest) if self._cfg.start_at_latest_when_unset else 0
-            )
+            cp.last_scanned_block = int(latest) if self._cfg.start_at_latest_when_unset else 0
             return 0
         from_block = cp.last_scanned_block + 1
         to_block = min(int(latest), from_block + _MAX_CATCHUP_BLOCKS - 1)
@@ -342,10 +336,7 @@ class ChainWatcher:
 
         cp.last_scanned_block = to_block
         cp.flushed += 1
-        if (
-            self._cfg.checkpoint_path is not None
-            and cp.flushed >= _CHECKPOINT_FLUSH_EVERY
-        ):
+        if self._cfg.checkpoint_path is not None and cp.flushed >= _CHECKPOINT_FLUSH_EVERY:
             self._flush_checkpoint()
         return emitted
 
@@ -393,10 +384,7 @@ class ChainWatcher:
         contract_lc = _log_attr(log, "address", "").lower()
         if binding.contract == "allocatorVault" and contract_lc != self._allocator_vault_lc:
             return False
-        if (
-            binding.contract == "strategyVault"
-            and contract_lc not in self._strategy_vaults_lc
-        ):
+        if binding.contract == "strategyVault" and contract_lc not in self._strategy_vaults_lc:
             return False
         decoded = self._decode(binding, log)
         if decoded is None:
@@ -416,9 +404,7 @@ class ChainWatcher:
             else _log_attr(log, "address", "")
         )
         try:
-            contract = w3.eth.contract(
-                address=Web3.to_checksum_address(contract_addr), abi=abi
-            )
+            contract = w3.eth.contract(address=Web3.to_checksum_address(contract_addr), abi=abi)
             event_obj = contract.events[binding.name]()
             return event_obj.process_log(log)
         except Exception as exc:  # pragma: no cover — defensive
@@ -430,9 +416,7 @@ class ChainWatcher:
             return None
 
     # ── Emit handlers ─────────────────────────────────────────────
-    def _emit_decoded(
-        self, binding: _EventBinding, decoded: dict[str, Any]
-    ) -> bool:
+    def _emit_decoded(self, binding: _EventBinding, decoded: dict[str, Any]) -> bool:
         args = dict(decoded["args"])
         tx_hash = _hex(decoded.get("transactionHash"))
         ts = int(time.time())

@@ -94,6 +94,9 @@ ignore = [
 # Mean-reversion signal logic is a flat decision tree (long-entry, short-entry,
 # stop-loss, mean re-cross, no-op) — early returns are clearer than nesting.
 "reference-strategies/mean_reversion_v1/src/mean_reversion_v1/strategy.py" = ["PLR0911"]
+# Chain-watch decoder is a flat dispatcher over event names — restructuring
+# into a lookup table would hurt readability without changing behavior.
+"services/sentinel/src/sentinel/chain_watch.py" = ["PLR0911"]
 # Oracle Settings holds the full env-var surface area for the service —
 # intentional length, not a refactor target.
 "services/oracle/src/oracle/service.py" = ["PLR0915"]

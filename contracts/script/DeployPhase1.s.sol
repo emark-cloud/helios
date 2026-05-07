@@ -145,6 +145,11 @@ contract DeployPhase1 is Script {
             )
         );
         a.allocatorVault = address(new ERC1967Proxy(address(avImpl), avInit));
+        // WS-CX-1: permissionless defund's `triggerDefund` gates on
+        // oracle freshness via `oracleAnchor`. Wire the deployed
+        // `OraclePriceAnchor` here so the e2e (and any production
+        // bring-up) doesn't have to remember the post-deploy step.
+        AllocatorVault(a.allocatorVault).setOracleAnchor(a.oraclePriceAnchor);
 
         a.strategyVaultMomentum = _deployStrategyVault(a, deployer, CLASS_MOM, "momentum_v1");
         a.strategyVaultMeanReversion =

@@ -118,7 +118,7 @@ def _watcher(
     return ChainWatcher(
         store=store,
         config=cfg,
-        web3_factory=web3_factory or (lambda: Web3()),
+        web3_factory=web3_factory or Web3,
     )
 
 
@@ -242,9 +242,7 @@ def _defund_observed_log(
     return _make_log(
         address=_ALLOCATOR_VAULT,
         topics=[
-            _topic_for(
-                "DefundObserved(address,address,address,uint8,uint256,uint256)"
-            ),
+            _topic_for("DefundObserved(address,address,address,uint8,uint256,uint256)"),
             _addr_topic(user),
             _addr_topic(strategy),
             _addr_topic(triggerer),
@@ -270,9 +268,7 @@ def _defund_finalized_log(
     return _make_log(
         address=_ALLOCATOR_VAULT,
         topics=[
-            _topic_for(
-                "DefundFinalized(address,address,address,uint256,uint256,uint256)"
-            ),
+            _topic_for("DefundFinalized(address,address,address,uint256,uint256,uint256)"),
             _addr_topic(user),
             _addr_topic(strategy),
         ],
@@ -296,9 +292,7 @@ def _nav_divergence_log(
     return _make_log(
         address=address or strategy,
         topics=[
-            _topic_for(
-                "NavDivergenceObserved(address,uint256,uint256,uint64)"
-            ),
+            _topic_for("NavDivergenceObserved(address,uint256,uint256,uint64)"),
             _addr_topic(strategy),
         ],
         data=abi_encode(
@@ -359,14 +353,10 @@ def test_defund_finalized_distinguishes_slash_vs_refund() -> None:
     store = _store_with_users(_USER_A)
     w = _watcher(store=store)
     # Slash-to-user path.
-    w._handle_logs(
-        [_defund_finalized_log(slashed_to_user=10_000_000, reward=0, tx_hash=_TX_HASH)]
-    )
+    w._handle_logs([_defund_finalized_log(slashed_to_user=10_000_000, reward=0, tx_hash=_TX_HASH)])
     alt_tx = "0x" + "cd" * 32
     # Refund path (different tx — same kind/strategy would otherwise dedup).
-    w._handle_logs(
-        [_defund_finalized_log(slashed_to_user=0, reward=20_000_000, tx_hash=alt_tx)]
-    )
+    w._handle_logs([_defund_finalized_log(slashed_to_user=0, reward=20_000_000, tx_hash=alt_tx)])
     events = store.recent_events(_USER_A)
     kinds = [e.kind for e in events]
     reasons = [e.reason for e in events]

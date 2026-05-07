@@ -370,9 +370,7 @@ class AllocatorLoop:
             touched += 1
         return abs(net) <= touched
 
-    def _emit_rebalance_complete(
-        self, user: UserState, ts: int, *, tx_hash: str = ""
-    ) -> None:
+    def _emit_rebalance_complete(self, user: UserState, ts: int, *, tx_hash: str = "") -> None:
         self._store.emit_event(
             AllocatorEvent(
                 user_address=user.meta.user_address,

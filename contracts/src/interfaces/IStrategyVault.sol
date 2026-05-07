@@ -53,10 +53,7 @@ interface IStrategyVault {
     ///         §6.4 (Phase 4) — Helios multi-sig watches off-chain
     ///         and executes `StrategyRegistry.slash`.
     event NavDivergenceObserved(
-        address indexed strategy,
-        uint256 signedNAV,
-        uint256 markedFloor,
-        uint64 snapshotNonce
+        address indexed strategy, uint256 signedNAV, uint256 markedFloor, uint64 snapshotNonce
     );
     /// @notice Owner-only divergence-threshold rotation.
     event NavDivergenceThresholdUpdated(uint16 previous, uint16 next);

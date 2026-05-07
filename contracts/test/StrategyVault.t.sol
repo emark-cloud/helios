@@ -57,10 +57,7 @@ contract StrategyVaultTest is Test {
     event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
     event NavDivergenceObserved(
-        address indexed strategy,
-        uint256 signedNAV,
-        uint256 markedFloor,
-        uint64 snapshotNonce
+        address indexed strategy, uint256 signedNAV, uint256 markedFloor, uint64 snapshotNonce
     );
 
     function setUp() public {

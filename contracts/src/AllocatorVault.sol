@@ -329,8 +329,7 @@ contract AllocatorVault is
             _checkOracleFresh();
             if (ddBps < uint256(meta.drawdownThresholdBps)) revert DrawdownNotBreached();
 
-            uint128 bond =
-                uint128((rec.capitalDeployed * uint256(meta.defundBondBps)) / 10_000);
+            uint128 bond = uint128((rec.capitalDeployed * uint256(meta.defundBondBps)) / 10_000);
             if (bond > 0) baseAsset.safeTransferFrom(msg.sender, address(this), bond);
 
             pending.firstObservedAt = uint64(block.timestamp);
@@ -399,10 +398,7 @@ contract AllocatorVault is
         if (uint256(pending.breachCount) < uint256(meta.defundTwapBars)) {
             revert DefundNotArmed();
         }
-        if (
-            block.number
-                < uint256(pending.lastObservedBlock) + uint256(meta.defundConfirmBlocks)
-        ) {
+        if (block.number < uint256(pending.lastObservedBlock) + uint256(meta.defundConfirmBlocks)) {
             revert ConfirmWindowNotElapsed();
         }
 
@@ -457,11 +453,7 @@ contract AllocatorVault is
     ///         the operator wants to defund through the operator path
     ///         without ambiguity, or when the trigger fired on a
     ///         drawdown the operator already addressed off-chain.
-    function cancelDefund(address user, address strategy)
-        external
-        onlyOperator
-        nonReentrant
-    {
+    function cancelDefund(address user, address strategy) external onlyOperator nonReentrant {
         PendingDefund storage pending = _pendingDefunds[user][strategy];
         if (pending.breachCount == 0) revert DefundNotPending();
         _refundBond(pending);

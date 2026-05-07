@@ -58,15 +58,11 @@ interface IAllocatorVault {
     /// @notice Emitted once `breachCount == defundTwapBars`. The pending
     ///         entry is now eligible to call `finalizeDefund` after
     ///         `defundConfirmBlocks` elapse since `armedAtBlock`.
-    event DefundArmed(
-        address indexed user, address indexed strategy, uint64 armedAtBlock
-    );
+    event DefundArmed(address indexed user, address indexed strategy, uint64 armedAtBlock);
     /// @notice Pending entry cleared without finalizing. `reason` ∈
     ///         `keccak256("RECOVERED")` (NAV recovered above threshold)
     ///         or `keccak256("OPERATOR_CANCEL")` (operator override).
-    event DefundCancelled(
-        address indexed user, address indexed strategy, bytes32 reason
-    );
+    event DefundCancelled(address indexed user, address indexed strategy, bytes32 reason);
     /// @notice Permissionless defund finalize outcome.
     /// @param refunded      Bond returned to `triggerer` (full bond, or 0 on slash-to-user).
     /// @param reward        Reward paid from strategy stake (0 on slash-to-user; capped).

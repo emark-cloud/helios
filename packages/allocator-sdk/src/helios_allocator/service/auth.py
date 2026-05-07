@@ -166,9 +166,7 @@ def verify_meta_strategy_signature(
         try:
             recovered = Account.recover_message(encoded, signature=sig)
         except Exception as exc:  # malformed hex, wrong length, etc.
-            raise MetaStrategySignatureError(
-                f"signature recovery failed: {exc}"
-            ) from None
+            raise MetaStrategySignatureError(f"signature recovery failed: {exc}") from None
         if recovered.lower() != payload.user_address.lower():
             raise MetaStrategySignatureError(
                 f"signer {recovered} does not match user_address {payload.user_address}"

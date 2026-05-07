@@ -720,9 +720,7 @@ contract StrategyVault is
         uint8 next = consecutiveNavDivergenceBreaches + 1;
         consecutiveNavDivergenceBreaches = next;
         if (next >= 2) {
-            emit NavDivergenceObserved(
-                address(this), signedNAV, markedFloor, snapshotNonce
-            );
+            emit NavDivergenceObserved(address(this), signedNAV, markedFloor, snapshotNonce);
         }
     }
 

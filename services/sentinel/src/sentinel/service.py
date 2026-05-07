@@ -21,6 +21,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from _template import BaseServiceSettings, create_app
@@ -35,8 +36,6 @@ from helios_allocator.runtime import (
 )
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
-
-from pathlib import Path
 
 from sentinel.allocator import SentinelAllocator
 from sentinel.auth import (

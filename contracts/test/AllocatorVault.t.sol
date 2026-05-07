@@ -785,9 +785,7 @@ contract AllocatorVaultTest is Test {
         uint256 trigBalBefore = usdc.balanceOf(triggerer);
 
         vm.expectEmit(true, true, true, true);
-        emit IAllocatorVault.DefundObserved(
-            user, address(stratA), triggerer, 1, 2000, bondExpected
-        );
+        emit IAllocatorVault.DefundObserved(user, address(stratA), triggerer, 1, 2000, bondExpected);
         vm.prank(triggerer);
         allocatorVault.triggerDefund(user, address(stratA));
 
@@ -899,9 +897,7 @@ contract AllocatorVaultTest is Test {
 
         // Pending cleared, bond refunded.
         assertEq(
-            allocatorVault.pendingDefundOf(user, address(stratA)).breachCount,
-            0,
-            "pending cleared"
+            allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0, "pending cleared"
         );
         assertEq(usdc.balanceOf(triggerer), balBefore, "bond refunded");
     }
@@ -935,8 +931,7 @@ contract AllocatorVaultTest is Test {
         vm.roll(block.number + 26); // > confirmBlocks (25)
 
         uint256 trigBefore = usdc.balanceOf(triggerer);
-        uint256 bondAmt =
-            (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
         uint256 rewardExpected = bondAmt; // 50bps × 30k = bond size; same as reward
         uint256 accruedBefore = allocatorVault.accruedFees();
         require(accruedBefore >= rewardExpected, "test seed underfunded");
@@ -967,8 +962,7 @@ contract AllocatorVaultTest is Test {
         _seedAccruedFees();
         vm.roll(block.number + 26);
 
-        uint256 bondAmt =
-            (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
         uint256 trigBefore = usdc.balanceOf(triggerer);
         uint256 accruedBefore = allocatorVault.accruedFees();
 
@@ -1020,9 +1014,7 @@ contract AllocatorVaultTest is Test {
         allocatorVault.triggerDefund(user, address(stratA));
 
         vm.expectEmit(true, true, false, true);
-        emit IAllocatorVault.DefundCancelled(
-            user, address(stratA), keccak256("OPERATOR_CANCEL")
-        );
+        emit IAllocatorVault.DefundCancelled(user, address(stratA), keccak256("OPERATOR_CANCEL"));
         vm.prank(operator);
         allocatorVault.cancelDefund(user, address(stratA));
 
