@@ -243,6 +243,15 @@ type DefundEvent @entity(immutable: true) {
   strategy: Strategy!
   reason: String!
   triggeredBy: Bytes!            # whoever called the permissionless defund
+  # Phase-3 review MEDIUM: this is the per-event capitalDeployed scalar
+  # at the moment of defund — i.e., the *delta* from the most recent
+  # rebalance, NOT the cumulative position. Reading "amount recovered"
+  # off this field is wrong by design. Consumers must sum AllocateEvent
+  # / RebalanceEvent over the (user, strategy) pair up to the defund
+  # block to recover the cumulative position. Field renamed to
+  # `capitalDeltaAtDefund` would be cleaner; deferred until the next
+  # mandatory subgraph schema bump because the Goldsky pin
+  # (graph-cli 0.83.0) makes redeploys load-bearing.
   capitalRecovered: BigInt!
   timestamp: BigInt!
   txHash: Bytes!
