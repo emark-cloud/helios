@@ -9,6 +9,8 @@
 
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { useMemo, useState } from "react";
 
 import { ChainBadge } from "@/components/atoms/ChainBadge";
@@ -17,7 +19,6 @@ import { ArrowDownIcon, ArrowUpIcon } from "@/components/icon";
 import { cn } from "@/lib/cn";
 import {
   classSlugToHash,
-  explorerAddressUrl,
   formatAddress,
   formatBpsAsPct,
   formatStrategyClass,
@@ -153,25 +154,14 @@ function Row({ row }: { row: StrategyDirectoryRow }): JSX.Element {
   const stake = readStake(row);
   const drawdown = row.maxDrawdownBps;
 
-  // /strategies/[id] is a Phase 4 page; until then the strategy
-  // address links out to the chain explorer so judges + auditors can still inspect.
-  const detailHref = explorerAddressUrl(row.chainId, row.id);
+  const detailHref = `/strategies/${row.id.toLowerCase()}` as Route;
 
   return (
     <tr className="border-b border-surface-line last:border-b-0 hover:bg-surface-elev">
       <td className="px-3 py-2.5 text-fg-primary">
-        {detailHref ? (
-          <a
-            href={detailHref}
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-amber"
-          >
-            {operatorLabel(row)}
-          </a>
-        ) : (
-          operatorLabel(row)
-        )}
+        <Link href={detailHref} className="hover:text-amber">
+          {operatorLabel(row)}
+        </Link>
       </td>
       <td className="px-3 py-2.5 text-fg-secondary">{formatStrategyClass(row.declaredClass)}</td>
       <td className="px-3 py-2.5">

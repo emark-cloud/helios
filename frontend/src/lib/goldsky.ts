@@ -446,3 +446,197 @@ export async function fetchAllocatorByName(
   );
   return data.allocators[0] ?? null;
 }
+
+// ── Strategy detail (`/strategies/[id]`) ────────────────────────────
+
+export type StrategyTradeRow = {
+  id: string;
+  timestamp: string;
+  txHash: string;
+  proofValid: boolean;
+  declaredClass: string;
+  assetIn: string;
+  assetOut: string;
+  amountIn: string;
+  minAmountOut: string;
+  direction: number;
+  blockWindowStart: string;
+  blockWindowEnd: string;
+};
+
+export type StrategyAllocationRow = {
+  id: string;
+  capitalDeployed: string;
+  strategyHighWaterMark: string;
+  lastRebalanceAt: string;
+  defundedAt: string | null;
+  defundReason: string | null;
+  user: { id: string };
+  allocator: { id: string; name: string };
+};
+
+export type ParamsRotationRow = {
+  id: string;
+  oldHash: string;
+  newHash: string;
+  timestamp: string;
+  txHash: string;
+};
+
+export type NavSnapshotRow = {
+  id: string;
+  totalNAV: string;
+  timestamp: string;
+};
+
+export type StrategyDetail = StrategyDirectoryRow & {
+  trades: StrategyTradeRow[];
+  allocations: StrategyAllocationRow[];
+  paramsRotations: ParamsRotationRow[];
+  navSnapshots: NavSnapshotRow[];
+};
+
+const STRATEGY_DETAIL_QUERY = /* GraphQL */ `
+  query StrategyDetail($id: Bytes!, $tradeFirst: Int!, $allocFirst: Int!, $navFirst: Int!) {
+    strategy(id: $id) {
+      id
+      declaredClass
+      chainId
+      operator
+      feeRateBps
+      stakeAmount
+      maxCapacity
+      active
+      registeredAt
+      currentReputation
+      totalRealizedPnL
+      totalAttestedTrades
+      maxDrawdownBps
+      trades(first: $tradeFirst, orderBy: timestamp, orderDirection: desc) {
+        id
+        timestamp
+        txHash
+        proofValid
+        declaredClass
+        assetIn
+        assetOut
+        amountIn
+        minAmountOut
+        direction
+        blockWindowStart
+        blockWindowEnd
+      }
+      allocations(first: $allocFirst, orderBy: lastRebalanceAt, orderDirection: desc) {
+        id
+        capitalDeployed
+        strategyHighWaterMark
+        lastRebalanceAt
+        defundedAt
+        defundReason
+        user { id }
+        allocator { id name }
+      }
+      paramsRotations(first: 25, orderBy: timestamp, orderDirection: desc) {
+        id
+        oldHash
+        newHash
+        timestamp
+        txHash
+      }
+      navSnapshots(first: $navFirst, orderBy: timestamp, orderDirection: desc) {
+        id
+        totalNAV
+        timestamp
+      }
+    }
+  }
+`;
+
+export async function fetchStrategyDetail(
+  id: string,
+  opts: { tradeFirst?: number; allocFirst?: number; navFirst?: number } = {},
+  signal?: AbortSignal,
+): Promise<StrategyDetail | null> {
+  const data = await gqlRequest<{ strategy: StrategyDetail | null }>(
+    STRATEGY_DETAIL_QUERY,
+    {
+      id: id.toLowerCase(),
+      tradeFirst: opts.tradeFirst ?? 20,
+      allocFirst: opts.allocFirst ?? 25,
+      navFirst: opts.navFirst ?? 240,
+    },
+    signal,
+  );
+  return data.strategy;
+}
+
+// ── Strategy audit (`/audit/[strategy]`) — every trade ever, paginated ──
+
+export type AuditTradeRow = StrategyTradeRow & {
+  blockNumber: string;
+};
+
+export type StrategyAuditPage = {
+  strategy: StrategyDirectoryRow & {
+    trades: AuditTradeRow[];
+    paramsRotations: ParamsRotationRow[];
+  };
+};
+
+const STRATEGY_AUDIT_QUERY = /* GraphQL */ `
+  query StrategyAudit($id: Bytes!, $first: Int!, $skip: Int!) {
+    strategy(id: $id) {
+      id
+      declaredClass
+      chainId
+      operator
+      feeRateBps
+      stakeAmount
+      maxCapacity
+      active
+      registeredAt
+      currentReputation
+      totalRealizedPnL
+      totalAttestedTrades
+      maxDrawdownBps
+      trades(first: $first, skip: $skip, orderBy: timestamp, orderDirection: desc) {
+        id
+        timestamp
+        txHash
+        proofValid
+        declaredClass
+        assetIn
+        assetOut
+        amountIn
+        minAmountOut
+        direction
+        blockWindowStart
+        blockWindowEnd
+      }
+      paramsRotations(first: 50, orderBy: timestamp, orderDirection: desc) {
+        id
+        oldHash
+        newHash
+        timestamp
+        txHash
+      }
+    }
+  }
+`;
+
+export async function fetchStrategyAudit(
+  id: string,
+  opts: { first?: number; skip?: number } = {},
+  signal?: AbortSignal,
+): Promise<StrategyAuditPage["strategy"] | null> {
+  const data = await gqlRequest<{ strategy: StrategyAuditPage["strategy"] | null }>(
+    STRATEGY_AUDIT_QUERY,
+    {
+      id: id.toLowerCase(),
+      first: opts.first ?? 50,
+      skip: opts.skip ?? 0,
+    },
+    signal,
+  );
+  return data.strategy;
+}

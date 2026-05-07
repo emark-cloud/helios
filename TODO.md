@@ -273,7 +273,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] `yield_rotation_v1`: full on-chain `trade_hash` reconstruction against `StrategyRegistry.paramsHashOf` requires Poseidon-on-Solidity (not in repo). WS7.A ships the YR-class entry path with class/allocator/window/dedupe checks + verifier dispatch; trade-hash reconstruction is documented as a `TODO(WS7.A)` in `StrategyVault.executeYieldRotationWithProof` and tracked for Phase 5/6.
 - [ ] Update `Helios.md §9.3` PI list — done as part of this workstream
 - [ ] Reputation engine: on `ParamsRotated`, reset `AgeScore` and the `PerformanceScore` window to the new params epoch (clean break in track record)
-- [ ] `/strategies/[id]` and `/audit/[strategy]` surface the `paramsHash` rotation history (Phase 4 frontend; spec/event in Phase 2)
+- [x] `/strategies/[id]` and `/audit/[strategy]` surface the `paramsHash` rotation history (Phase 4 frontend; spec/event in Phase 2). *Shipped WS-FE-3 2026-05-07 — `ParamsRotationTimeline` on `/strategies/[id]`; `/audit/strategy/[id]` JSON dump includes `paramsRotations`.*
 - [x] WS3.A also landed: `StrategyRegistry.setMarketAllowlistRoot(class, root)` (owner-gated) — canonical root for `yield_rotation_v1` allowlist proofs. (Circuit currently treats the root as a private witness, so on-chain enforcement of "operator used the canonical root" requires promoting it to a public input — documented as a v2 circuit change.)
 
 **WS7.B — Reputation cold-start mechanism (SX)**
@@ -366,19 +366,19 @@ Implementation plan: `docs/phase3-plan.md` (17-step PR sequence, PRs #36–#54, 
 
 ### FE — Remaining pages
 - [ ] `/` landing — confident headline, live stats band from subgraph (total capital managed, active strategies, attested trades, active allocators), two primary CTAs, secondary links. No feature sections, no testimonials, no FAQ.
-- [ ] `/strategies/[id]` — manifest header, reputation breakdown panel (perf/risk/proof/stake/age), P&L curve with drawdown envelope, recent trades table with shield icons, current allocators, NAV timeline
-- [ ] `/audit/[strategy]` — every trade paginated, proof hash + verification result, "verify this proof yourself" modal, reputation-calculation inputs exposed, JSON dump link. Celebrated ZK treatment per `DESIGN.md §12`.
+- [x] `/strategies/[id]` — manifest header, reputation breakdown panel (perf/risk/proof/stake/age), P&L curve with drawdown envelope, recent trades table with shield icons, current allocators (mini-sunburst), `paramsHash` rotation timeline, NAV timeline (24h/7d/30d toggle). *Shipped WS-FE-3 2026-05-07.*
+- [x] `/audit/[strategy]` — every trade paginated (50/page), proof hash + verification result, "verify this proof yourself" modal with copyable command, reputation-calculation inputs exposed, JSON dump endpoint. Celebrated ZK treatment per `DESIGN.md §12`. Routed at `/audit/strategy/[id]` (sibling of `/audit/[actor]`) since Next.js App Router doesn't allow two dynamic segments at the same level. *Shipped WS-FE-4 2026-05-07. The `verify-trade.js` script itself remains a Phase 6 deliverable per `TODO.md` line 473; the modal documents that explicitly.*
 - [ ] `/judge` — video link, "Try the demo scenario" button, contract addresses with explorer links, GitHub links, `verify-trade.js` command block, 5-step eval checklist, live transaction counts. **Self-sufficient even without VPS up** (added 2026-05-05 — judging-criteria audit, criterion C real-world applicability): expose Kite testnet RPC URL, all deployed addresses (auto-read from `contracts/deployments/kite-testnet.json`), Goldsky endpoint, and Kitescan deeplinks for a recent scenario's `TradeAttested` / `Reallocated` / `AutoDefunded` events so judges can verify the system end-to-end before VPS deploys in Phase 6.
 - [ ] `/docs` route deferred — `/judge` instead links out to operator + allocator guides on GitHub (see Deferred §)
 
 ### FE — Sunburst viz (v1, simplified)
-- [ ] Concentric-ring viz: user → allocator → strategies (skip positions ring for v1)
-- [ ] Implementation: hand-rolled SVG or Recharts `Pie` with two layers — bespoke d3 + ticked-motion physics deferred to v2 polish (see Deferred §)
-- [ ] Segments sized by capital weight, colored by chain
-- [ ] Amber selected state
-- [ ] Hover reveals strategy name + allocated + NAV + P&L
-- [ ] Click navigates to strategy detail
-- [ ] Mini-sunburst variant for allocator cards
+- [x] Concentric-ring viz: user → allocator → strategies (skip positions ring for v1). *Shipped WS-FE-5 2026-05-07 as `frontend/src/components/sunburst/`.*
+- [x] Implementation: hand-rolled SVG (no recharts/d3 dep) — two layers, pure-function layout in `useSunburstLayout.ts`. Bespoke d3 + ticked-motion physics still deferred to v2 polish (see Deferred §).
+- [x] Segments sized by capital weight, colored by chain
+- [x] Amber selected state
+- [x] Hover reveals strategy name + allocated + NAV + P&L (tooltip)
+- [x] Click navigates to strategy detail (via `onSelect`)
+- [x] `MiniSunburst` variant for allocator cards / strategy detail panel
 
 ### FE — Signature interactions
 - [ ] Cascade — staggered 80–120ms stages across sunburst + table + activity rail
