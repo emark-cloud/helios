@@ -293,9 +293,6 @@ def _filter_directory(
                 max_capacity_usd=r.max_capacity_usd,
                 current_allocations_usd=r.current_allocations_usd,
                 reputation_score=rep,
-                realized_volatility_30d=0.0,
-                sharpe_30d=0.0,
-                max_drawdown_30d_bps=0,
             )
         )
     return out

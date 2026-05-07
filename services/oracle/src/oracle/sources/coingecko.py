@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from oracle.sources.base import PriceQuote, SourceError
@@ -56,14 +57,11 @@ class CoingeckoSource:
 
 
 def _float_to_e18(price: float | int) -> int:
-    # Coingecko returns JSON numbers — go through the string repr to avoid
-    # float-binary dust at the 1e-15 level mattering for low-priced assets.
-    decimal_str = repr(float(price))
-    if "." not in decimal_str:
-        return int(decimal_str) * _E18
-    whole, frac = decimal_str.split(".", 1)
-    # Handle scientific notation that repr() may emit for very small floats.
-    if "e" in frac or "E" in frac:
-        return int(float(decimal_str) * _E18)
-    frac = (frac + "0" * 18)[:18]
-    return int(whole) * _E18 + int(frac)
+    # Coingecko returns JSON numbers — route through `Decimal` so the
+    # whole-number / fixed-point / scientific-notation cases all collapse
+    # into one path. Phase-3 review MEDIUM: `repr(1e-05)` is `"1e-05"`
+    # with no `.`, which used to fall through into `int("1e-05")` and
+    # raise — common for low-priced long-tail tokens. `Decimal(str(x))`
+    # via repr keeps the float-binary dust in check at the 1e-15 level.
+    quantized = Decimal(repr(float(price))) * _E18
+    return int(quantized.to_integral_value())
