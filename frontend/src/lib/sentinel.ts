@@ -34,7 +34,16 @@ export type SentinelEventKind =
   | "ALLOCATION_DECREASED"
   | "STRATEGY_DEFUNDED"
   | "REBALANCE_COMPLETE"
-  | "FEE_SETTLED";
+  | "FEE_SETTLED"
+  // Phase 4 WS-SVC-1: chain-observed events surfaced by the
+  // services/sentinel/.../chain_watch.py poller. The decision loop
+  // never emits these; they only arrive when a chain log decodes
+  // into the corresponding event kind.
+  | "DEFUND_TRIGGERED"
+  | "DEFUND_ARMED"
+  | "DEFUND_FINALIZED"
+  | "DEFUND_CANCELLED"
+  | "NAV_DIVERGENCE";
 
 export type SentinelEvent = {
   user: string;
@@ -43,6 +52,11 @@ export type SentinelEvent = {
   amount_usd: number;
   reason: string;
   timestamp: number;
+  /** On-chain `transactionHash` of the originating event. Set by the
+   * chain watcher and by loop emits taken after a successful tx
+   * submission. Empty string for off-chain events (e.g.
+   * META_STRATEGY_SET) and for legacy entries. */
+  tx_hash: string;
 };
 
 export type AllocationView = {
@@ -113,8 +127,22 @@ export type MetaStrategyPayload = {
    */
   bootstrap_share_bps: number;
   min_attested_trades: number;
-  /** [PASSPORT-STUB] EOA EIP-712 sig today; Passport sig once unblocked. */
+  /**
+   * Off-chain signature over `canonicalDigest(payload)`. Used by the
+   * `eip191` path (anvil/dev) where Sentinel verifies the signature
+   * before recording. Set to `"0x"` for the `passport` path, where
+   * the userOp at the EntryPoint is the user's authorization and
+   * Sentinel only enforces the `(user, nonce)` / `valid_until`
+   * replay window.
+   */
   signature: string;
+  /**
+   * Authentication mode used to produce this payload. `"passport"`
+   * indicates the user signed via Kite Passport's batched userOp;
+   * `"eip191"` indicates wagmi `personal_sign`. Server uses this to
+   * decide whether to verify the EIP-191 signature.
+   */
+  auth?: "passport" | "eip191";
 };
 
 export class SentinelError extends Error {

@@ -171,7 +171,7 @@ class AllocatorLoop:
                 # `wait_for_transaction_receipt(timeout=30)` blocks the
                 # underlying Web3 call — otherwise every WS subscriber
                 # and the drawdown poll itself stall for up to 30s.
-                await self._onchain.defund_async(
+                call = await self._onchain.defund_async(
                     user.meta.user_address, alloc.strategy_id, "DRAWDOWN_BREACH"
                 )
                 alloc.defunded = True
@@ -183,6 +183,7 @@ class AllocatorLoop:
                         amount_usd=alloc.capital_deployed_usd,
                         reason="DRAWDOWN_BREACH",
                         timestamp=ts,
+                        tx_hash=call.tx_hash,
                     )
                 )
 
@@ -246,7 +247,7 @@ class AllocatorLoop:
             if slack != 0:
                 largest = max(range(len(weights)), key=lambda i: weights[i])
                 weights[largest] += slack
-            await self._onchain.rebalance_async(
+            rebal_call = await self._onchain.rebalance_async(
                 user.meta.user_address,
                 [t.strategy_id for t in target],
                 weights,
@@ -269,14 +270,17 @@ class AllocatorLoop:
                         amount_usd=abs(t.capital_usd - prior),
                         reason="REBALANCE",
                         timestamp=ts,
+                        tx_hash=rebal_call.tx_hash,
                     )
                 )
-            self._emit_rebalance_complete(user, ts)
+            self._emit_rebalance_complete(user, ts, tx_hash=rebal_call.tx_hash)
             return
 
         for strategy_id, delta in ops:
             if delta > 0:
-                await self._onchain.allocate_async(user.meta.user_address, strategy_id, delta)
+                alloc_call = await self._onchain.allocate_async(
+                    user.meta.user_address, strategy_id, delta
+                )
                 tgt = target_by_id.get(strategy_id)
                 chain_id = tgt.chain_id if tgt else 0
                 kind: str
@@ -303,6 +307,7 @@ class AllocatorLoop:
                         amount_usd=delta,
                         reason="REBALANCE",
                         timestamp=ts,
+                        tx_hash=alloc_call.tx_hash,
                     )
                 )
             else:
@@ -311,7 +316,9 @@ class AllocatorLoop:
                 # above already absorbed pure redistribution; remaining
                 # decreases need a defund because rebalance() cannot
                 # repatriate capital to idle.
-                await self._onchain.defund_async(user.meta.user_address, strategy_id, "RANK_DROP")
+                defund_call = await self._onchain.defund_async(
+                    user.meta.user_address, strategy_id, "RANK_DROP"
+                )
                 if strategy_id in user.allocations:
                     user.allocations[strategy_id].defunded = True
                 self._store.emit_event(
@@ -322,6 +329,7 @@ class AllocatorLoop:
                         amount_usd=-delta,
                         reason="RANK_DROP",
                         timestamp=ts,
+                        tx_hash=defund_call.tx_hash,
                     )
                 )
         self._emit_rebalance_complete(user, ts)
@@ -362,7 +370,7 @@ class AllocatorLoop:
             touched += 1
         return abs(net) <= touched
 
-    def _emit_rebalance_complete(self, user: UserState, ts: int) -> None:
+    def _emit_rebalance_complete(self, user: UserState, ts: int, *, tx_hash: str = "") -> None:
         self._store.emit_event(
             AllocatorEvent(
                 user_address=user.meta.user_address,
@@ -371,6 +379,7 @@ class AllocatorLoop:
                 amount_usd=user.delegated_capital_usd,
                 reason="",
                 timestamp=ts,
+                tx_hash=tx_hash,
             )
         )
 
@@ -381,7 +390,9 @@ class AllocatorLoop:
                 continue
             threshold = alloc.high_water_mark_usd * (10_000 + FEE_THRESHOLD_BPS) // 10_000
             if alloc.nav_usd >= threshold:
-                await self._onchain.settle_fee_async(user.meta.user_address, alloc.strategy_id)
+                fee_call = await self._onchain.settle_fee_async(
+                    user.meta.user_address, alloc.strategy_id
+                )
                 alloc.high_water_mark_usd = alloc.nav_usd
                 self._store.emit_event(
                     AllocatorEvent(
@@ -391,6 +402,7 @@ class AllocatorLoop:
                         amount_usd=alloc.nav_usd,
                         reason="HWM_BREACH",
                         timestamp=ts,
+                        tx_hash=fee_call.tx_hash,
                     )
                 )
 

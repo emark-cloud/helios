@@ -5,19 +5,30 @@ are isomorphic — these schemas accept a JSON payload from the frontend /
 SDK consumer, then `to_sdk_meta()` projects into the SDK shape used by
 allocator implementations' `rank_strategies` / `allocate`.
 
-`[PASSPORT-STUB]` — the `signature` field is recorded for forward
-compatibility with Kite Passport; Phase 1 verifies an EOA `personal_sign`
-over a canonical digest (`auth.py`). Phase 4 swaps in AA userOp
-verification.
+Phase 4 (WS-FE-1) introduces the `auth` enum on the payload:
+
+  * `"passport"` — the user signed a batched userOp via Kite Passport
+    that already landed `UserVault.setMetaStrategy` on chain. The
+    signature field is `0x`; the server only enforces the
+    `(user, nonce)` / `valid_until` replay window.
+  * `"eip191"` — wagmi `personal_sign` over the canonical JSON digest
+    (anvil/dev path). The server verifies the EIP-191 signature plus
+    the same replay window.
+
+Phase 5 will replace the EIP-191 path with EIP-1271 verification
+against the AA wallet on chain; the wire shape stays the same.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from helios_allocator.types import MetaStrategy as SDKMetaStrategy
+
+AuthMode = Literal["passport", "eip191"]
 
 
 class MetaStrategyPayload(BaseModel):
@@ -41,10 +52,14 @@ class MetaStrategyPayload(BaseModel):
     # to its `valid_until`, re-binding a delegation the user revoked.
     nonce: int = Field(ge=0, lt=2**64)
     # WS7.B reputation cold-start (`Helios.md §8.7`). Defaults match
-    # `docs/phase2-plan.md §WS7.B` and the on-chain meta-strategy spec.
+    # `docs/phase4-plan.md §WS7.B` and the on-chain meta-strategy spec.
     bootstrap_share_bps: int = Field(default=1000, ge=0, le=10_000)
     min_attested_trades: int = Field(default=50, ge=0)
-    signature: str = Field(default="0x")  # [PASSPORT-STUB]
+    # EIP-191 signature for the legacy / dev path. Empty (`"0x"`) for
+    # Passport-onboarded users — the userOp at the EntryPoint is the
+    # user's authorization in that mode.
+    signature: str = Field(default="0x")
+    auth: AuthMode = Field(default="eip191")
 
     def to_sdk_meta(self) -> SDKMetaStrategy:
         return SDKMetaStrategy(

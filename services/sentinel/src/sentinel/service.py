@@ -9,10 +9,11 @@ REST surface (`Helios.md §11.3`):
   * `GET  /v1/strategies`                 — public directory with filters
   * `WS   /v1/users/{user}/events`        — per-user event stream
 
-`POST /v1/users/{user}/meta-strategy` is the user's entry point. The
-sigfield is stored verbatim — Phase 1 doesn't verify it (the user IS
-the caller off the AA stack, [PASSPORT-STUB]); it does the same forward
-preservation that `UserVault.setMetaStrategy` does.
+`POST /v1/users/{user}/meta-strategy` is the user's entry point.
+Sentinel verifies the EIP-191 signature for `auth: "eip191"` payloads
+and trusts the on-chain userOp for `auth: "passport"` payloads (Phase
+4 WS-FE-1) — both paths still enforce the `(user, nonce)` /
+`valid_until` replay window via `verify_meta_strategy_signature`.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from _template import BaseServiceSettings, create_app
@@ -43,6 +45,7 @@ from sentinel.auth import (
     verify_meta_strategy_signature,
     verify_ws_subscribe_signature,
 )
+from sentinel.chain_watch import ChainWatchConfig, ChainWatcher, WatchAddresses
 from sentinel.schemas import (
     AllocationView,
     DashboardPayload,
@@ -67,6 +70,23 @@ class Settings(BaseServiceSettings):
         default="", validation_alias="SENTINEL_ALLOCATOR_REGISTRY_ADDRESS"
     )
     http_port: int = 8001
+    # Chain-watcher (WS-SVC-1). Comma-separated list of StrategyVault
+    # proxies whose `NavDivergenceObserved` logs the watcher fans out
+    # to subscribed users. Defaults to empty so test/dry-run boots
+    # don't require a real deployment file. The poll cadence matches
+    # Kite's ~3s block time; tests override to drive `tick_once`
+    # directly. Checkpoint persistence path is optional — when unset
+    # the watcher restarts at `latest`, which is fine for the
+    # dashboard rail (it does not replay historical events).
+    chain_watch_strategy_vaults: str = Field(
+        default="", validation_alias="SENTINEL_CHAIN_WATCH_STRATEGY_VAULTS"
+    )
+    chain_watch_poll_interval_sec: float = Field(
+        default=3.0, validation_alias="SENTINEL_CHAIN_WATCH_POLL_INTERVAL_SEC"
+    )
+    chain_watch_checkpoint_path: str = Field(
+        default="", validation_alias="SENTINEL_CHAIN_WATCH_CHECKPOINT_PATH"
+    )
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -74,8 +94,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     http_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "helios-sentinel/0.1"})
     store = AllocatorStore()
-    # [PASSPORT-STUB] replay-protection store; bounded by `valid_until`
-    # eviction. Single-process state — fine for one PM2 worker, see
+    # Replay-protection store; bounded by `valid_until` eviction.
+    # Single-process state — fine for one PM2 worker, see
     # `docs/phase-3-review.md` for the multi-replica migration note.
     nonce_store = NonceStore()
     allocator = SentinelAllocator()
@@ -101,12 +121,16 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         ),
     )
 
+    chain_watcher = _build_chain_watcher(cfg, store)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         loop.start()
+        chain_watcher.start()
         try:
             yield
         finally:
+            await chain_watcher.stop()
             await loop.stop()
             await http_client.aclose()
 
@@ -119,7 +143,37 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.allocator = allocator  # type: ignore[attr-defined]
     app.state.onchain = onchain  # type: ignore[attr-defined]
     app.state.goldsky = goldsky  # type: ignore[attr-defined]
+    app.state.chain_watcher = chain_watcher  # type: ignore[attr-defined]
     return app
+
+
+def _build_chain_watcher(cfg: Settings, store) -> ChainWatcher:
+    """Compose a `ChainWatcher` from environment-driven settings.
+
+    Stub mode kicks in whenever `kite_rpc_url` or `allocator_vault_address`
+    is empty — the watcher's `live` property goes False and `start()`
+    becomes a no-op, so test/dry-run boots don't need a live RPC.
+    """
+    strategy_vaults = tuple(
+        s.strip() for s in cfg.chain_watch_strategy_vaults.split(",") if s.strip()
+    )
+    addresses = WatchAddresses(
+        allocator_vault=cfg.allocator_vault_address,
+        strategy_vaults=strategy_vaults,
+    )
+    checkpoint_path = (
+        Path(cfg.chain_watch_checkpoint_path) if cfg.chain_watch_checkpoint_path else None
+    )
+    return ChainWatcher(
+        store=store,
+        config=ChainWatchConfig(
+            rpc_url=cfg.kite_rpc_url,
+            chain_id=cfg.kite_chain_id,
+            addresses=addresses,
+            poll_interval_sec=cfg.chain_watch_poll_interval_sec,
+            checkpoint_path=checkpoint_path,
+        ),
+    )
 
 
 def _make_router(
@@ -148,11 +202,11 @@ def _make_router(
     async def set_meta_strategy(user: str, payload: MetaStrategyPayload) -> dict[str, object]:
         if user.lower() != payload.user_address.lower():
             raise HTTPException(status_code=400, detail="path/body user mismatch")
-        # [PASSPORT-STUB] Verify the EOA personal_sign signature server-side.
-        # Phase 4 swaps this for AA userOp verification at the EntryPoint —
-        # see docs/kite-passport-notes.md §"Migration plan". Nonce + valid_until
-        # checks in `verify_meta_strategy_signature` close the replay hole
-        # called out in `docs/phase-3-review.md`.
+        # Verify per `payload.auth`: EIP-191 recovery for legacy/dev,
+        # nonce + valid_until enforcement for Passport (the userOp at
+        # the EntryPoint is the user's on-chain authorization there).
+        # Both paths still close the replay hole called out in
+        # `docs/phase-3-review.md`.
         try:
             verify_meta_strategy_signature(payload, nonce_store=nonce_store)
         except MetaStrategySignatureError as exc:

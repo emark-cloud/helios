@@ -56,6 +56,9 @@ contract StrategyVaultTest is Test {
     event NAVReported(address indexed strategy, uint256 totalNAV, uint64 timestamp);
     event RealizedDistributed(address indexed strategy, address indexed allocator, uint256 amount);
     event Slashed(address indexed strategy, uint256 amount, string reason);
+    event NavDivergenceObserved(
+        address indexed strategy, uint256 signedNAV, uint256 markedFloor, uint64 snapshotNonce
+    );
 
     function setUp() public {
         (navOracle, navOracleKey) = makeAddrAndKey("navOracle");
@@ -845,6 +848,155 @@ contract StrategyVaultTest is Test {
         vm.expectRevert(StrategyVault.NavSignatureInvalid.selector);
         vm.prank(operator);
         sibling.reportNAV(abi.encode(uint256(1000e6), ts, sig));
+    }
+
+    // ── WS-CX-2 — NAV divergence (cash-floor) ──────────────────────
+
+    /// @dev Stage `cashHeld` USDC inside the vault by allocating from
+    ///      the allocatorVault stub. Returns nothing; reads `usdc`
+    ///      balance to verify the floor.
+    function _stageCashFloor(uint256 cashHeld) internal {
+        vm.prank(allocatorVault);
+        vault.allocateFrom(cashHeld);
+        require(usdc.balanceOf(address(vault)) == cashHeld, "stage cash failed");
+    }
+
+    /// @dev Build `reportNAV` payload, prank as operator, submit.
+    ///      Locally re-derived so we can call within `expectEmit`
+    ///      blocks without staticcall-ordering surprises.
+    function _submitNAV(uint256 nav, uint64 ts) internal {
+        bytes memory sig = _signNAV(vault, nav, ts);
+        vm.prank(operator);
+        vault.reportNAV(abi.encode(nav, ts, sig));
+    }
+
+    function test_NavDivergence_BelowFloorWithinToleranceNoCounter() public {
+        _stageCashFloor(1000e6);
+        // 200 bps below floor (NAV = 980e6 vs floor 1000e6) — under the
+        // 500 bps default threshold. Counter must NOT increment.
+        _submitNAV(980e6, uint64(block.timestamp + 1));
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 0);
+    }
+
+    function test_NavDivergence_FirstBreachIncrementsCounterNoEvent() public {
+        _stageCashFloor(1000e6);
+        // 10% below floor — > 500 bps threshold.
+        _submitNAV(900e6, uint64(block.timestamp + 1));
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 1);
+    }
+
+    function test_NavDivergence_TwoConsecutiveBreachesEmits() public {
+        _stageCashFloor(1000e6);
+
+        uint64 t1 = uint64(block.timestamp + 1);
+        _submitNAV(900e6, t1);
+
+        // Second consecutive breach must emit `NavDivergenceObserved`
+        // with (signed=850e6, marked=1000e6, snapshotNonce=t2).
+        uint64 t2 = t1 + 60;
+        vm.warp(t1 + 30);
+        vm.expectEmit(true, false, false, true);
+        emit NavDivergenceObserved(address(vault), 850e6, 1000e6, t2);
+        _submitNAV(850e6, t2);
+
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 2);
+    }
+
+    function test_NavDivergence_RecoveryResetsCounter() public {
+        _stageCashFloor(1000e6);
+        uint64 t1 = uint64(block.timestamp + 1);
+        _submitNAV(900e6, t1);
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 1);
+
+        // Honest report: NAV ≥ cash floor.
+        uint64 t2 = t1 + 30;
+        vm.warp(t2);
+        _submitNAV(1100e6, t2 + 1);
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 0);
+
+        // A new breach starts the counter from 1, not from 2.
+        uint64 t3 = t2 + 30;
+        vm.warp(t3);
+        _submitNAV(900e6, t3 + 1);
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 1);
+    }
+
+    function test_NavDivergence_AtThresholdNoCounter() public {
+        _stageCashFloor(1000e6);
+        // Exactly 500 bps below — boundary check. Threshold is `>`, not
+        // `>=`, so 500 bps must NOT count as a breach.
+        _submitNAV(950e6, uint64(block.timestamp + 1));
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 0);
+    }
+
+    function test_NavDivergence_ZeroCashFloorResetsCounter() public {
+        _stageCashFloor(1000e6);
+        uint64 t1 = uint64(block.timestamp + 1);
+        _submitNAV(900e6, t1);
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 1);
+        // Drain the vault — fully withdraw via the allocator path. NAV
+        // is 900e6 on a 1000e6 allocation, so the NAV-share guard caps
+        // a single withdrawal at 900e6. Pull that, then a sibling
+        // ERC20 transfer for the loss-floor leftover.
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 900e6);
+        // The remaining 100e6 of cash represents unrealized loss
+        // recoverable only via the realized-distribute path. Transfer
+        // it out directly (mock allows a privileged transfer for
+        // staging only — not a production path).
+        vm.prank(address(vault));
+        usdc.transfer(allocatorVault, 100e6);
+        assertEq(usdc.balanceOf(address(vault)), 0);
+        // Next report against an empty vault must reset the counter so
+        // we don't carry stale breach state across the gap.
+        uint64 t2 = t1 + 30;
+        vm.warp(t2);
+        _submitNAV(1, t2 + 1);
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 0);
+    }
+
+    function test_NavDivergence_ThresholdSetterOnlyOwner() public {
+        vm.prank(randomCaller);
+        vm.expectRevert();
+        vault.setNavDivergenceThresholdBps(1000);
+
+        vm.prank(owner);
+        vault.setNavDivergenceThresholdBps(1000);
+        assertEq(vault.navDivergenceThresholdBps(), 1000);
+    }
+
+    function test_NavDivergence_ThresholdRotationTakesEffect() public {
+        // Tighten to 100 bps so a 200-bps-below report breaches.
+        vm.prank(owner);
+        vault.setNavDivergenceThresholdBps(100);
+
+        _stageCashFloor(1000e6);
+        _submitNAV(980e6, uint64(block.timestamp + 1));
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 1);
+    }
+
+    function test_NavDivergence_ThirdBreachKeepsEmitting() public {
+        // Once armed, every additional breach should re-emit so an
+        // off-chain debouncer can see continued divergence rather than
+        // having to stat the chain. (Counter saturates at uint8 max.)
+        _stageCashFloor(1000e6);
+
+        uint64 t1 = uint64(block.timestamp + 1);
+        _submitNAV(900e6, t1);
+
+        uint64 t2 = t1 + 30;
+        vm.warp(t2);
+        vm.expectEmit(true, false, false, true);
+        emit NavDivergenceObserved(address(vault), 850e6, 1000e6, t2 + 1);
+        _submitNAV(850e6, t2 + 1);
+
+        uint64 t3 = t2 + 30;
+        vm.warp(t3);
+        vm.expectEmit(true, false, false, true);
+        emit NavDivergenceObserved(address(vault), 800e6, 1000e6, t3 + 1);
+        _submitNAV(800e6, t3 + 1);
+
+        assertEq(vault.consecutiveNavDivergenceBreaches(), 3);
     }
 
     // ── slash ──────────────────────────────────────────────────────

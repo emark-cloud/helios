@@ -57,6 +57,17 @@ function toPyLiteral(value) {
 }
 
 async function main() {
+  // Vercel / CI surfaces that bundle the frontend don't run `forge build`
+  // first — the committed `src/abis/*.ts` is the canonical artifact for
+  // them, so skip regeneration when Foundry hasn't produced output. The
+  // local dev loop still runs `forge build` before this script and gets
+  // a fresh codegen pass.
+  try {
+    await fs.access(FOUNDRY_OUT);
+  } catch {
+    console.log(`[contracts-abi] skip codegen — no Foundry out/ at ${FOUNDRY_OUT}`);
+    return;
+  }
   await fs.mkdir(TS_ABIS, { recursive: true });
   await fs.mkdir(PY_PACKAGE, { recursive: true });
 

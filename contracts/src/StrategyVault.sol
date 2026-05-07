@@ -123,9 +123,29 @@ contract StrategyVault is
     ///      mapping lookup is ~2.1k cheaper. phase2-review.md item 19.
     mapping(address asset => bool isUniverse) internal _universeAsset;
 
+    // ── WS-CX-2 / Phase 4 — NAV-divergence one-sided cash-floor check ─
+    //
+    // Spec: Helios.md §6.4 (rewritten 2026-05-07). Fires when a signed
+    // `reportNAV` falls below `baseAsset.balanceOf(this)` by more than
+    // `navDivergenceThresholdBps` for two consecutive snapshots —
+    // unambiguous evidence of operator under-reporting under the
+    // long-only spot invariant `NAV ≥ cashHeld`.
+
+    /// @notice Override for `NAV_DIVERGENCE_THRESHOLD_BPS_DEFAULT`.
+    ///         Owner-tunable; `0` means "use default". Set via
+    ///         `setNavDivergenceThresholdBps`.
+    uint16 public navDivergenceThresholdBps;
+    /// @notice Counter of *consecutive* breaching `reportNAV` calls.
+    ///         Resets to 0 on any non-breaching report (signedNAV ≥
+    ///         markedFloor or divergence < threshold).
+    uint8 public consecutiveNavDivergenceBreaches;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
-    ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[47] private __gap;
+    ///      ABOVE this gap and shrink it accordingly so storage layout stays
+    ///      compatible. WS-CX-2 used 1 of the prior 47 slots:
+    ///      `navDivergenceThresholdBps` + `consecutiveNavDivergenceBreaches`
+    ///      pack into the same slot (16 + 8 = 24 bits).
+    uint256[46] private __gap;
 
     error ZeroAddress();
     error NotAllocatorVault();
@@ -595,6 +615,26 @@ contract StrategyVault is
     ///         expiry. HIGH #7 in `docs/phase-3-review.md`.
     uint256 internal constant _MAX_NAV_AGE_SEC = 600;
 
+    /// @notice Default below-cash-floor divergence threshold for
+    ///         `reportNAV`. 5% (500 bps) per Helios.md §6.4 — wider
+    ///         than typical legitimate intra-bar swap-in-flight noise,
+    ///         tighter than sustained operator dishonesty. Override
+    ///         via owner-only `setNavDivergenceThresholdBps`.
+    ///         `NavDivergenceObserved` and `NavDivergenceThresholdUpdated`
+    ///         are declared on `IStrategyVault` so the auto-generated
+    ///         ABI bindings expose them to downstream services.
+    uint16 internal constant _NAV_DIVERGENCE_THRESHOLD_BPS_DEFAULT = 500;
+
+    function setNavDivergenceThresholdBps(uint16 bps) external onlyOwner {
+        emit NavDivergenceThresholdUpdated(navDivergenceThresholdBps, bps);
+        navDivergenceThresholdBps = bps;
+    }
+
+    function _effectiveNavDivergenceThresholdBps() internal view returns (uint16) {
+        uint16 v = navDivergenceThresholdBps;
+        return v == 0 ? _NAV_DIVERGENCE_THRESHOLD_BPS_DEFAULT : v;
+    }
+
     /// @notice Apply an off-chain NAV snapshot signed by `navOracle`.
     /// @dev signedNAV = abi.encode(uint256 totalNAV, uint64 timestamp, bytes signature).
     ///      The signature is EIP-712 typed-data over
@@ -637,6 +677,51 @@ contract StrategyVault is
         _totalNAV = totalNAV_;
         lastNAVTimestamp = timestamp;
         emit NAVReported(address(this), totalNAV_, timestamp);
+
+        _checkNavDivergence(totalNAV_, timestamp);
+    }
+
+    /// @dev v1 one-sided cash-floor NAV-divergence check. The long-only
+    ///      spot strategy classes satisfy `NAV ≥ cashHeld` (you cannot
+    ///      lose more than you have), so a signed NAV below
+    ///      `baseAsset.balanceOf(this)` by more than the threshold is
+    ///      unambiguous evidence of operator under-reporting.
+    ///      Bidirectional checks (operator over-reports during a real
+    ///      drawdown) need an upper-bound NAV recomputation against an
+    ///      on-chain price source; that lands in v2 alongside the
+    ///      per-asset TWAP anchor (Helios.md §6.4 + §17 Phase 1).
+    function _checkNavDivergence(uint256 signedNAV, uint64 snapshotNonce) internal {
+        uint256 markedFloor = baseAsset.balanceOf(address(this));
+        // No cash held → no lower bound to enforce. Reset counter so a
+        // freshly-funded vault that goes through cash → zero → cash
+        // doesn't carry stale breach state across the gap.
+        if (markedFloor == 0) {
+            consecutiveNavDivergenceBreaches = 0;
+            return;
+        }
+        // signedNAV ≥ cashHeld is consistent with NAV ≥ cashHeld; the
+        // operator is reporting *at least* the cash floor, which is
+        // honest under the long-only invariant.
+        if (signedNAV >= markedFloor) {
+            consecutiveNavDivergenceBreaches = 0;
+            return;
+        }
+        // Below the floor. Compute divergence vs the floor — denominator
+        // is the floor (not the signed value) so the threshold scales
+        // with cash held, not with the lie itself.
+        uint256 diff = markedFloor - signedNAV;
+        uint256 divergenceBps = (diff * 10_000) / markedFloor;
+        if (divergenceBps <= uint256(_effectiveNavDivergenceThresholdBps())) {
+            // Below floor but within tolerance. Don't accumulate — minor
+            // drift (in-flight settlement, rounding) shouldn't slash.
+            consecutiveNavDivergenceBreaches = 0;
+            return;
+        }
+        uint8 next = consecutiveNavDivergenceBreaches + 1;
+        consecutiveNavDivergenceBreaches = next;
+        if (next >= 2) {
+            emit NavDivergenceObserved(address(this), signedNAV, markedFloor, snapshotNonce);
+        }
     }
 
     /// @notice Helper for off-chain signers — exposes the EIP-712 digest the

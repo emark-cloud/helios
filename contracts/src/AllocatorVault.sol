@@ -20,6 +20,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IAllocatorVault } from "./interfaces/IAllocatorVault.sol";
 import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
+import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 import { MetaStrategyLib } from "./interfaces/IMetaStrategy.sol";
 
 /// @notice Slim view onto UserVault. AllocatorVault uses these privileged
@@ -89,9 +90,47 @@ contract AllocatorVault is
     ///      cadence governs rebalances only, not first-time allocations.
     mapping(address user => uint64) internal _userLastRebalanceTimestamp;
 
+    // ── WS-CX-1 / Phase 4 — caller-cadence permissionless defund ────
+    //
+    // Spec: Helios.md §6.3 (rewritten 2026-05-07). Implementation notes
+    // and design rationale: docs/phase4-plan.md §4.1.
+
+    /// @notice Oracle anchor read for the "is the oracle online" gate
+    ///         on the first observation of a pending defund. Address
+    ///         zero disables the gate (pre-set state) — calls revert
+    ///         `OracleAnchorNotSet`. Set via `setOracleAnchor`.
+    address public oracleAnchor;
+    /// @notice Reward cap (USDC e6 units) paid from strategy stake on a
+    ///         successful permissionless finalize. Default 500_000_000
+    ///         (= $500). Owner-tunable.
+    uint128 public defundRewardCapUsdE6;
+    /// @dev Per-(user,strategy) pending defund state. Cleared on
+    ///      finalize / cancel / recovery. Reads via `pendingDefundOf`.
+    mapping(address user => mapping(address strategy => PendingDefund)) internal _pendingDefunds;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[47] private __gap;
+    ///      WS-CX-1 used 3 of the prior 47 slots: oracleAnchor (1),
+    ///      defundRewardCapUsdE6 (1), _pendingDefunds (1).
+    uint256[44] private __gap;
+
+    /// @dev Minimum block spacing between two consecutive observations
+    ///      of the same pending defund. Caller-cadence "bars" — at
+    ///      Kite's 1s blocks, 300 ≈ 5 min, matching the spec's
+    ///      "5-minute oracle TWAP snapshot" cadence in §6.3.
+    uint256 internal constant MIN_BAR_BLOCKS = 300;
+    /// @dev Maximum age of `OraclePriceAnchor.latest().committedAt` for
+    ///      the first observation of a pending entry. 180s matches the
+    ///      proof-side staleness window in `Helios.md §6.10`.
+    uint256 internal constant MAX_STALENESS_SEC = 180;
+    /// @dev Default reward cap if `setDefundRewardCap` has not been
+    ///      called post-upgrade. $500 in USDC e6 units.
+    uint128 internal constant DEFAULT_REWARD_CAP_USD_E6 = 500 * 1e6;
+    /// @dev `keccak256("RECOVERED")` — `DefundCancelled` reason when
+    ///      drawdown recovered above threshold mid-observation.
+    bytes32 internal constant CANCEL_REASON_RECOVERED = keccak256("RECOVERED");
+    /// @dev `keccak256("OPERATOR_CANCEL")` — operator override.
+    bytes32 internal constant CANCEL_REASON_OPERATOR = keccak256("OPERATOR_CANCEL");
 
     error ZeroAddress();
     error ZeroAmount();
@@ -153,6 +192,33 @@ contract AllocatorVault is
         _unpause();
     }
 
+    /// @notice Wire (or rotate) the oracle anchor read by the
+    ///         permissionless defund freshness gate. Owner-only.
+    ///         Setting to address(0) disables the gate by reverting
+    ///         every `triggerDefund` with `OracleAnchorNotSet`.
+    function setOracleAnchor(address anchor_) external onlyOwner {
+        emit OracleAnchorUpdated(oracleAnchor, anchor_);
+        oracleAnchor = anchor_;
+    }
+
+    /// @notice Tune the reward cap paid out of strategy stake on a
+    ///         successful permissionless finalize. Owner-only. Pass
+    ///         `capE6 = 0` to fall back to `DEFAULT_REWARD_CAP_USD_E6`
+    ///         (= $500 USDC). Stored as `uint128` so per-defund math
+    ///         stays cheap.
+    function setDefundRewardCap(uint128 capE6) external onlyOwner {
+        emit DefundRewardCapUpdated(defundRewardCapUsdE6, capE6);
+        defundRewardCapUsdE6 = capE6;
+    }
+
+    /// @dev Effective cap, falling back to the default when the
+    ///      owner has not yet set one (post-upgrade state). All
+    ///      `min(...)` math on the finalize path reads through here.
+    function _effectiveRewardCapE6() internal view returns (uint128) {
+        uint128 c = defundRewardCapUsdE6;
+        return c == 0 ? DEFAULT_REWARD_CAP_USD_E6 : c;
+    }
+
     modifier onlyOperator() {
         if (msg.sender != operator) revert NotAllocator();
         _;
@@ -207,33 +273,192 @@ contract AllocatorVault is
         }
     }
 
+    /// @notice Operator-only single-shot defund. Permissionless callers
+    ///         use the `triggerDefund` / `finalizeDefund` pair below
+    ///         which enforces persistence + bond + confirm window per
+    ///         `Helios.md §6.3` (Phase 4).
+    /// @dev    If a permissionless trigger is mid-flight when the
+    ///         operator calls this, the pending entry is cleared and
+    ///         the bond is refunded to the triggerer — equivalent to
+    ///         calling `cancelDefund` first. We fold it inline so the
+    ///         operator's defund is always a single tx.
     function defundStrategy(address user, address strategy, string calldata reason)
         external
+        onlyOperator
         nonReentrant
     {
         AllocationRecord storage rec = _allocations[user][strategy];
         if (rec.strategy == address(0)) revert StrategyNotAllocated();
         if (rec.defundedAt != 0) revert AllocationDefunded();
 
-        bool permissionless = msg.sender != operator;
-        if (permissionless) {
-            // Anyone can defund a position whose drawdown breaches the user's
-            // meta-strategy threshold. Compute strategy's NAV-share for this
-            // allocator vault, prorated to the user's capitalDeployed.
-            uint256 nav = IStrategyVault(strategy).navOf(address(this));
-            uint256 alloc = IStrategyVault(strategy).allocationOf(address(this));
-            uint256 userShare = alloc == 0 ? 0 : (nav * rec.capitalDeployed) / alloc;
-            uint256 hwm = rec.strategyHighWaterMark;
-            uint256 ddBps = hwm == 0 || userShare >= hwm ? 0 : ((hwm - userShare) * 10_000) / hwm;
-            uint256 thresholdBps =
-                IUserVaultForAllocator(userVault).metaStrategyOf(user).drawdownThresholdBps;
-            if (ddBps < thresholdBps) revert DrawdownNotBreached();
+        PendingDefund storage pending = _pendingDefunds[user][strategy];
+        if (pending.breachCount != 0) {
+            _refundBond(pending);
+            delete _pendingDefunds[user][strategy];
+            emit DefundCancelled(user, strategy, CANCEL_REASON_OPERATOR);
         }
 
         _unwindAndCredit(user, strategy);
         rec.defundedAt = uint64(block.timestamp);
 
         emit StrategyDefunded(user, strategy, reason, msg.sender);
+    }
+
+    // ── WS-CX-1 / Phase 4 — caller-cadence permissionless defund ────
+
+    /// @notice Permissionless defund — one observation per call.
+    ///         First call posts the bond and records the pending entry;
+    ///         subsequent calls advance `breachCount` (must be spaced
+    ///         ≥ `MIN_BAR_BLOCKS` apart) or clear the entry on a
+    ///         non-breaching observation (refunding the bond).
+    /// @dev    Spec: `Helios.md §6.3` (rewritten 2026-05-07);
+    ///         design notes: `docs/phase4-plan.md §4.1`.
+    function triggerDefund(address user, address strategy) external nonReentrant {
+        AllocationRecord storage rec = _allocations[user][strategy];
+        if (rec.strategy == address(0)) revert StrategyNotAllocated();
+        if (rec.defundedAt != 0) revert AllocationDefunded();
+
+        MetaStrategyLib.MetaStrategy memory meta =
+            IUserVaultForAllocator(userVault).metaStrategyOf(user);
+        uint256 ddBps = _observeDrawdownBps(strategy, rec);
+        PendingDefund storage pending = _pendingDefunds[user][strategy];
+
+        if (pending.breachCount == 0) {
+            // First observation: gate on oracle freshness + drawdown
+            // breach, then pull the bond and seed the pending entry.
+            _checkOracleFresh();
+            if (ddBps < uint256(meta.drawdownThresholdBps)) revert DrawdownNotBreached();
+
+            uint128 bond = uint128((rec.capitalDeployed * uint256(meta.defundBondBps)) / 10_000);
+            if (bond > 0) baseAsset.safeTransferFrom(msg.sender, address(this), bond);
+
+            pending.firstObservedAt = uint64(block.timestamp);
+            pending.firstObservedBlock = uint64(block.number);
+            pending.lastObservedBlock = uint64(block.number);
+            pending.breachCount = 1;
+            pending.triggerer = msg.sender;
+            pending.bondAmount = bond;
+
+            emit DefundObserved(user, strategy, msg.sender, 1, ddBps, bond);
+            // Single-bar persistence settings arm immediately (degenerate
+            // but consistent — a meta-strategy with `defundTwapBars = 1`
+            // wants a one-shot trigger).
+            if (uint256(meta.defundTwapBars) <= 1) {
+                emit DefundArmed(user, strategy, uint64(block.number));
+            }
+            return;
+        }
+
+        // Subsequent observation. Enforce bar spacing.
+        if (block.number < uint256(pending.lastObservedBlock) + MIN_BAR_BLOCKS) {
+            revert BarTooSoon();
+        }
+
+        if (ddBps < uint256(meta.drawdownThresholdBps)) {
+            // Recovered. Refund the bond to whoever posted it and clear
+            // the entry — caller-cadence design treats a non-breaching
+            // observation as legitimate cancellation, not a slash.
+            address triggerer = pending.triggerer;
+            _refundBond(pending);
+            delete _pendingDefunds[user][strategy];
+            emit DefundCancelled(user, strategy, CANCEL_REASON_RECOVERED);
+            // Surface the refund as the triggerer-side balance change so
+            // off-chain accounting can tie the cancellation to the
+            // (zero-amount) finalize sequence — keeps subgraph mappings
+            // simple. Equivalent to `DefundFinalized(refunded=bond)` but
+            // without the unwind.
+            emit DefundFinalized(user, strategy, triggerer, pending.bondAmount, 0, 0);
+            return;
+        }
+
+        uint8 nextCount = pending.breachCount + 1;
+        pending.breachCount = nextCount;
+        pending.lastObservedBlock = uint64(block.number);
+        emit DefundObserved(user, strategy, pending.triggerer, nextCount, ddBps, 0);
+        if (uint256(nextCount) == uint256(meta.defundTwapBars)) {
+            emit DefundArmed(user, strategy, uint64(block.number));
+        }
+    }
+
+    /// @notice Permissionless defund — finalize once armed and
+    ///         `defundConfirmBlocks` have elapsed since the last
+    ///         observation. Pays reward from `_accruedFees` (v1
+    ///         deviation, see Helios.md §6.3) on confirmed breach;
+    ///         slashes the bond to the user if NAV recovered.
+    function finalizeDefund(address user, address strategy) external nonReentrant {
+        AllocationRecord storage rec = _allocations[user][strategy];
+        if (rec.strategy == address(0)) revert StrategyNotAllocated();
+        if (rec.defundedAt != 0) revert AllocationDefunded();
+
+        PendingDefund storage pending = _pendingDefunds[user][strategy];
+        if (pending.breachCount == 0) revert DefundNotPending();
+
+        MetaStrategyLib.MetaStrategy memory meta =
+            IUserVaultForAllocator(userVault).metaStrategyOf(user);
+        if (uint256(pending.breachCount) < uint256(meta.defundTwapBars)) {
+            revert DefundNotArmed();
+        }
+        if (block.number < uint256(pending.lastObservedBlock) + uint256(meta.defundConfirmBlocks)) {
+            revert ConfirmWindowNotElapsed();
+        }
+
+        uint256 ddBps = _observeDrawdownBps(strategy, rec);
+        uint128 bond = pending.bondAmount;
+        address triggerer = pending.triggerer;
+
+        if (ddBps < uint256(meta.drawdownThresholdBps)) {
+            // NAV recovered before finalize fired. Bond slashed to the
+            // user's UserVault as compensation for the locked capital
+            // (and as a small disincentive against speculative triggers
+            // on transient drawdowns).
+            delete _pendingDefunds[user][strategy];
+            if (bond > 0) {
+                baseAsset.forceApprove(userVault, bond);
+                IUserVaultForAllocator(userVault).creditFromAllocator(user, bond);
+            }
+            emit DefundFinalized(user, strategy, triggerer, 0, 0, bond);
+            return;
+        }
+
+        // Breach confirmed. Compute reward, then unwind. Reward source
+        // is `_accruedFees` (v1 deviation — see Helios.md §6.3) capped
+        // at `defundRewardCapUsdE6` and `defundBondBps × notional`.
+        uint256 deployed = rec.capitalDeployed;
+        uint256 cap = uint256(_effectiveRewardCapE6());
+        uint256 rewardEligible = (deployed * uint256(meta.defundBondBps)) / 10_000;
+        if (rewardEligible > cap) rewardEligible = cap;
+        uint256 pool = _accruedFees;
+        if (rewardEligible > pool) rewardEligible = pool;
+
+        delete _pendingDefunds[user][strategy];
+
+        // Debit the reward from the pool *before* unwinding so a
+        // re-entrant strategy hook can't drain accruedFees and leave
+        // us underwater. Pool is monotonic-decrement; unwind is
+        // gated by `nonReentrant`.
+        if (rewardEligible > 0) _accruedFees = pool - rewardEligible;
+
+        _unwindAndCredit(user, strategy);
+        rec.defundedAt = uint64(block.timestamp);
+
+        if (bond > 0) baseAsset.safeTransfer(triggerer, bond);
+        if (rewardEligible > 0) baseAsset.safeTransfer(triggerer, rewardEligible);
+
+        emit StrategyDefunded(user, strategy, "DRAWDOWN_BREACH_FINALIZE", triggerer);
+        emit DefundFinalized(user, strategy, triggerer, bond, rewardEligible, 0);
+    }
+
+    /// @notice Operator override — clears a pending defund entry and
+    ///         refunds the bond to the original triggerer. Use when
+    ///         the operator wants to defund through the operator path
+    ///         without ambiguity, or when the trigger fired on a
+    ///         drawdown the operator already addressed off-chain.
+    function cancelDefund(address user, address strategy) external onlyOperator nonReentrant {
+        PendingDefund storage pending = _pendingDefunds[user][strategy];
+        if (pending.breachCount == 0) revert DefundNotPending();
+        _refundBond(pending);
+        delete _pendingDefunds[user][strategy];
+        emit DefundCancelled(user, strategy, CANCEL_REASON_OPERATOR);
     }
 
     function rebalance(address user, address[] calldata strategies, uint256[] calldata weightsBps)
@@ -396,6 +621,14 @@ contract AllocatorVault is
         return _allocations[user][strategy];
     }
 
+    function pendingDefundOf(address user, address strategy)
+        external
+        view
+        returns (PendingDefund memory)
+    {
+        return _pendingDefunds[user][strategy];
+    }
+
     function accruedFees() external view returns (uint256) {
         return _accruedFees;
     }
@@ -539,5 +772,47 @@ contract AllocatorVault is
 
     function _maxU256(uint256 a, uint256 b) internal pure returns (uint256) {
         return a > b ? a : b;
+    }
+
+    // ── WS-CX-1 / Phase 4 helpers ──────────────────────────────────
+
+    /// @dev Per-user-prorated drawdown vs allocation HWM, in bps.
+    ///      Reads `IStrategyVault.navOf(this) / allocationOf(this)` to
+    ///      isolate the user's share of mark-to-market loss from
+    ///      sibling allocators in the same vault.
+    function _observeDrawdownBps(address strategy, AllocationRecord storage rec)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 nav = IStrategyVault(strategy).navOf(address(this));
+        uint256 alloc = IStrategyVault(strategy).allocationOf(address(this));
+        uint256 userShare = alloc == 0 ? 0 : (nav * rec.capitalDeployed) / alloc;
+        uint256 hwm = rec.strategyHighWaterMark;
+        if (hwm == 0 || userShare >= hwm) return 0;
+        return ((hwm - userShare) * 10_000) / hwm;
+    }
+
+    /// @dev "Is the oracle online?" gate. Phase 2 oracle commits
+    ///      Poseidon roots only — there is no per-asset price feed —
+    ///      so freshness is the only signal we can extract from the
+    ///      anchor on-chain. An empty ledger is treated as stale so
+    ///      a never-initialized vault can't be defund-griefed.
+    function _checkOracleFresh() internal view {
+        address anchor = oracleAnchor;
+        if (anchor == address(0)) revert OracleAnchorNotSet();
+        if (IOracleAnchor(anchor).commitCount() == 0) revert OracleStale();
+        IOracleAnchor.Commit memory c = IOracleAnchor(anchor).latest();
+        if (block.timestamp > uint256(c.committedAt) + MAX_STALENESS_SEC) {
+            revert OracleStale();
+        }
+    }
+
+    /// @dev Refund a posted bond to its original triggerer. No-op if
+    ///      the bond was zero (degenerate `defundBondBps = 0` setting,
+    ///      kept legal so users can opt out of the bond mechanism).
+    function _refundBond(PendingDefund storage pending) internal {
+        uint128 bond = pending.bondAmount;
+        if (bond > 0) baseAsset.safeTransfer(pending.triggerer, bond);
     }
 }

@@ -11,6 +11,7 @@ import { StrategyRegistry } from "../src/StrategyRegistry.sol";
 import { TradeAttestationVerifier } from "../src/TradeAttestationVerifier.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockGroth16Verifier } from "./mocks/MockGroth16Verifier.sol";
+import { MockOracleAnchor } from "./mocks/MockOracleAnchor.sol";
 import { MockUserVault } from "./mocks/MockUserVault.sol";
 import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -40,6 +41,12 @@ contract AllocatorVaultTest is Test {
     address internal yieldAnchor = makeAddr("yieldAnchor");
     address internal user = makeAddr("user");
     address internal randomCaller = makeAddr("rando");
+    address internal triggerer = makeAddr("triggerer");
+
+    /// @dev Real-shape oracle anchor used by `triggerDefund`'s
+    ///      freshness gate. Setup pokes it to a fresh timestamp so
+    ///      vanilla flows pass the gate without test-side ceremony.
+    MockOracleAnchor internal oracleAnchor;
 
     bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
     bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
@@ -132,6 +139,20 @@ contract AllocatorVaultTest is Test {
         usdc.mint(address(this), USER_DEPOSIT);
         usdc.approve(address(userVault), USER_DEPOSIT);
         userVault.deposit(user, USER_DEPOSIT);
+
+        // WS-CX-1 — wire the oracle anchor + seed it with a fresh commit
+        // so the default `triggerDefund` happy-path doesn't have to call
+        // setLatest each test. Stale-oracle tests overwrite explicitly.
+        oracleAnchor = new MockOracleAnchor();
+        oracleAnchor.setLatest(uint64(block.timestamp));
+        vm.prank(owner);
+        allocatorVault.setOracleAnchor(address(oracleAnchor));
+
+        // Pre-fund a sensible bond budget for the default permissionless
+        // triggerer so each test doesn't have to re-mint.
+        usdc.mint(triggerer, 10_000e6);
+        vm.prank(triggerer);
+        usdc.approve(address(allocatorVault), type(uint256).max);
     }
 
     function _deployStrategy(address stratOp, bytes32 declaredClass)
@@ -364,29 +385,14 @@ contract AllocatorVaultTest is Test {
         assertEq(userVault.balanceOf(user), USER_DEPOSIT);
     }
 
-    function test_DefundStrategy_PermissionlessRevertsWhenDDNotBreached() public {
+    function test_DefundStrategy_NonOperatorReverts() public {
+        // WS-CX-1 — `defundStrategy` is operator-only post-Phase-4.
+        // Permissionless callers route through `triggerDefund`.
         vm.prank(operator);
         allocatorVault.allocateToStrategy(user, address(stratA), 30_000e6);
         vm.prank(randomCaller);
-        vm.expectRevert(IAllocatorVault.DrawdownNotBreached.selector);
-        allocatorVault.defundStrategy(user, address(stratA), "no DD");
-    }
-
-    function test_DefundStrategy_PermissionlessSucceedsOnBreach() public {
-        vm.prank(operator);
-        allocatorVault.allocateToStrategy(user, address(stratA), 30_000e6);
-
-        // Simulate a 20% drawdown via signed NAV (15% threshold breached).
-        _reportNAV(stratA, 24_000e6, uint64(block.timestamp + 1));
-
-        vm.expectEmit(true, true, true, true);
-        emit StrategyDefunded(user, address(stratA), "DD breach", randomCaller);
-        vm.prank(randomCaller);
-        allocatorVault.defundStrategy(user, address(stratA), "DD breach");
-
-        IAllocatorVault.AllocationRecord memory r =
-            allocatorVault.allocationOf(user, address(stratA));
-        assertGt(r.defundedAt, 0);
+        vm.expectRevert(IAllocatorVault.NotAllocator.selector);
+        allocatorVault.defundStrategy(user, address(stratA), "wrong path");
     }
 
     function test_DefundStrategy_LossyUnwindReturnsNAVShareNotPrincipal() public {
@@ -759,6 +765,334 @@ contract AllocatorVaultTest is Test {
         IAllocatorVault.AllocationRecord memory r =
             allocatorVault.allocationOf(user, address(stratA));
         assertGt(r.defundedAt, 0);
+    }
+
+    // ── WS-CX-1 — caller-cadence permissionless defund ─────────────
+
+    /// @dev Helper: stage a 30k allocation in a 20% drawdown so
+    ///      drawdown bps (≈2000) clears the 1500 bps threshold.
+    function _stageBreach(uint256 allocAmount, uint256 navAfter) internal {
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), allocAmount);
+        _reportNAV(stratA, navAfter, uint64(block.timestamp + 1));
+    }
+
+    function test_TriggerDefund_FirstObservationPostsBondAndRecords() public {
+        _stageBreach(30_000e6, 24_000e6); // 20% DD
+
+        uint256 bondExpected =
+            (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 trigBalBefore = usdc.balanceOf(triggerer);
+
+        vm.expectEmit(true, true, true, true);
+        emit IAllocatorVault.DefundObserved(user, address(stratA), triggerer, 1, 2000, bondExpected);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        IAllocatorVault.PendingDefund memory p =
+            allocatorVault.pendingDefundOf(user, address(stratA));
+        assertEq(p.breachCount, 1, "breach count");
+        assertEq(p.triggerer, triggerer, "triggerer");
+        assertEq(uint256(p.bondAmount), bondExpected, "bond stored");
+        assertEq(usdc.balanceOf(triggerer), trigBalBefore - bondExpected, "bond pulled");
+    }
+
+    function test_TriggerDefund_RevertsBelowThresholdOnFirstObservation() public {
+        // 5% drawdown — below 15% threshold.
+        _stageBreach(30_000e6, 28_500e6);
+        vm.prank(triggerer);
+        vm.expectRevert(IAllocatorVault.DrawdownNotBreached.selector);
+        allocatorVault.triggerDefund(user, address(stratA));
+        // No pending entry, no bond pulled.
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0);
+    }
+
+    function test_TriggerDefund_RevertsOnStaleOracle() public {
+        // Forge starts at timestamp 1; jump ahead so a 200s lag is
+        // representable as an unsigned subtraction.
+        vm.warp(block.timestamp + 1000);
+        // Push the anchor 200s into the past (> 180s MAX_STALENESS_SEC).
+        oracleAnchor.setLatest(uint64(block.timestamp - 200));
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        vm.expectRevert(IAllocatorVault.OracleStale.selector);
+        allocatorVault.triggerDefund(user, address(stratA));
+    }
+
+    function test_TriggerDefund_RevertsOnEmptyOracle() public {
+        oracleAnchor.clear();
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        vm.expectRevert(IAllocatorVault.OracleStale.selector);
+        allocatorVault.triggerDefund(user, address(stratA));
+    }
+
+    function test_TriggerDefund_RevertsOnUnsetAnchor() public {
+        vm.prank(owner);
+        allocatorVault.setOracleAnchor(address(0));
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        vm.expectRevert(IAllocatorVault.OracleAnchorNotSet.selector);
+        allocatorVault.triggerDefund(user, address(stratA));
+    }
+
+    function test_TriggerDefund_BarTooSoonOnSecondObservation() public {
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        // Same block — well under MIN_BAR_BLOCKS.
+        vm.prank(triggerer);
+        vm.expectRevert(IAllocatorVault.BarTooSoon.selector);
+        allocatorVault.triggerDefund(user, address(stratA));
+    }
+
+    function test_TriggerDefund_ThreeObservationsArm() public {
+        _stageBreach(30_000e6, 24_000e6);
+
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        uint256 target = block.number;
+
+        // bar 2
+        target += 300;
+        vm.roll(target);
+        // Re-prime oracle freshness so subsequent observations don't
+        // trip the gate even though the gate only checks bar 1 — being
+        // explicit keeps the test readable.
+        oracleAnchor.setLatest(uint64(block.timestamp));
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 2);
+
+        // bar 3 — should arm.
+        target += 300;
+        vm.roll(target);
+        vm.expectEmit(true, true, false, false);
+        emit IAllocatorVault.DefundArmed(user, address(stratA), 0);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 3);
+    }
+
+    function test_TriggerDefund_RecoveredObservationRefundsAndClears() public {
+        _stageBreach(30_000e6, 24_000e6);
+
+        uint256 bondExpected =
+            (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 balBefore = usdc.balanceOf(triggerer);
+
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+        // Triggerer is bond-down.
+        assertEq(usdc.balanceOf(triggerer), balBefore - bondExpected);
+
+        // NAV recovers above HWM region (back to 30k).
+        vm.roll(block.number + 300);
+        _reportNAV(stratA, 30_000e6, uint64(block.timestamp + 2));
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        // Pending cleared, bond refunded.
+        assertEq(
+            allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0, "pending cleared"
+        );
+        assertEq(usdc.balanceOf(triggerer), balBefore, "bond refunded");
+    }
+
+    function test_FinalizeDefund_RevertsBeforeArmed() public {
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+        // Roll past confirm window but before bars 2/3 land.
+        vm.roll(block.number + 1000);
+        vm.expectRevert(IAllocatorVault.DefundNotArmed.selector);
+        allocatorVault.finalizeDefund(user, address(stratA));
+    }
+
+    function test_FinalizeDefund_RevertsBeforeConfirmWindow() public {
+        _armPendingDefund(); // 3 observations, breach still standing
+        // confirmBlocks = 25 default — finalize one block in is too soon.
+        vm.roll(block.number + 1);
+        vm.expectRevert(IAllocatorVault.ConfirmWindowNotElapsed.selector);
+        allocatorVault.finalizeDefund(user, address(stratA));
+    }
+
+    function test_FinalizeDefund_HappyPathPaysRewardFromAccrued() public {
+        _armPendingDefund();
+        // Drive accrued fees ≥ reward eligible ($150) via a realistic
+        // settlement on stratB so the test exercises the same code path
+        // production does. Setup runs after `_armPendingDefund` because
+        // settling stratA mid-pending isn't legal.
+        _seedAccruedFees();
+
+        vm.roll(block.number + 26); // > confirmBlocks (25)
+
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 rewardExpected = bondAmt; // 50bps × 30k = bond size; same as reward
+        uint256 accruedBefore = allocatorVault.accruedFees();
+        require(accruedBefore >= rewardExpected, "test seed underfunded");
+
+        vm.expectEmit(true, true, true, true);
+        emit StrategyDefunded(user, address(stratA), "DRAWDOWN_BREACH_FINALIZE", triggerer);
+        allocatorVault.finalizeDefund(user, address(stratA));
+
+        // Bond refunded + reward paid (single recipient: the triggerer).
+        assertEq(
+            usdc.balanceOf(triggerer),
+            trigBefore + bondAmt + rewardExpected,
+            "bond+reward delivered"
+        );
+        // Allocation finalized.
+        assertGt(allocatorVault.allocationOf(user, address(stratA)).defundedAt, 0);
+        // Pending cleared.
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0);
+        // Pool decremented exactly by the reward.
+        assertEq(allocatorVault.accruedFees(), accruedBefore - rewardExpected);
+    }
+
+    function test_FinalizeDefund_RewardCappedAtRewardCap() public {
+        vm.prank(owner);
+        allocatorVault.setDefundRewardCap(1e6); // $1 cap binds before pool
+
+        _armPendingDefund();
+        _seedAccruedFees();
+        vm.roll(block.number + 26);
+
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+        uint256 accruedBefore = allocatorVault.accruedFees();
+
+        allocatorVault.finalizeDefund(user, address(stratA));
+
+        // Reward capped at $1; bond fully refunded.
+        assertEq(usdc.balanceOf(triggerer), trigBefore + bondAmt + 1e6);
+        // Pool is drained by the capped amount only.
+        assertEq(allocatorVault.accruedFees(), accruedBefore - 1e6);
+    }
+
+    function test_FinalizeDefund_PoolEmptyPaysZeroReward() public {
+        _armPendingDefund();
+        vm.roll(block.number + 26);
+
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+
+        // _accruedFees is zero by default. Reward = 0; bond still refunded.
+        allocatorVault.finalizeDefund(user, address(stratA));
+        assertEq(usdc.balanceOf(triggerer), trigBefore + bondAmt);
+    }
+
+    function test_FinalizeDefund_NavRecoveredSlashesBondToUser() public {
+        _armPendingDefund();
+        vm.roll(block.number + 26);
+
+        // NAV recovers above threshold before finalize fires.
+        _reportNAV(stratA, 30_000e6, uint64(block.timestamp + 100));
+
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 userBalBefore = userVault.balanceOf(user);
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+
+        allocatorVault.finalizeDefund(user, address(stratA));
+
+        // Bond credited to user vault, not refunded to triggerer.
+        assertEq(userVault.balanceOf(user), userBalBefore + bondAmt, "bond -> user");
+        assertEq(usdc.balanceOf(triggerer), trigBefore, "triggerer empty-handed");
+        // Allocation NOT unwound — recovery means we keep the position.
+        assertEq(allocatorVault.allocationOf(user, address(stratA)).defundedAt, 0);
+    }
+
+    function test_CancelDefund_OperatorRefundsBond() public {
+        _stageBreach(30_000e6, 24_000e6);
+        uint256 bondAmt = (30_000e6 * uint256(MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS)) / 10_000;
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        vm.expectEmit(true, true, false, true);
+        emit IAllocatorVault.DefundCancelled(user, address(stratA), keccak256("OPERATOR_CANCEL"));
+        vm.prank(operator);
+        allocatorVault.cancelDefund(user, address(stratA));
+
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0);
+        assertEq(usdc.balanceOf(triggerer), trigBefore, "bond refunded");
+    }
+
+    function test_CancelDefund_NonOperatorReverts() public {
+        _stageBreach(30_000e6, 24_000e6);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+        vm.prank(randomCaller);
+        vm.expectRevert(IAllocatorVault.NotAllocator.selector);
+        allocatorVault.cancelDefund(user, address(stratA));
+    }
+
+    function test_OperatorDefund_ClearsPendingAndRefundsBond() public {
+        _stageBreach(30_000e6, 24_000e6);
+        uint256 trigBefore = usdc.balanceOf(triggerer);
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        // Operator pre-empts via the operator path. Bond is refunded
+        // courtesy and the allocation unwinds in one tx.
+        vm.prank(operator);
+        allocatorVault.defundStrategy(user, address(stratA), "operator preempt");
+        assertEq(allocatorVault.pendingDefundOf(user, address(stratA)).breachCount, 0);
+        assertEq(usdc.balanceOf(triggerer), trigBefore, "bond refunded");
+        assertGt(allocatorVault.allocationOf(user, address(stratA)).defundedAt, 0);
+    }
+
+    function test_FinalizeDefund_RevertsOnNotPending() public {
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 1000e6);
+        vm.expectRevert(IAllocatorVault.DefundNotPending.selector);
+        allocatorVault.finalizeDefund(user, address(stratA));
+    }
+
+    /// @dev Helper that runs three breaching observations spaced
+    ///      MIN_BAR_BLOCKS apart so the pending entry is armed.
+    ///      Tracks the target block in a local instead of re-reading
+    ///      `block.number` between cheatcode + opcode boundaries —
+    ///      the latter has surprised forge in the past.
+    function _armPendingDefund() internal {
+        _stageBreach(30_000e6, 24_000e6);
+
+        vm.prank(triggerer);
+        allocatorVault.triggerDefund(user, address(stratA));
+
+        uint256 target = block.number;
+        for (uint256 i = 0; i < 2; i++) {
+            target += 300;
+            vm.roll(target);
+            oracleAnchor.setLatest(uint64(block.timestamp));
+            vm.prank(triggerer);
+            allocatorVault.triggerDefund(user, address(stratA));
+        }
+        // Sanity: armed.
+        assertEq(
+            allocatorVault.pendingDefundOf(user, address(stratA)).breachCount,
+            uint8(MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS)
+        );
+    }
+
+    /// @dev Drive `_accruedFees` ≥ $150 (= 50bps reward on a 30k
+    ///      allocation) by settling a realized gain on stratB. Uses
+    ///      the same production code path the allocator hits so the
+    ///      test exercises end-to-end settlement bookkeeping rather
+    ///      than poking storage slots. 5% allocator fee × $3k gain =
+    ///      $150 accrued.
+    function _seedAccruedFees() internal {
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratB), 20_000e6);
+        usdc.mint(address(stratB), 3000e6);
+        _reportNAV(stratB, 23_000e6, uint64(block.timestamp + 1));
+        vm.prank(operator);
+        allocatorVault.settleStrategyFee(user, address(stratB));
+        require(allocatorVault.accruedFees() >= 150e6, "seed too small");
     }
 
     // ── helpers ────────────────────────────────────────────────────

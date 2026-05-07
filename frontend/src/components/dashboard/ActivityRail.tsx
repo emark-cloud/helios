@@ -168,6 +168,11 @@ const KIND_LABEL: Record<SentinelEventKind, string> = {
   STRATEGY_DEFUNDED: "Defunded",
   REBALANCE_COMPLETE: "Rebalance",
   FEE_SETTLED: "Fee",
+  DEFUND_TRIGGERED: "Defund triggered",
+  DEFUND_ARMED: "Defund armed",
+  DEFUND_FINALIZED: "Defund finalized",
+  DEFUND_CANCELLED: "Defund cancelled",
+  NAV_DIVERGENCE: "NAV divergence",
 };
 
 function describeEvent(evt: SentinelEvent): string {
@@ -190,6 +195,27 @@ function describeEvent(evt: SentinelEvent): string {
       return amount ? `Rebalance complete. Net change ${amount}.` : "Rebalance complete.";
     case "FEE_SETTLED":
       return amount ? `Performance fee settled — ${amount}.` : "Performance fee settled.";
+    case "DEFUND_TRIGGERED": {
+      // chain_watch packs observed drawdown bps into amount_usd and the
+      // breach count into reason as "BREACH_<n>". Render both.
+      const drawdownPct = (evt.amount_usd / 100).toFixed(2);
+      const breach = evt.reason.match(/^BREACH_(\d+)/)?.[1];
+      return breach
+        ? `${where || "Strategy"} defund triggered (observation ${breach}, ${drawdownPct}% drawdown).`
+        : `${where || "Strategy"} defund triggered (${drawdownPct}% drawdown).`;
+    }
+    case "DEFUND_ARMED":
+      return `${where || "Strategy"} defund armed — confirm window started.`;
+    case "DEFUND_FINALIZED":
+      return evt.reason === "SLASHED_TO_USER"
+        ? `${where || "Strategy"} defund finalized — bond slashed to user.`
+        : `${where || "Strategy"} defund finalized — bond refunded${amount ? `, ${amount} reward` : ""}.`;
+    case "DEFUND_CANCELLED":
+      return evt.reason === "RECOVERED"
+        ? `${where || "Strategy"} defund cancelled — NAV recovered.`
+        : `${where || "Strategy"} defund cancelled.`;
+    case "NAV_DIVERGENCE":
+      return `${where || "Strategy"} NAV divergence flagged — under cash floor.`;
   }
 }
 

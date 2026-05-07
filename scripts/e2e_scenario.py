@@ -59,6 +59,7 @@ from helios_contracts_abi.abis import (
 )
 from web3 import Web3
 from web3.contract.contract import Contract
+from web3.types import RPCEndpoint
 
 # ── Anvil default keys (deterministic mnemonic).
 # Operator = anvil[0] = deployer per DeployPhase1.s.sol.
@@ -218,6 +219,10 @@ def step_fund(ctx: Ctx) -> None:
     _send(ctx.w3, ctx.deployer, ctx.usdc.functions.mint(ctx.user.address, 100_000 * 10**6))
     bal = ctx.usdc.functions.balanceOf(ctx.user.address).call()
     assert bal == 100_000 * 10**6, f"user mUSDC balance {bal} unexpected"
+    # WS-CX-1: stranger triggers permissionless defund and posts a
+    # `defundBondBps` bond out of their own balance. Mint 1k mUSDC so
+    # they're funded for any meta-strategy bond setting up to 10%.
+    _send(ctx.w3, ctx.deployer, ctx.usdc.functions.mint(ctx.stranger.address, 1_000 * 10**6))
 
 
 def step_set_meta(ctx: Ctx) -> bytes:
@@ -238,13 +243,15 @@ def step_set_meta(ctx: Ctx) -> bytes:
         2_500,  # maxFeeRateBps
         3_600,  # rebalanceCadenceSec (1h)
         0,  # validUntil (never expires)
-        # WS7.C — auto-defund knobs. Pass zeros; UserVault substitutes
-        # `MetaStrategyLib.DEFAULT_DEFUND_*` defaults on first write
-        # (twapBars=3, bondBps=50, confirmBlocks=25). Phase 2 stores
-        # them; Phase 4 wires AllocatorVault enforcement.
-        0,  # defundTwapBars
-        0,  # defundBondBps
-        0,  # defundConfirmBlocks
+        # WS7.C / WS-CX-1 — auto-defund knobs. The vertical-slice scenario
+        # exercises the *permissionless single-shot* path: `defundTwapBars=1`
+        # arms on the first observation and `defundConfirmBlocks=1` lets
+        # `finalizeDefund` succeed in the next block. Production demos
+        # use the defaults (3 / 25) for proper TWAP smoothing — see
+        # `Helios.md §6.3`.
+        1,  # defundTwapBars
+        50,  # defundBondBps (0.5% — minimal real bond, ~50 USDC of 10k)
+        1,  # defundConfirmBlocks
     )
     # [PASSPORT-STUB] EIP-712 sig — UserVault.setMetaStrategy doesn't verify
     # in Phase 1, but we sign over a structurally-valid payload so the
@@ -466,17 +473,37 @@ def step_report_nav(ctx: Ctx, strategy: Contract, total_nav: int, ts: int) -> di
 
 
 def step_permissionless_defund(ctx: Ctx, strategy_addr: str) -> dict[str, Any]:
-    print("[7] STRANGER (non-operator) defundStrategy — permissionless path")
-    receipt = _send(
+    """WS-CX-1 split the legacy single-call `defundStrategy` into the
+    3-stage `triggerDefund` → (TWAP) → `finalizeDefund` flow. The
+    e2e meta-strategy is configured with `defundTwapBars=1` and
+    `defundConfirmBlocks=1` so this collapses to: post bond + trigger,
+    mine a block, finalize. The stranger remains the `triggeredBy`
+    address on the resulting `StrategyDefunded` event — which is the
+    hard gate Helios.md §6.3 still enforces."""
+    print("[7] STRANGER (non-operator) triggerDefund + finalizeDefund — permissionless path")
+    strategy = Web3.to_checksum_address(strategy_addr)
+    # 1. Approve the AllocatorVault to pull the bond from the stranger
+    #    on `triggerDefund`. Bond = capitalDeployed × defundBondBps / 10_000.
+    _send(
         ctx.w3,
         ctx.stranger,
-        ctx.allocator_vault.functions.defundStrategy(
-            ctx.user.address,
-            Web3.to_checksum_address(strategy_addr),
-            "phase1-e2e-permissionless",
-        ),
+        ctx.usdc.functions.approve(ctx.allocator_vault.address, 1_000 * 10**6),
     )
-    return receipt
+    # 2. Trigger — single observation arms immediately because
+    #    `defundTwapBars=1`. Also seeds the pending entry's bond.
+    _send(
+        ctx.w3,
+        ctx.stranger,
+        ctx.allocator_vault.functions.triggerDefund(ctx.user.address, strategy),
+    )
+    # 3. Mine one block to clear the `defundConfirmBlocks=1` window.
+    ctx.w3.provider.make_request(RPCEndpoint("anvil_mine"), [1])
+    # 4. Finalize — emits `StrategyDefunded(triggeredBy=stranger)`.
+    return _send(
+        ctx.w3,
+        ctx.stranger,
+        ctx.allocator_vault.functions.finalizeDefund(ctx.user.address, strategy),
+    )
 
 
 def step_replacement_allocate(ctx: Ctx) -> dict[str, Any]:

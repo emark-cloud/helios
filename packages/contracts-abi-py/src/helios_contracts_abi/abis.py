@@ -549,6 +549,24 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "function",
+    "name": "cancelDefund",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "defundStrategy",
     "inputs": [
       {
@@ -569,6 +587,80 @@ IAllocatorVault_ABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finalizeDefund",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "pendingDefundOf",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IAllocatorVault.PendingDefund",
+        "components": [
+          {
+            "name": "firstObservedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "firstObservedBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "lastObservedBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "breachCount",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "triggerer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bondAmount",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -596,6 +688,24 @@ IAllocatorVault_ABI = [
   {
     "type": "function",
     "name": "settleStrategyFee",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "triggerDefund",
     "inputs": [
       {
         "name": "user",
@@ -720,6 +830,180 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "event",
+    "name": "DefundArmed",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "armedAtBlock",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "DefundCancelled",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "bytes32",
+        "indexed": False,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "DefundFinalized",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "triggerer",
+        "type": "address",
+        "indexed": False,
+        "internalType": "address"
+      },
+      {
+        "name": "refunded",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reward",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "slashedToUser",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "DefundObserved",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "triggerer",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "breachCount",
+        "type": "uint8",
+        "indexed": False,
+        "internalType": "uint8"
+      },
+      {
+        "name": "observedDrawdownBps",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bondAmount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "DefundRewardCapUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "next",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "OracleAnchorUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "StrategyDefunded",
     "inputs": [
       {
@@ -787,12 +1071,42 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "error",
+    "name": "BarTooSoon",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ConfirmWindowNotElapsed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DefundNotArmed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DefundNotPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "DrawdownNotBreached",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotAllocator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleAnchorNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleStale",
     "inputs": []
   }
 ]
@@ -1151,6 +1465,56 @@ IStrategyVault_ABI = [
         "type": "uint256",
         "indexed": False,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "NavDivergenceObserved",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "signedNAV",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "markedFloor",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snapshotNonce",
+        "type": "uint64",
+        "indexed": False,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "NavDivergenceThresholdUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "uint16",
+        "indexed": False,
+        "internalType": "uint16"
+      },
+      {
+        "name": "next",
+        "type": "uint16",
+        "indexed": False,
+        "internalType": "uint16"
       }
     ],
     "anonymous": False
@@ -3243,6 +3607,25 @@ IOracleAnchor_ABI = [
   },
   {
     "type": "function",
+    "name": "freshness",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hashCommit",
     "inputs": [
       {
@@ -3362,12 +3745,38 @@ IOracleAnchor_ABI = [
   },
   {
     "type": "function",
+    "name": "revokeRoot",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setSigner",
     "inputs": [
       {
         "name": "signer_",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unrevokeRoot",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -3412,6 +3821,32 @@ IOracleAnchor_ABI = [
   },
   {
     "type": "event",
+    "name": "RootRevoked",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "RootUnrevoked",
+    "inputs": [
+      {
+        "name": "root",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "SignerUpdated",
     "inputs": [
       {
@@ -3446,7 +3881,17 @@ IOracleAnchor_ABI = [
   },
   {
     "type": "error",
+    "name": "RootNotRevoked",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UnknownIndex",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownRoot",
     "inputs": []
   },
   {
