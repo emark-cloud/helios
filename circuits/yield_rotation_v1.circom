@@ -8,9 +8,9 @@ pragma circom 2.1.9;
 // between two allowlisted lending markets where the APY differential
 // (net of bridging cost) exceeds an operator-declared threshold.
 //
-// Public-input layout (12 signals → adapter _PUBLIC_INPUT_COUNT = 12):
+// Public-input layout (13 signals → adapter _PUBLIC_INPUT_COUNT = 13):
 //
-//   [0]  trade_hash             Poseidon(11) over all the other public
+//   [0]  trade_hash             Poseidon(12) over all the other public
 //                                 inputs. The on-chain side recomputes
 //                                 the binding by checking each public
 //                                 input directly (allocator, vault,
