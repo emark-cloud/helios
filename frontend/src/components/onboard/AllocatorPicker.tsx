@@ -86,44 +86,51 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
         const displayName = brand?.displayName ?? row.name;
         const selected = choice === value;
         return (
-          <button
+          <div
             key={choice}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            data-allocator-choice={choice}
-            onClick={() => onChange(choice)}
             className={cn(
-              "rounded-md border bg-surface-panel p-5 text-left transition-none",
+              "rounded-md border bg-surface-panel transition-none",
               selected
                 ? "border-amber/60 bg-amber/[0.04] ring-1 ring-amber/40"
                 : "border-surface-line hover:border-amber/40",
             )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-display text-sm font-semibold text-fg-primary">
-                    {displayName}
-                  </h3>
-                  <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
-                    Official Reference
-                  </span>
+            {/* Radio target — the upper card body. The `Details` link
+                lives outside the radio per WCAG (focusable descendants
+                of `role="radio"` aren't reachable via radiogroup
+                keyboard nav). */}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              data-allocator-choice={choice}
+              onClick={() => onChange(choice)}
+              className="block w-full p-5 text-left"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-display text-sm font-semibold text-fg-primary">
+                      {displayName}
+                    </h3>
+                    <span className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+                      Official Reference
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-fg-secondary">
+                    {brand?.rankingSummary}
+                  </p>
                 </div>
-                <p className="mt-2 text-xs text-fg-secondary">
-                  {brand?.rankingSummary}
-                </p>
+                <SelectedDot selected={selected} />
               </div>
-              <SelectedDot selected={selected} />
-            </div>
 
-            <dl className="mt-4 grid grid-cols-3 gap-x-4 gap-y-2 border-t border-surface-line pt-3">
-              <Stat label="Fee" value={formatBpsAsPct(row.feeRateBps)} />
-              <Stat label="Users" value={row.totalUsers.toString()} />
-              <Stat label="Reputation" value={readReputation(row.currentReputation).toFixed(1)} />
-            </dl>
-
-            <div className="mt-3 flex items-center justify-between text-[11px] text-fg-muted">
+              <dl className="mt-4 grid grid-cols-3 gap-x-4 gap-y-2 border-t border-surface-line pt-3">
+                <Stat label="Fee" value={formatBpsAsPct(row.feeRateBps)} />
+                <Stat label="Users" value={row.totalUsers.toString()} />
+                <Stat label="Reputation" value={readReputation(row.currentReputation).toFixed(1)} />
+              </dl>
+            </button>
+            <div className="flex items-center justify-between border-t border-surface-line px-5 py-2 text-[11px] text-fg-muted">
               <span className="font-mono uppercase tracking-[0.12em]">
                 {selected ? "Selected" : "Tap to select"}
               </span>
@@ -132,13 +139,12 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
                 // bypassed Next's typedRoutes. Cast to `Route` so the
                 // dynamic `[name]` slot is enforced at the type level.
                 href={`/allocators/${encodeURIComponent(displayName)}` as Route}
-                onClick={(e) => e.stopPropagation()}
                 className="font-mono uppercase tracking-[0.12em] hover:text-amber"
               >
                 Details →
               </Link>
             </div>
-          </button>
+          </div>
         );
       })}
     </div>

@@ -198,4 +198,9 @@ Check `DESIGN.md §13` (motion) and `§4.3` (color). Amber is ~2–5% of pixels 
 
 ## Current phase
 
-Phase 0 — Bootstrap & ground truth. See `TODO.md` for the live checklist.
+Phase 5 — Cross-chain. Phases 0–4 complete; `v0.4.0` tagged on `main`
+2026-05-07 after WS-ACC accepted (perf 99/100 on `/dashboard`,
+zero serious/critical axe-core violations across the four static
+surfaces, scenario harness green in CI). See `docs/phase4-acceptance.md`
+for the acceptance results and `TODO.md` for the live Phase 5
+checklist.
