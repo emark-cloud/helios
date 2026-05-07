@@ -25,8 +25,24 @@ const MAX_ENTRIES = 50;
 
 type ConnState = "connecting" | "open" | "closed" | "error";
 
+// Phase-3 review MEDIUM: events keyed on `${timestamp}-${i}` re-mount
+// on every prepend (every existing event's index shifts), so the
+// 80ms-stagger animation re-fires on already-displayed rows. Wrap each
+// event with a stable, frontend-issued UUID at insert time.
+type RailEvent = SentinelEvent & { uid: string };
+
+let _railUidCounter = 0;
+function _mintUid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Node + ancient browser fallback — only hit by SSR snapshot tests.
+  _railUidCounter += 1;
+  return `rail-${Date.now()}-${_railUidCounter}`;
+}
+
 export function ActivityRail({ user }: { user: string }): JSX.Element {
-  const [events, setEvents] = useState<SentinelEvent[]>([]);
+  const [events, setEvents] = useState<RailEvent[]>([]);
   const [conn, setConn] = useState<ConnState>("connecting");
   // HIGH #18: Sentinel WS now requires an EIP-191 signature recovering
   // to `user`. Triggers a wallet prompt the first time the rail mounts;
@@ -46,7 +62,7 @@ export function ActivityRail({ user }: { user: string }): JSX.Element {
           (digest) => signMessageAsync({ message: digest }),
           (evt) => {
             setEvents((prev) => {
-              const next = [evt, ...prev];
+              const next = [{ ...evt, uid: _mintUid() }, ...prev];
               return next.length > MAX_ENTRIES ? next.slice(0, MAX_ENTRIES) : next;
             });
           },
@@ -85,7 +101,7 @@ export function ActivityRail({ user }: { user: string }): JSX.Element {
               : "Connecting to Sentinel…"}
           </li>
         ) : (
-          events.map((evt, i) => <Entry key={`${evt.timestamp}-${i}`} evt={evt} index={i} />)
+          events.map((evt, i) => <Entry key={evt.uid} evt={evt} index={i} />)
         )}
       </ol>
     </aside>

@@ -195,15 +195,22 @@ export function wsSubscribeDigest(user: string, validUntil: number): string {
  * Subscribe to user-scoped Sentinel events. Returns a teardown.
  *
  * The WS path mirrors `WS /v1/users/{user}/events` in service.py.
- * Reconnects are caller-controlled — wire in TanStack Query / Zustand
- * with explicit reconnection state, not a silent loop.
- *
  * `signMessage` is the wagmi/viem `useSignMessage` hook exposed as a
  * thunk. It signs the digest above; the server recovers the address
  * and rejects (close 4401) on mismatch or `valid_until` expiry. We mint
  * a five-minute window — long enough that a slow network handshake
  * doesn't race the deadline, short enough that a captured query string
  * can't open a fresh socket later.
+ *
+ * Phase-3 review MEDIUM: a transient network drop used to leave the
+ * ActivityRail stuck on "Disconnected" until the user changed address.
+ * `subscribeUserEvents` now reconnects internally with a capped
+ * exponential backoff (1s → 30s, ±20% jitter). Each reconnect re-signs
+ * the digest — the wallet caches the prompt within the 5-minute window,
+ * so users don't see repeated approval popups for a flaky link. The
+ * caller's `onStatus("closed")` still fires on the final teardown so
+ * the rail can render a sticky error if reconnection is exhausted by
+ * an explicit unmount.
  */
 export async function subscribeUserEvents(
   user: string,
@@ -211,36 +218,77 @@ export async function subscribeUserEvents(
   onEvent: (_e: SentinelEvent) => void,
   onStatus?: (_status: "open" | "closed" | "error") => void,
 ): Promise<() => void> {
-  const validUntil = Math.floor(Date.now() / 1000) + 300;
-  const digest = wsSubscribeDigest(user, validUntil);
-  const signature = await signMessage(digest);
-  const wsBase = BASE.replace(/^http/, "ws");
-  const params = new URLSearchParams({
-    valid_until: String(validUntil),
-    signature,
-  });
-  const ws = new WebSocket(`${wsBase}/v1/users/${user}/events?${params.toString()}`);
-  ws.onopen = () => onStatus?.("open");
-  ws.onmessage = (evt) => {
+  let cancelled = false;
+  let attempt = 0;
+  let activeWs: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const _backoffMs = (n: number): number => {
+    const base = Math.min(30_000, 1_000 * 2 ** Math.min(n, 5));
+    return Math.floor(base * (0.8 + Math.random() * 0.4));
+  };
+
+  const _connect = async (): Promise<void> => {
+    if (cancelled) return;
+    const validUntil = Math.floor(Date.now() / 1000) + 300;
+    const digest = wsSubscribeDigest(user, validUntil);
+    let signature: string;
     try {
-      const data = JSON.parse(evt.data) as SentinelEvent;
-      onEvent(data);
+      signature = await signMessage(digest);
     } catch {
-      // The Sentinel WS only ever emits well-formed JSON. A parse miss
-      // means an upstream regression — surface it as an error status
-      // rather than swallowing.
+      // The user dismissed the wallet prompt — bubble error and stop.
       onStatus?.("error");
+      return;
     }
+    if (cancelled) return;
+    const wsBase = BASE.replace(/^http/, "ws");
+    const params = new URLSearchParams({
+      valid_until: String(validUntil),
+      signature,
+    });
+    const ws = new WebSocket(`${wsBase}/v1/users/${user}/events?${params.toString()}`);
+    activeWs = ws;
+    ws.onopen = (): void => {
+      attempt = 0;
+      onStatus?.("open");
+    };
+    ws.onmessage = (evt): void => {
+      try {
+        const data = JSON.parse(evt.data) as SentinelEvent;
+        onEvent(data);
+      } catch {
+        onStatus?.("error");
+      }
+    };
+    ws.onerror = (): void => {
+      onStatus?.("error");
+    };
+    ws.onclose = (): void => {
+      activeWs = null;
+      if (cancelled) {
+        onStatus?.("closed");
+        return;
+      }
+      // Schedule a reconnect; surface "error" while we wait so the
+      // rail's ConnDot reflects the gap.
+      onStatus?.("error");
+      attempt += 1;
+      reconnectTimer = setTimeout(() => {
+        void _connect();
+      }, _backoffMs(attempt));
+    };
   };
-  ws.onerror = () => {
-    onStatus?.("error");
-  };
-  ws.onclose = () => {
-    onStatus?.("closed");
-  };
-  return () => {
-    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-      ws.close();
+
+  await _connect();
+
+  return (): void => {
+    cancelled = true;
+    if (reconnectTimer != null) clearTimeout(reconnectTimer);
+    if (
+      activeWs != null
+      && (activeWs.readyState === WebSocket.OPEN || activeWs.readyState === WebSocket.CONNECTING)
+    ) {
+      activeWs.close();
     }
   };
 }

@@ -138,7 +138,7 @@ export function CustomizationPanel({ value, onChange }: CustomizationPanelProps)
             onChange={(e: ChangeEvent<HTMLInputElement>) =>
               patch("max_strategies_count", Number.parseInt(e.target.value, 10))
             }
-            className="flex-1 accent-[var(--accent-amber)]"
+            className="flex-1 accent-amber"
           />
           <Numeric>{value.max_strategies_count}</Numeric>
         </div>
@@ -180,7 +180,7 @@ export function CustomizationPanel({ value, onChange }: CustomizationPanelProps)
                     onChange={(e: ChangeEvent<HTMLInputElement>) =>
                       patch("min_attested_trades", Number.parseInt(e.target.value, 10))
                     }
-                    className="flex-1 accent-[var(--accent-amber)]"
+                    className="flex-1 accent-amber"
                   />
                   <Numeric>{value.min_attested_trades}</Numeric>
                 </div>
@@ -286,7 +286,7 @@ function BpsSlider({
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onChange(Number.parseInt(e.target.value, 10))
           }
-          className="flex-1 accent-[var(--accent-amber)]"
+          className="flex-1 accent-amber"
         />
         <Numeric tone={tone === "negative" ? "negative" : "default"}>
           {tone === "negative" ? "−" : ""}
