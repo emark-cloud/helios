@@ -223,6 +223,12 @@ class MomentumRuntime:
                 # a subclass extends the strategy.
                 is_signal_flip=intent.is_signal_flip,
                 is_stop_loss=intent.is_stop_loss,
+                # was_long is the side held BEFORE this intent fires —
+                # only consumed by the circuit's signal-flip exit branch.
+                # Reference momentum is long-only, but deriving from the
+                # current position keeps the value honest for any
+                # subclass that emits short entries.
+                was_long=self._strategy.position_for(asset) > 0,
             )
         except ValueError as exc:
             _log.warning("momentum.witness.invalid", asset=asset, err=str(exc))

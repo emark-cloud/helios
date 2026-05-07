@@ -87,6 +87,7 @@ function asField(n) {
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
+    was_long: "1",
   };
 
   console.log("generating proof…");
