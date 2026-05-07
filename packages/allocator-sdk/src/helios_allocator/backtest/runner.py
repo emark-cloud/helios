@@ -155,6 +155,20 @@ def run_backtest(
         ranked = [c for _, c in sorted(zip(scores, candidates, strict=True), key=lambda p: -p[0])]
         targets = allocator.allocate(cfg.user, ranked, int(user_capital))
 
+        # Phase-3 review MEDIUM: a buggy ranker that returns leveraged
+        # totals (Σ capital_usd > user_capital) would silently produce
+        # leveraged P&L numbers in the backtest report. Assert the
+        # invariant explicitly so reports stay honest. A small rounding
+        # slack lets `int(user_capital * weight)` math close cleanly.
+        target_total = sum(t.capital_usd for t in targets)
+        slack = max(1, len(targets))
+        if target_total > int(user_capital) + slack:
+            allocator_name = allocator.__class__.__name__
+            raise ValueError(
+                f"allocator {allocator_name} emitted leveraged targets: "
+                f"Σ={target_total} > user_capital={int(user_capital)}"
+            )
+
         # Apply per-strategy day-d returns to the dollar allocations.
         gross_pnl = 0.0
         for t in targets:
