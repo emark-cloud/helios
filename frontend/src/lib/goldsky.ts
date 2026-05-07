@@ -640,3 +640,78 @@ export async function fetchStrategyAudit(
   );
   return data.strategy;
 }
+
+// ── Landing / judge stats ───────────────────────────────────────────
+
+export type LandingStats = {
+  /** Total capital under management — sum of every Allocation
+   *  entity's capitalDeployed (per-event delta; subgraph note in
+   *  schema.graphql). */
+  totalCapitalUsdE6: string;
+  activeStrategies: number;
+  attestedTrades: number;
+  activeAllocators: number;
+  /** Recent on-chain `Trade` rows. Surfaced on /judge so a reviewer
+   *  can click into Kitescan even when the VPS is offline (TODO.md
+   *  line 371). */
+  recentTrades: Array<{
+    id: string;
+    txHash: string;
+    timestamp: string;
+    strategy: { id: string; declaredClass: string; chainId: number };
+    proofValid: boolean;
+  }>;
+};
+
+const LANDING_STATS_QUERY = /* GraphQL */ `
+  query LandingStats {
+    strategies(first: 1000, where: { active: true }) {
+      id
+      totalAttestedTrades
+    }
+    allocators(first: 1000, where: { active: true }) {
+      id
+    }
+    allocations(first: 1000) {
+      capitalDeployed
+    }
+    trades(first: 12, orderBy: timestamp, orderDirection: desc) {
+      id
+      txHash
+      timestamp
+      proofValid
+      strategy {
+        id
+        declaredClass
+        chainId
+      }
+    }
+  }
+`;
+
+export async function fetchLandingStats(signal?: AbortSignal): Promise<LandingStats> {
+  type Raw = {
+    strategies: Array<{ id: string; totalAttestedTrades: number }>;
+    allocators: Array<{ id: string }>;
+    allocations: Array<{ capitalDeployed: string }>;
+    trades: LandingStats["recentTrades"];
+  };
+  const data = await gqlRequest<Raw>(LANDING_STATS_QUERY, undefined, signal);
+  let totalE6 = 0n;
+  for (const a of data.allocations) {
+    try {
+      totalE6 += BigInt(a.capitalDeployed);
+    } catch {
+      // Tolerate malformed rows so the page still renders.
+    }
+  }
+  let attested = 0;
+  for (const s of data.strategies) attested += s.totalAttestedTrades || 0;
+  return {
+    totalCapitalUsdE6: totalE6.toString(),
+    activeStrategies: data.strategies.length,
+    attestedTrades: attested,
+    activeAllocators: data.allocators.length,
+    recentTrades: data.trades,
+  };
+}

@@ -28,9 +28,20 @@
     border-radius: var(--radius-sm);
   }
 
-  /* Auto-defund row indicator (DESIGN.md §10.2). */
-  [data-defund-state="breaching"] {
+  /* Auto-defund row indicator (DESIGN.md §10.2). Three discrete
+     states emitted by the chain watcher (`triggered → armed →
+     finalized`). The `breaching` state is the legacy
+     `STRATEGY_DEFUNDED` post-finalize stamp. */
+  [data-defund-state="breaching"],
+  [data-defund-state="finalizing"] {
     border-left: var(--border-defund);
+  }
+  [data-defund-state="armed"] {
+    border-left: 3px solid var(--accent-amber);
+    animation: helios-defund-armed 1s steps(2, end) infinite;
+  }
+  [data-defund-state="triggered"] {
+    border-left: 3px solid var(--accent-amber-dim);
   }
 
   /* Active / selected row indicator. */
@@ -62,9 +73,57 @@
   to   { opacity: 1; }
 }
 
+/* Cascade row — same instant flip the rail uses, but the table
+   variant carries its own delay so the two surfaces can stagger
+   independently without colliding selectors. */
+@keyframes helios-cascade-row-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Sunburst grow-from-center on first cascade. CSS scale is the
+   only smooth motion budget left in the cascade per DESIGN §13;
+   the segments themselves still snap-step internally. */
+@keyframes helios-sunburst-grow {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Auto-defund armed state — alternating amber border, 1s, 2-step.
+   Reads as discrete blink (thermostat tick), not a smooth pulse. */
+@keyframes helios-defund-armed {
+  0%   { border-left-color: var(--accent-amber); }
+  50%  { border-left-color: var(--accent-amber-dim); }
+  100% { border-left-color: var(--accent-amber); }
+}
+
+/* Cross-chain reputation badge pulse — fires once at 600ms.
+   DESIGN §10.3: a single ping, not a heartbeat. */
+@keyframes helios-chain-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--accent-amber-glow); }
+  60%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Digit ticker — single discrete flip per stage. The component owns
+   its own setTimeout cadence; the keyframe is just an opacity flip
+   that lets us tag rendered digits in DOM. */
+@keyframes helios-digit-flip {
+  from { opacity: 0.4; }
+  to   { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  /* Collapse the stagger; the entries become visible immediately. */
-  [style*="helios-rail-in"] {
+  /* Collapse all stagger / pulse animations to instant. */
+  [style*="helios-rail-in"],
+  [style*="helios-cascade-row-in"],
+  [style*="helios-sunburst-grow"],
+  [style*="helios-chain-pulse"],
+  [style*="helios-digit-flip"] {
     animation-delay: 0s !important;
+    animation-duration: 0s !important;
+  }
+  [data-defund-state="armed"] {
+    animation: none !important;
   }
 }
