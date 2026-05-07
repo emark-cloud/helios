@@ -147,7 +147,7 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
   - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
   - `oraclePriceAnchor` `0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4` (Phase-3 redeploy 2026-05-07; supersedes `0x90e7a456…` which lacked `freshness()` / `unrevokeRoot()` from HIGH #6/#9)
   - `oracleYieldAnchor` `0x345cd375ec42476eb95c5903fb3abb27f9400f9d` (Phase-3 redeploy 2026-05-07; supersedes `0x1e458d57…`)
-  - Three deployed strategy vaults per class (base + Variant2 + Variant3); see JSON for the full nine.
+  - Strategy vaults per class — Variant2 + Variant3 (six proxies) on the Phase-3 impl `0x4510eA78880B7095f1f68F4E8029B776f3c8beA1` (constructor immutables → new oracle anchors). The three **base** proxies (`strategyVaultMomentum` / `strategyVaultMeanReversion` / `strategyVaultYieldRotation`) remain on their pre-Phase-3 impls because they were deployed before commit `a4b844a` added `bytes32 paramsHash` mid-struct on 2026-04-28; their `_manifest` is one slot shorter, so the new impl's storage layout doesn't fit. They keep their original isKnownRoot freshness behavior (no HIGH #6/#8/#10 fixes). E2E + judge demos drive Variant2/Variant3 only — do not target the base trio for new flows. Phase 6 mainnet does a fresh deploy and won't carry the layout drift.
 - **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
