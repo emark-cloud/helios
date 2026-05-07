@@ -19,6 +19,29 @@ export type TemplateForm = Omit<
   "user_address" | "valid_until" | "nonce" | "signature"
 >;
 
+/**
+ * Defund knobs are surfaced in `CustomizationPanel` and consumed by
+ * `formToContractStruct` for the on-chain MetaStrategy. They are
+ * intentionally **not** part of `MetaStrategyPayload` — Sentinel's REST
+ * shape doesn't track them; only the chain enforces.
+ *
+ * `MetaStrategyLib` substitutes its defaults when the caller passes
+ * zero, so leaving the user on `0/0/0` is the "use defaults" path.
+ */
+export type DefundForm = {
+  defund_twap_bars: number;
+  defund_bond_bps: number;
+  defund_confirm_blocks: number;
+};
+
+/** Per-template defund presets. Conservative is tighter, aggressive
+ *  looser, balanced lines up with `MetaStrategyLib` defaults. */
+export const DEFUND_PRESETS: Record<TemplateKey, DefundForm> = {
+  conservative: { defund_twap_bars: 5, defund_bond_bps: 75, defund_confirm_blocks: 40 },
+  balanced: { defund_twap_bars: 3, defund_bond_bps: 50, defund_confirm_blocks: 25 },
+  aggressive: { defund_twap_bars: 2, defund_bond_bps: 25, defund_confirm_blocks: 15 },
+};
+
 export type Template = {
   key: TemplateKey;
   label: string;

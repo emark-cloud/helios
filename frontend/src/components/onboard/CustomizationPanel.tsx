@@ -15,7 +15,7 @@ import { useState, type ChangeEvent } from "react";
 import { Numeric } from "@/components/atoms/Numeric";
 import { cn } from "@/lib/cn";
 import { formatBpsAsPct } from "@/lib/format";
-import type { TemplateForm } from "@/lib/templates";
+import type { DefundForm, TemplateForm } from "@/lib/templates";
 
 const ASSET_OPTIONS = ["KITE", "ETH", "BTC"];
 const CADENCE_OPTIONS: Array<{ seconds: number; label: string }> = [
@@ -28,9 +28,16 @@ const CADENCE_OPTIONS: Array<{ seconds: number; label: string }> = [
 export type CustomizationPanelProps = {
   value: TemplateForm;
   onChange: (_next: TemplateForm) => void;
+  defundValue: DefundForm;
+  onDefundChange: (_next: DefundForm) => void;
 };
 
-export function CustomizationPanel({ value, onChange }: CustomizationPanelProps): JSX.Element {
+export function CustomizationPanel({
+  value,
+  onChange,
+  defundValue,
+  onDefundChange,
+}: CustomizationPanelProps): JSX.Element {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   function patch<K extends keyof TemplateForm>(key: K, next: TemplateForm[K]): void {
@@ -186,7 +193,7 @@ export function CustomizationPanel({ value, onChange }: CustomizationPanelProps)
                 </div>
               </Field>
             </div>
-            <DefundDefaults />
+            <DefundControls value={defundValue} onChange={onDefundChange} />
           </div>
         ) : null}
       </div>
@@ -214,43 +221,108 @@ function Field({
   );
 }
 
-/// WS7.C — surface the auto-defund defaults the contract applies when the
-/// caller passes zero. Read-only in Phase 2; Phase 4 wires the controls and
-/// the bond UX on /dashboard.
-function DefundDefaults(): JSX.Element {
+/// WS7.C — Phase 4 editable defund controls (`docs/phase4-plan.md §4.10`).
+/// Sliders feed `formToContractStruct`, which writes them into the on-chain
+/// MetaStrategy struct. `MetaStrategyLib` substitutes its defaults on zero,
+/// so the user can always pick "use defaults" by dragging to the minimum.
+function DefundControls({
+  value,
+  onChange,
+}: {
+  value: DefundForm;
+  onChange: (_next: DefundForm) => void;
+}): JSX.Element {
+  function patch<K extends keyof DefundForm>(key: K, next: DefundForm[K]): void {
+    onChange({ ...value, [key]: next });
+  }
   return (
     <div className="rounded-md border border-surface-line bg-surface-base/40 p-4">
       <div className="text-[11px] uppercase tracking-[0.16em] text-fg-muted">
         Auto-defund safety
       </div>
       <p className="mt-2 text-xs text-fg-secondary">
-        Defunding requires the drawdown breach to persist across multiple oracle TWAP
-        snapshots and the trigger caller to post a refundable bond. Defaults below — tuning
-        ships in Phase 4.
+        Defunding a strategy requires the drawdown breach to hold across multiple
+        observations spaced ≥ 5 minutes apart, and the caller to post a refundable USDC
+        bond. Tighter bars + bigger bond = fewer false-positive defunds; looser =
+        faster reaction.
       </p>
-      <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-        <DefundRow label="TWAP bars" value="3" hint="5-min snapshots a breach must hold" />
-        <DefundRow label="Trigger bond" value="0.50%" hint="bps of the position, refunded on confirm" />
-        <DefundRow label="Confirm window" value="25 blocks" hint="bond slashed if NAV recovers" />
-      </dl>
+      <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <DefundSlider
+          label="TWAP bars"
+          unit=""
+          value={value.defund_twap_bars}
+          onChange={(v) => patch("defund_twap_bars", v)}
+          min={1}
+          max={24}
+          step={1}
+          hint="Consecutive observations a breach must hold."
+        />
+        <DefundSlider
+          label="Trigger bond"
+          unit="bps"
+          value={value.defund_bond_bps}
+          onChange={(v) => patch("defund_bond_bps", v)}
+          min={10}
+          max={500}
+          step={5}
+          hint="Of the defunded position, refunded if the breach confirms."
+        />
+        <DefundSlider
+          label="Confirm window"
+          unit="blocks"
+          value={value.defund_confirm_blocks}
+          onChange={(v) => patch("defund_confirm_blocks", v)}
+          min={1}
+          max={60}
+          step={1}
+          hint="Bond slashed to user if NAV recovers in this window."
+        />
+      </div>
     </div>
   );
 }
 
-function DefundRow({
+function DefundSlider({
   label,
+  unit,
   value,
+  onChange,
+  min,
+  max,
+  step,
   hint,
 }: {
   label: string;
-  value: string;
+  unit: string;
+  value: number;
+  onChange: (_v: number) => void;
+  min: number;
+  max: number;
+  step: number;
   hint: string;
 }): JSX.Element {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-[0.14em] text-fg-muted">{label}</dt>
-      <dd className="mt-0.5 font-mono text-fg-primary">{value}</dd>
-      <div className="mt-0.5 text-[11px] text-fg-secondary">{hint}</div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.14em] text-fg-muted">{label}</span>
+        <Numeric>
+          {value}
+          {unit ? <span className="ml-0.5 text-fg-muted">{unit}</span> : null}
+        </Numeric>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+          onChange(Number.parseInt(e.target.value, 10))
+        }
+        className="mt-1.5 w-full accent-amber"
+        aria-label={label}
+      />
+      <p className="mt-1 text-[11px] text-fg-secondary">{hint}</p>
     </div>
   );
 }

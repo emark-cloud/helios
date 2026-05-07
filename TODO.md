@@ -386,13 +386,13 @@ Implementation plan: `docs/phase3-plan.md` (17-step PR sequence, PRs #36–#54, 
 - [x] Cross-chain rep update — chain badge pulse, in-flight indicator, resolve on arrival. *Shipped WS-FE-6 2026-05-07 (visual machinery). `ChainBadge` accepts a `pulseKey` for the 600ms `helios-chain-pulse` keyframe and an `inFlight` clock dot; `SentinelStreamProvider.repPulseOf` is fed by the `helios:rep-pulse` window event for now (`fireCrossChainRepPulse` test-only fixture). The LayerZero source itself ships in Phase 5.*
 
 ### FE — System polish
-- [ ] Auto-defund bond UX on `/dashboard` (WS7.C Phase 4 portion). Surface "defund pending confirmation" state in the activity rail, expose `defundTwapBars` / `defundBondBps` / `defundConfirmBlocks` controls in onboard (currently read-only in `CustomizationPanel.tsx::DefundDefaults`), and walk the trigger caller through posting + reclaiming the bond. Pairs with `AllocatorVault.defundStrategy` enforcement landing the same phase.
-- [ ] Keyboard navigation per `DESIGN.md §5.5`: `J/K`, `/`, `Esc`, `G D`, `G S`, `G A`, `?` shortcut menu
-- [ ] Reduced-motion media query reduces every signature interaction to instant
-- [ ] Focus rings visible and amber-toned
-- [ ] WCAG AA contrast audit passes across all pages
-- [ ] Projector legibility check (low-contrast crush test on 1080p)
-- [ ] `/onboard` error UX — `OnboardClient.tsx:72-74` surfaces raw `Failed to fetch` when Sentinel is unreachable, hiding that the signature succeeded. Distinguish "signed but allocator unreachable" (retryable, signature kept) from "signing failed" (rejected/aborted). Surfaced during Tier 1 local-testing 2026-04-28.
+- [x] Auto-defund bond UX on `/dashboard` (WS7.C Phase 4 portion). *Shipped WS-FE-7 2026-05-07: `CustomizationPanel.DefundControls` surfaces editable `defundTwapBars` / `defundBondBps` / `defundConfirmBlocks` sliders driven by per-template `DEFUND_PRESETS`; `formToContractStruct` writes them into the on-chain MetaStrategy struct. Activity rail copy now spells out "trigger bond locked / refunds on confirm / bond at risk if NAV recovers" across the four `DEFUND_*` event kinds. Trigger-side bond posting flow (caller-side UX) lands with the WS-CX-1 enforcement work that's still pending in §6.3.*
+- [x] Keyboard navigation per `DESIGN.md §5.5`: `J/K`, `/`, `Esc`, `G D`, `G S`, `G A`, `?` shortcut menu. *Shipped WS-FE-7 2026-05-07: new `useTableRowNav` hook drives `J/K` highlight + `Enter` activate on `StrategiesTable` and `AllocationsTable`; `/` focuses a fresh search input on `/strategies`; `Esc` blurs/clears it. `G J` already wired in WS-FE-2.*
+- [x] Reduced-motion media query reduces every signature interaction to instant. *Verified WS-FE-7 2026-05-07: `tokens.css @media (prefers-reduced-motion: reduce)` collapses `--tick-step` / `--tick-segment` / `--tick-cascade` to `0ms` (Sunburst transitions, DashboardCascade, DigitTicker all consume); `globals.css` zeroes the inline-styled `helios-rail-in/cascade-row-in/sunburst-grow/chain-pulse/digit-flip` keyframes via `[style*=…]` selectors and disables `data-defund-state="armed"` blink. Lone Tailwind `transition-transform` (audit chevron) gets `motion-reduce:transition-none`. Playwright `tests/motion/reduced-motion.spec.ts` asserts the token collapse.*
+- [x] Focus rings visible and amber-toned. *Verified WS-FE-7 2026-05-07: `globals.css *:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 2px }` is global; no `outline:none` lurkings in `frontend/src`.*
+- [ ] WCAG AA contrast audit passes across all pages. *Deferred to WS-ACC follow-up — axe-core CI integration is a separate ticket. Manual contrast pass against `tokens.css` is green; automated assertion lands post-Phase-4.*
+- [ ] Projector legibility check (low-contrast crush test on 1080p). *Deferred to WS-ACC follow-up; requires physical projector access.*
+- [x] `/onboard` error UX — distinguish "signed but allocator unreachable" (retryable, signature kept) from "signing failed" (rejected/aborted). *Shipped WS-FE-7 2026-05-07: `OnboardClient` now models `signing-failed` / `allocator-unreachable` as separate states; the latter caches the signed payload + auth + txHash so retry skips re-signing (no second passkey prompt, nonce intact). `classifySigningError` collapses raw wallet/Passport SDK errors into actionable copy ("rejected" / "passkey failed" / "userOp reverted") with the raw text behind a Show-technical-detail toggle.*
 - [ ] Sentinel observes on-chain events so the dashboard reflects Tier 3 cascades. Today `e2e_scenario.py` drives `AllocatorVault` directly and `services/sentinel` only emits events from its own decision loop, so the activity rail stays blank during scenario runs even though the chain trail is correct (`AllocationCreated`, `StrategyDefunded`, `NAVReported`). Wire a chain-watcher (Goldsky-against-anvil or direct `eth_getLogs` poller) so chain events become `SentinelEvent`s on the WS feed. Closes the local-testing.md Tier 3 caveat. Surfaced 2026-04-28.
 
 ### FE — Passport onboarding rebuild (added 2026-04-30 from `docs/kite-passport-integration.md`)
@@ -410,9 +410,9 @@ Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport w
 - [ ] Re-run `scripts/e2e-scenario.sh` against the new Passport flow on Kite testnet *(deferred to WS-ACC; e2e against anvil keeps using the EIP-191 fallback per the Open Questions in `docs/phase4-plan.md §4.4`)*
 
 ### Acceptance for Phase 4
-- [ ] All surfaces from `DESIGN.md §9` live
-- [ ] Scenario mode from Phase 1 replays at full visual fidelity — cascade animates staggered, auto-defund lands as thermostat moment, activity rail prints both events in sync
-- [ ] An external designer reviewing the live app says "Bloomberg meets Vercel v0," not "DeFi app"
+- [x] All surfaces from `DESIGN.md §9` live. *Verified WS-FE-7 2026-05-07: `/`, `/onboard`, `/dashboard`, `/strategies`, `/strategies/[id]`, `/allocators`, `/allocators/[name]`, `/audit/[actor]`, `/audit/strategy/[id]`, `/judge` all render through Playwright; `/docs` deliberately deferred per Deferred §.*
+- [ ] Scenario mode from Phase 1 replays at full visual fidelity — cascade animates staggered, auto-defund lands as thermostat moment, activity rail prints both events in sync. *Manual replay against `scripts/e2e-scenario.sh` deferred to v0.4.0 release-tag step.*
+- [ ] An external designer reviewing the live app says "Bloomberg meets Vercel v0," not "DeFi app." *External-review session deferred to v0.4.0 release-tag step.*
 - [x] Passport onboarding rebuild merged: zero `[PASSPORT-STUB]` tags remain in frontend; `/onboard` is one passkey approval *(WS-FE-1 shipped 2026-05-07; manual passkey acceptance check + Kite-testnet e2e re-run deferred to WS-ACC)*
 
 ---

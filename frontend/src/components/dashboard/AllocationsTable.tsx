@@ -5,6 +5,11 @@
  * `data-defund-state="breaching"` selector lives in globals.css).
  */
 
+"use client";
+
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
+
 import { ChainBadge } from "@/components/atoms/ChainBadge";
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
 import { DigitTicker } from "@/components/motion/DigitTicker";
@@ -12,6 +17,8 @@ import {
   useSentinelStream,
   type DefundRowState,
 } from "@/components/motion/SentinelStream";
+import { useTableRowNav } from "@/hooks/useTableRowNav";
+import { cn } from "@/lib/cn";
 import {
   explorerAddressUrl,
   formatAddress,
@@ -29,6 +36,14 @@ const MAX_CASCADE_DELAY_MS = 800;
 
 export function AllocationsTable({ allocations }: { allocations: AllocationView[] }): JSX.Element {
   const { defundOf, repPulseOf } = useSentinelStream();
+  const router = useRouter();
+  const { selectedIndex } = useTableRowNav({
+    rowCount: allocations.length,
+    onActivate: (i) => {
+      const target = allocations[i];
+      if (target) router.push(`/strategies/${target.strategy_id.toLowerCase()}` as Route);
+    },
+  });
   if (allocations.length === 0) {
     // Reaching this branch means the user has a signed meta-strategy
     // (DashboardClient short-circuits the no-meta case to a 404 CTA);
@@ -66,6 +81,7 @@ export function AllocationsTable({ allocations }: { allocations: AllocationView[
                 index={i}
                 liveDefund={liveDefund}
                 repPulseKey={repPulse}
+                selected={i === selectedIndex}
               />
             );
           })}
@@ -80,11 +96,13 @@ function Row({
   index,
   liveDefund,
   repPulseKey,
+  selected,
 }: {
   alloc: AllocationView;
   index: number;
   liveDefund: DefundRowState | undefined;
   repPulseKey: number | undefined;
+  selected: boolean;
 }): JSX.Element {
   const pnl = alloc.current_nav_usd - alloc.high_water_mark_usd;
   const pnlPct = alloc.high_water_mark_usd > 0 ? (pnl / alloc.high_water_mark_usd) * 100 : 0;
@@ -108,9 +126,14 @@ function Row({
 
   return (
     <tr
-      className="border-b border-surface-line last:border-b-0"
+      className={cn(
+        "border-b border-surface-line last:border-b-0",
+        selected && "bg-surface-elev",
+      )}
       data-defund-state={defundState}
       data-strategy-id={alloc.strategy_id}
+      data-row-selected={selected ? "true" : undefined}
+      aria-selected={selected ? "true" : undefined}
       style={{
         animation: "helios-cascade-row-in 1ms linear forwards",
         animationDelay: `${cascadeDelayMs}ms`,

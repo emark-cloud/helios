@@ -140,20 +140,21 @@ function describeEvent(evt: SentinelEvent): string {
       // breach count into reason as "BREACH_<n>". Render both.
       const drawdownPct = (evt.amount_usd / 100).toFixed(2);
       const breach = evt.reason.match(/^BREACH_(\d+)/)?.[1];
+      const bondNote = " Trigger bond locked, refunds on confirm.";
       return breach
-        ? `${where || "Strategy"} defund triggered (observation ${breach}, ${drawdownPct}% drawdown).`
-        : `${where || "Strategy"} defund triggered (${drawdownPct}% drawdown).`;
+        ? `${where || "Strategy"} defund triggered (observation ${breach}, ${drawdownPct}% drawdown).${bondNote}`
+        : `${where || "Strategy"} defund triggered (${drawdownPct}% drawdown).${bondNote}`;
     }
     case "DEFUND_ARMED":
-      return `${where || "Strategy"} defund armed — confirm window started.`;
+      return `${where || "Strategy"} defund armed — confirm window started, bond at risk if NAV recovers.`;
     case "DEFUND_FINALIZED":
       return evt.reason === "SLASHED_TO_USER"
-        ? `${where || "Strategy"} defund finalized — bond slashed to user.`
-        : `${where || "Strategy"} defund finalized — bond refunded${amount ? `, ${amount} reward` : ""}.`;
+        ? `${where || "Strategy"} defund finalized — NAV recovered, bond slashed to user.`
+        : `${where || "Strategy"} defund finalized — capital recovered, bond refunded${amount ? `, ${amount} reward to triggerer` : ""}.`;
     case "DEFUND_CANCELLED":
       return evt.reason === "RECOVERED"
-        ? `${where || "Strategy"} defund cancelled — NAV recovered.`
-        : `${where || "Strategy"} defund cancelled.`;
+        ? `${where || "Strategy"} defund cancelled — NAV recovered, bond refunded.`
+        : `${where || "Strategy"} defund cancelled — bond refunded.`;
     case "NAV_DIVERGENCE":
       return `${where || "Strategy"} NAV divergence flagged — under cash floor.`;
   }
