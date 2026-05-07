@@ -80,9 +80,18 @@ contract AllocatorVault is
     ///      Drives `meta.maxStrategiesCount` enforcement.
     mapping(address user => uint256) internal _userActiveStrategyCount;
 
+    /// @dev Last timestamp at which `rebalance` succeeded for a user.
+    ///      Read at the top of `rebalance` against
+    ///      `meta.rebalanceCadenceSec` so a single user cannot rebalance
+    ///      faster than the cadence they signed (MEDIUM in
+    ///      `docs/phase-3-review.md`). Initial rebalance is never rejected
+    ///      (last == 0). `allocateToStrategy` does not advance this clock —
+    ///      cadence governs rebalances only, not first-time allocations.
+    mapping(address user => uint64) internal _userLastRebalanceTimestamp;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    uint256[48] private __gap;
+    uint256[47] private __gap;
 
     error ZeroAddress();
     error ZeroAmount();
@@ -100,6 +109,7 @@ contract AllocatorVault is
     error MetaExpired();
     error NoAccruedFees();
     error NotOperatorOrPermissionless();
+    error RebalanceTooSoon();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -159,7 +169,19 @@ contract AllocatorVault is
         if (amount == 0) revert ZeroAmount();
 
         AllocationRecord storage rec = _allocations[user][strategy];
-        if (rec.defundedAt != 0) revert AllocationDefunded();
+        // MEDIUM in `docs/phase-3-review.md`: a defunded slot was
+        // permanently blocked from re-allocation. Once `_unwindAndCredit`
+        // has zeroed `capitalDeployed`, the slot has no live capital and
+        // can be reopened with a fresh HWM. The defund event survives in
+        // the event log; the slot is treated as a new lifecycle from the
+        // subgraph's point of view (we re-emit `AllocationCreated` below).
+        bool reopening;
+        if (rec.defundedAt != 0) {
+            if (rec.capitalDeployed != 0) revert AllocationDefunded();
+            reopening = true;
+            rec.defundedAt = 0;
+            rec.strategyHighWaterMark = 0;
+        }
 
         _checkStrategyRegistered(strategy);
         _checkMetaStrategyBounds(user, strategy, amount);
@@ -169,7 +191,7 @@ contract AllocatorVault is
         baseAsset.forceApprove(strategy, amount);
         IStrategyVault(strategy).allocateFrom(amount);
 
-        bool isNew = rec.strategy == address(0);
+        bool isNew = rec.strategy == address(0) || reopening;
         rec.strategy = strategy;
         rec.capitalDeployed += amount;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);
@@ -223,6 +245,17 @@ contract AllocatorVault is
         if (strategies.length != weightsBps.length || strategies.length == 0) {
             revert LengthMismatch();
         }
+
+        // MEDIUM in `docs/phase-3-review.md`: enforce
+        // `meta.rebalanceCadenceSec` so a runaway operator cannot
+        // rebalance every block. First rebalance is always allowed
+        // (last == 0); cadence == 0 disables the throttle entirely.
+        uint256 cadence = IUserVaultForAllocator(userVault).metaStrategyOf(user).rebalanceCadenceSec;
+        uint64 last = _userLastRebalanceTimestamp[user];
+        if (cadence != 0 && last != 0 && block.timestamp < uint256(last) + cadence) {
+            revert RebalanceTooSoon();
+        }
+
         uint256 sum;
         uint256 totalDeployed;
         for (uint256 i = 0; i < strategies.length; i++) {
@@ -242,6 +275,7 @@ contract AllocatorVault is
             }
             _allocations[user][s].lastRebalanceTimestamp = uint64(block.timestamp);
         }
+        _userLastRebalanceTimestamp[user] = uint64(block.timestamp);
     }
 
     // ── Fee settlement ──────────────────────────────────────────────
@@ -379,7 +413,16 @@ contract AllocatorVault is
 
     function _allocateInternal(address user, address strategy, uint256 amount) internal {
         AllocationRecord storage rec = _allocations[user][strategy];
-        if (rec.defundedAt != 0) revert AllocationDefunded();
+        // Mirror `allocateToStrategy`'s reopen-on-zero policy so a
+        // rebalance that grows back into a previously-defunded slot is
+        // also unblocked.
+        bool reopening;
+        if (rec.defundedAt != 0) {
+            if (rec.capitalDeployed != 0) revert AllocationDefunded();
+            reopening = true;
+            rec.defundedAt = 0;
+            rec.strategyHighWaterMark = 0;
+        }
         _checkStrategyRegistered(strategy);
         _checkMetaStrategyBounds(user, strategy, amount);
 
@@ -387,7 +430,7 @@ contract AllocatorVault is
         baseAsset.forceApprove(strategy, amount);
         IStrategyVault(strategy).allocateFrom(amount);
 
-        bool isNew = rec.strategy == address(0);
+        bool isNew = rec.strategy == address(0) || reopening;
         rec.strategy = strategy;
         rec.capitalDeployed += amount;
         rec.strategyHighWaterMark = _maxU256(rec.strategyHighWaterMark, rec.capitalDeployed);

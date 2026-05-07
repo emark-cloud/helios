@@ -425,6 +425,42 @@ contract AllocatorVaultTest is Test {
         allocatorVault.defundStrategy(user, address(stratA), "second");
     }
 
+    function test_AllocateToStrategy_ReopensDefundedSlot() public {
+        // MEDIUM in `docs/phase-3-review.md`: a once-defunded (user, strategy)
+        // pair must accept fresh capital again. Slot reopens as a new
+        // lifecycle: HWM resets, AllocationCreated re-emits, the active
+        // count increments.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 30_000e6);
+        // Realize gains so HWM is non-zero before the defund — this lets us
+        // assert the post-reopen HWM is reset to the new principal rather
+        // than carried over from the prior position.
+        usdc.mint(address(stratA), 5000e6);
+        _reportNAV(stratA, 35_000e6, uint64(block.timestamp + 1));
+        vm.prank(operator);
+        allocatorVault.settleStrategyFee(user, address(stratA));
+        assertEq(allocatorVault.allocationOf(user, address(stratA)).strategyHighWaterMark, 35_000e6);
+
+        vm.prank(operator);
+        allocatorVault.defundStrategy(user, address(stratA), "first");
+        IAllocatorVault.AllocationRecord memory afterDefund =
+            allocatorVault.allocationOf(user, address(stratA));
+        assertEq(afterDefund.capitalDeployed, 0);
+        assertGt(afterDefund.defundedAt, 0);
+
+        // Re-allocate — should not revert, should emit AllocationCreated,
+        // and HWM should equal the new principal (not the old peak).
+        vm.expectEmit(true, true, false, true);
+        emit AllocationCreated(user, address(stratA), 10_000e6, uint32(block.chainid));
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 10_000e6);
+        IAllocatorVault.AllocationRecord memory afterReopen =
+            allocatorVault.allocationOf(user, address(stratA));
+        assertEq(afterReopen.capitalDeployed, 10_000e6);
+        assertEq(afterReopen.defundedAt, 0);
+        assertEq(afterReopen.strategyHighWaterMark, 10_000e6);
+    }
+
     // ── rebalance ──────────────────────────────────────────────────
 
     function test_Rebalance_OnlyOperator() public {
@@ -457,6 +493,82 @@ contract AllocatorVaultTest is Test {
         ws[1] = 6000; // sum 11_000
         vm.prank(operator);
         vm.expectRevert(AllocatorVault.InvalidWeights.selector);
+        allocatorVault.rebalance(user, ss, ws);
+    }
+
+    function test_Rebalance_RevertsBeforeCadenceElapsed() public {
+        // MEDIUM in `docs/phase-3-review.md`: rebalance must respect
+        // `meta.rebalanceCadenceSec`. Default fixture cadence is 1 day.
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 40_000e6);
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratB), 20_000e6);
+
+        address[] memory ss = new address[](2);
+        uint256[] memory ws = new uint256[](2);
+        ss[0] = address(stratA);
+        ss[1] = address(stratB);
+        ws[0] = 2500;
+        ws[1] = 7500;
+
+        // First rebalance always succeeds (last == 0).
+        vm.prank(operator);
+        allocatorVault.rebalance(user, ss, ws);
+
+        // Second within the cadence window must revert.
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.RebalanceTooSoon.selector);
+        allocatorVault.rebalance(user, ss, ws);
+
+        // After the cadence elapses, rebalance succeeds again.
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(operator);
+        allocatorVault.rebalance(user, ss, ws);
+    }
+
+    function test_Rebalance_CadenceZeroDisablesThrottle() public {
+        // Set cadence == 0; consecutive rebalances must succeed.
+        bytes32[] memory classes = new bytes32[](2);
+        classes[0] = CLASS_MOM;
+        classes[1] = CLASS_MR;
+        userVault.setMeta(
+            user,
+            MetaStrategyLib.MetaStrategy({
+                metaStrategyHash: bytes32(uint256(99)),
+                allowedStrategyClasses: classes,
+                allowedAssets: new address[](0),
+                allowedChains: new uint32[](0),
+                maxCapital: USER_DEPOSIT,
+                maxPerStrategyBps: 6000,
+                maxStrategiesCount: 3,
+                drawdownThresholdBps: DD_THRESHOLD_BPS,
+                maxFeeRateBps: 2500,
+                rebalanceCadenceSec: 0,
+                validUntil: uint64(block.timestamp + 30 days),
+                defundTwapBars: MetaStrategyLib.DEFAULT_DEFUND_TWAP_BARS,
+                defundBondBps: MetaStrategyLib.DEFAULT_DEFUND_BOND_BPS,
+                defundConfirmBlocks: MetaStrategyLib.DEFAULT_DEFUND_CONFIRM_BLOCKS
+            })
+        );
+
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratA), 40_000e6);
+        vm.prank(operator);
+        allocatorVault.allocateToStrategy(user, address(stratB), 20_000e6);
+
+        address[] memory ss = new address[](2);
+        uint256[] memory ws = new uint256[](2);
+        ss[0] = address(stratA);
+        ss[1] = address(stratB);
+        ws[0] = 5000;
+        ws[1] = 5000;
+        vm.prank(operator);
+        allocatorVault.rebalance(user, ss, ws);
+        // Same block, second rebalance — must succeed.
+        ws[0] = 4000;
+        ws[1] = 6000;
+        vm.prank(operator);
         allocatorVault.rebalance(user, ss, ws);
     }
 
