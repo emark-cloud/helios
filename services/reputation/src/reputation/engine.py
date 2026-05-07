@@ -483,9 +483,16 @@ def _max_drawdown_bps(snapshots: list[NavEvent]) -> int:
 
     Iterates ascending; tracks running peak; at each step records the dd_bps
     and keeps the max. Returns 0 when the window is empty or has no decline.
+
+    Phase-3 review MEDIUM: cache merges currently preserve subgraph order,
+    but a future event-source switch (Goldsky → on-chain index, replay
+    log, etc.) could deliver out-of-order snapshots. A defensive
+    `sorted()` keeps the peak/trough math correct regardless of source.
+    The cost is O(n log n) over a 90-day window — bounded and tiny.
     """
     if not snapshots:
         return 0
+    snapshots = sorted(snapshots, key=lambda ev: ev.timestamp)
     peak = 0
     max_dd_bps = 0
     for ev in snapshots:

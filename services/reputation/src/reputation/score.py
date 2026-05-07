@@ -218,8 +218,14 @@ def annualized_sharpe_from_nav(nav_series: Sequence[tuple[int, int]]) -> float:
     if len(nav_series) < 2:
         return 0.0
     # Resample to daily buckets — keep the latest NAV in each UTC day.
+    # Phase-3 review MEDIUM: today the cache merge preserves Goldsky's
+    # ascending order, so `daily[day] = nav` happens to keep the day's
+    # latest NAV. Sort defensively here so a future event-source change
+    # (replay log, re-org backfill, multi-source fanout) doesn't silently
+    # bucket on the wrong sample. O(n log n) over a 90-day window — tiny.
+    sorted_series = sorted(nav_series, key=lambda pair: pair[0])
     daily: dict[int, int] = {}
-    for ts, nav in nav_series:
+    for ts, nav in sorted_series:
         day = ts // 86_400
         daily[day] = nav
     series = [v for _, v in sorted(daily.items())]

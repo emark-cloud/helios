@@ -48,12 +48,21 @@ def create_app(
     # `BaseServiceSettings.cors_allowed_origins`); production deploys must
     # set the env to the public frontend host. `allow_credentials=True`
     # forbids `"*"` per the CORS spec, so the list is always explicit.
+    #
+    # Phase-3 review MEDIUM: `allow_methods=["*"]` /
+    # `allow_headers=["*"]` is dangerously permissive when paired with
+    # `allow_credentials=True` — any malicious origin allowed by
+    # `cors_origins` could probe arbitrary methods + custom headers.
+    # Tightened to the minimum the SDK actually issues. Services that
+    # need extras (e.g. `helix` with custom auth headers) should pass
+    # `extra_cors_methods` / `extra_cors_headers` explicitly via the
+    # router config rather than re-opening the wildcard.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-Helios-Signature"],
     )
 
     @app.get("/health")

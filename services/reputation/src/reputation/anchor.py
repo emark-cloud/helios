@@ -15,6 +15,7 @@ Track B / production we set both to a dedicated `REPUTATION_SIGNER_PK`.
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
@@ -61,6 +62,15 @@ class AnchorPoster:
         self._chain_id = chain_id
         self._live = bool(rpc_url and signer_pk and anchor_address)
         self.pending: deque[PostedUpdate] = deque(maxlen=_PENDING_RING_CAP)
+        # Serialize `_submit`. Phase-3 review MEDIUM: `_submit` reads the
+        # on-chain pending nonce inline, signs, and sends. Two concurrent
+        # callers (strategy tick + allocator tick scheduled at the same
+        # cadence; or a manual /v1/repost while the engine is mid-tick)
+        # would read the same nonce, sign two txs against it, and one
+        # would silently bounce. The lock is held across the
+        # nonce-read → sign → send → wait_for_receipt path so the next
+        # caller starts with the fresh post-mining nonce.
+        self._submit_lock = threading.Lock()
 
         # Lazy live handles.
         self._w3: Web3 | None = None
@@ -84,7 +94,8 @@ class AnchorPoster:
             )
             return result
         try:
-            tx_hash, block_number = self._submit(signed)
+            with self._submit_lock:
+                tx_hash, block_number = self._submit(signed)
             result.tx_hash = tx_hash
             result.submitted = True
             _log.info(

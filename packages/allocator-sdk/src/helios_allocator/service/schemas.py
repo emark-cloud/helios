@@ -99,6 +99,12 @@ class StrategyDirectoryRow(BaseModel):
     max_capacity_usd: int
     current_allocations_usd: int
     reputation_score: float
-    realized_volatility_30d: float
-    sharpe_30d: float
-    max_drawdown_30d_bps: int
+    # Phase-3 review MEDIUM: these were previously hardcoded to 0/0.0 in
+    # both Sentinel and Helix because neither service joins the
+    # reputation-engine snapshot into the directory row. Marked optional
+    # so callers serialize `None` (omitted from JSON when callers use
+    # `exclude_none=True`) rather than misleading zeros. Phase 4 wires
+    # these up through the engine's `/v1/audit/{actor}` cache.
+    realized_volatility_30d: float | None = None
+    sharpe_30d: float | None = None
+    max_drawdown_30d_bps: int | None = None

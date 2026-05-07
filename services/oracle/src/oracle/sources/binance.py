@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
 from oracle.sources.base import PriceQuote, SourceError
@@ -44,12 +43,17 @@ class BinanceSource:
         if not body:
             raise SourceError(f"binance: empty kline response for {symbol}")
         # Kline schema: [openTime, open, high, low, close, volume, closeTime, ...]
+        # Phase-3 review MEDIUM: stamp the snapshot with kline closeTime
+        # rather than wall-clock `time.time()`. closeTime is the bar's
+        # canonical end (already in ms) so multiple sources can be
+        # de-duplicated by timestamp without ±1m drift.
         kline = body[-1]
         close_str = str(kline[4])
+        close_time_ms = int(kline[6])
         return PriceQuote(
             asset=asset,
             price_e18=_to_e18(close_str),
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=close_time_ms,
             source=self.name,
         )
 
