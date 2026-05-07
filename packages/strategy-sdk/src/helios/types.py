@@ -131,16 +131,34 @@ class RotationIntent:
 
     Distinct from `TradeIntent` because the field set is different:
     no asset-in/out, no slippage, no direction enum. The witness
-    builder turns this into a YR-circuit-shaped payload."""
+    builder turns this into a YR-circuit-shaped payload.
+
+    Phase-3 review MEDIUM: `amount_in_usd` accepts `int | float` for
+    operator ergonomics (callers like `self._size()` may already work
+    in floats), but is normalized to `int` USD-cents-of-precision in
+    `__post_init__`. The downstream witness builder converts to e18
+    via `int(value * 10**18)`, and float64 only carries ~15-16 decimal
+    digits — values above ~9.0e6 USD lose integer precision in the e18
+    result. Storing the canonical value as `int` lets the prover
+    handle USD-magnitudes far above that ceiling without silent
+    rounding."""
 
     m_from: int
     m_to: int
-    amount_in_usd: float
+    # `int | float` accepted at the public boundary so operator code
+    # (`self._size()`, backtest fixtures) doesn't have to wrap with
+    # `int(...)`. `__post_init__` normalizes to `int` so the downstream
+    # witness builder's `int(value * 10**18)` never sees a float.
+    amount_in_usd: int | float
     apy_from_bps: int
     apy_to_bps: int
 
     def __post_init__(self) -> None:
         if self.m_from == self.m_to:
             raise ValueError("rotation must change markets")
+        # Coerce float ergonomics into the canonical int. Use
+        # object.__setattr__ because the dataclass is frozen.
+        if isinstance(self.amount_in_usd, float):
+            object.__setattr__(self, "amount_in_usd", int(self.amount_in_usd))
         if self.amount_in_usd <= 0:
             raise ValueError("amount_in_usd must be positive")

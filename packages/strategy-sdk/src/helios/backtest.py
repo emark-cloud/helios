@@ -371,9 +371,9 @@ def _apply_intent(
     qty = notional / price if direction == Direction.LONG else -notional / price
     if direction == Direction.LONG:
         cash -= notional + fee
-        # Accumulate at volume-weighted average price (LONG only — Phase
-        # 1 reference momentum strategy never flips short → long without
-        # an explicit EXIT).
+        # Accumulate at volume-weighted average price. Phase 1 reference
+        # momentum strategies never flip short → long without an explicit
+        # EXIT, so this branch only sees prev_qty ≥ 0.
         prev_qty = holdings.get(asset, 0.0)
         prev_pos = strategy.position_object(asset)
         prev_avg = prev_pos.avg_entry_price if prev_pos is not None else 0.0
@@ -390,14 +390,25 @@ def _apply_intent(
         # `notional + fee > cash` guard above stays as a synthetic
         # margin requirement (you can only short up to free cash).
         cash += notional - fee
+        # Phase-3 review MEDIUM: VWAP-average short top-ups. Previously
+        # this branch overwrote `avg_entry_price` with the latest fill
+        # price, so an agent that scaled into a short across multiple
+        # bars saw its mark-to-market basis silently reset to the latest
+        # fill instead of the volume-weighted average. The signed-qty
+        # form `(prev_avg * prev_qty + price * qty) / new_qty` cancels
+        # the negative sign in numerator and denominator and matches the
+        # LONG branch.
         prev_qty = holdings.get(asset, 0.0)
+        prev_pos = strategy.position_object(asset)
+        prev_avg = prev_pos.avg_entry_price if prev_pos is not None else 0.0
         new_qty = prev_qty + qty
+        new_avg = ((prev_avg * prev_qty) + (price * qty)) / new_qty if new_qty else price
         holdings[asset] = new_qty
         # PR4: store the SIGNED quantity (negative for shorts) so callers
         # of `StrategyAgent.position_for(asset) < 0` actually see the
         # short. Earlier code stored `abs(new_qty)` and silently broke
         # any consumer that branched on direction via the sign.
-        strategy._set_position(asset, new_qty, price, Direction.SHORT)
+        strategy._set_position(asset, new_qty, new_avg, Direction.SHORT)
 
     fills.append(
         TradeFill(

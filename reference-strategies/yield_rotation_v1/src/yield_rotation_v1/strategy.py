@@ -94,6 +94,15 @@ class YieldRotationStrategy(StrategyAgent):
             return None
 
         # Choose source: current position (if any) else worst available.
+        # Phase-3 review MEDIUM (deferred): when `_active_market is None`
+        # the strategy synthesizes `from_market = min(candidates)` so the
+        # first tick produces a "rotation" that is really the initial
+        # deployment. The driver in `helios.backtest.run_yield_backtest`
+        # tolerates this (line ~624 comment) and the test suite asserts
+        # the count includes it. A clean fix is structural — either an
+        # explicit `InitialDeploymentIntent` type or a `first_tick` flag
+        # on `Rotation` so reporting can distinguish — and is bigger than
+        # this MEDIUM batch warrants. Tracking via the followup queue.
         if self._active_market is not None and self._active_market in candidates:
             from_market = self._active_market
         else:
