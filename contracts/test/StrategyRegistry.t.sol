@@ -29,6 +29,17 @@ contract StrategyRegistryTest is Test {
         stake.mint(operator, 1_000_000e18);
         vm.prank(operator);
         stake.approve(address(registry), type(uint256).max);
+
+        // `vault` is just an address; for `deactivate` (Phase-3 review
+        // MEDIUM) the registry now reads `IStrategyVault.totalNAV()` —
+        // mock it to 0 by default so existing test paths see an empty
+        // vault. Tests that exercise "active capital" override this mock
+        // explicitly.
+        _mockVaultNAV(vault, 0);
+    }
+
+    function _mockVaultNAV(address v, uint256 nav) internal {
+        vm.mockCall(v, abi.encodeWithSignature("totalNAV()"), abi.encode(nav));
     }
 
     // ── Constructor ─────────────────────────────────────────────────
@@ -216,6 +227,23 @@ contract StrategyRegistryTest is Test {
         vm.prank(operator);
         vm.expectRevert(StrategyRegistry.StrategyInactive.selector);
         registry.deactivate(vault);
+    }
+
+    function test_Deactivate_RevertsIfActiveCapital() public {
+        // MEDIUM in `docs/phase-3-review.md`: deactivate must refuse while
+        // the vault still holds allocator capital so allocators can't be
+        // frozen in place.
+        _register();
+        _mockVaultNAV(vault, 1);
+        vm.prank(operator);
+        vm.expectRevert(StrategyRegistry.StrategyHasActiveCapital.selector);
+        registry.deactivate(vault);
+
+        // After capital is drained (NAV → 0), deactivate succeeds.
+        _mockVaultNAV(vault, 0);
+        vm.prank(operator);
+        registry.deactivate(vault);
+        assertFalse(registry.strategyOf(vault).active);
     }
 
     // ── updateReputation ────────────────────────────────────────────

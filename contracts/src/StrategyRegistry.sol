@@ -7,6 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
+import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 
 /// @title StrategyRegistry
 /// @notice Canonical strategy directory on Kite. Holds stake, anchors reputation,
@@ -47,6 +48,7 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
 
     error StrategyAlreadyRegistered();
     error StrategyNotFound();
+    error StrategyHasActiveCapital();
     error WithdrawalExceedsStake();
     error WithdrawalAlreadyPending();
     error NoPendingWithdrawal();
@@ -150,6 +152,15 @@ contract StrategyRegistry is IStrategyRegistry, Ownable, ReentrancyGuard {
         if (s.registeredAt == 0) revert StrategyNotFound();
         if (msg.sender != s.operator) revert NotOperator();
         if (!s.active) revert StrategyInactive();
+
+        // Phase-3 review MEDIUM in `docs/phase-3-review.md`: refuse
+        // deactivation while the vault still holds allocator capital.
+        // Operators must defund every position first; otherwise allocators
+        // are stuck unable to grow / rebalance into a strategy that has
+        // their capital. `totalNAV()` covers both principal + unrealized
+        // PnL, so even loss-bearing positions block deactivation until
+        // they're explicitly wound down.
+        if (IStrategyVault(strategyId).totalNAV() > 0) revert StrategyHasActiveCapital();
 
         s.active = false;
 

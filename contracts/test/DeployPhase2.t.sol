@@ -121,9 +121,28 @@ contract DeployPhase2Test is Test {
         DeployPhase2.Phase2Addresses memory a =
             script.runWith(_inputs("rotation", YR_ROOT, deployer, deployer));
 
+        // TAV's `registerVerifier` is now first-set-only; replacements
+        // queue through `proposeVerifierChange` and require a second tx
+        // after `CHANGE_DELAY` (Phase-3 review MEDIUM). The Phase-1 mocks
+        // are pre-seeded in `setUp`, so the script proposes; commit here.
+        _commitClassMap(a);
+
         assertEq(tav.verifierOf(CLASS_MOM), a.momentumVerifierAdapter, "MOM not rotated");
         assertEq(tav.verifierOf(CLASS_MR), a.meanReversionVerifierAdapter, "MR not rotated");
         assertEq(tav.verifierOf(CLASS_YR), a.yieldRotationVerifierAdapter, "YR not rotated");
+    }
+
+    function _commitClassMap(DeployPhase2.Phase2Addresses memory a) internal {
+        // Sanity: verify the script queued the changes.
+        (address pendMom,) = tav.pendingChanges(CLASS_MOM);
+        assertEq(pendMom, a.momentumVerifierAdapter, "MOM not proposed");
+
+        vm.warp(block.timestamp + tav.CHANGE_DELAY());
+        vm.startPrank(deployer);
+        tav.commitVerifierChange(CLASS_MOM);
+        tav.commitVerifierChange(CLASS_MR);
+        tav.commitVerifierChange(CLASS_YR);
+        vm.stopPrank();
     }
 
     function test_DeploysAnchorsAndWiresRegistries() public {

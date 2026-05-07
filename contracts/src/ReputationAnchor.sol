@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -15,7 +16,7 @@ import { IAllocatorRegistry } from "./interfaces/IAllocatorRegistry.sol";
 ///         signer key; this contract verifies, stores, and pushes the delta
 ///         into the appropriate registry. Cross-chain updates flow through
 ///         the LayerZero OApp.  Helios.md §6.8.
-contract ReputationAnchor is IReputationAnchor, Ownable, EIP712 {
+contract ReputationAnchor is IReputationAnchor, Ownable, Pausable, EIP712 {
     bytes32 private constant _UPDATE_TYPEHASH = keccak256(
         "ReputationUpdate(address actor,uint8 actorType,int256 currentScore,uint256 lastUpdateBlock,uint256 totalAttestedTrades,uint256 totalRealizedPnL,uint256 maxDrawdownBps,uint256 proofValidityRateBps)"
     );
@@ -70,6 +71,18 @@ contract ReputationAnchor is IReputationAnchor, Ownable, EIP712 {
         reputationSigner = signer_;
     }
 
+    /// @notice Owner-only emergency stop. Halts both off-chain and
+    ///         cross-chain reputation updates so a compromised signer or
+    ///         OApp can't continue posting while remediation is underway.
+    ///         Phase-3 review MEDIUM in `docs/phase-3-review.md`.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     function setOApp(address oApp_) external onlyOwner {
         emit OAppUpdated(oApp, oApp_);
         oApp = oApp_;
@@ -82,7 +95,7 @@ contract ReputationAnchor is IReputationAnchor, Ownable, EIP712 {
         ActorType actorType,
         ReputationData calldata data,
         bytes calldata signerSignature
-    ) external {
+    ) external whenNotPaused {
         bytes32 structHash = keccak256(
             abi.encode(
                 _UPDATE_TYPEHASH,
@@ -110,6 +123,7 @@ contract ReputationAnchor is IReputationAnchor, Ownable, EIP712 {
 
     function postCrossChainUpdate(address actor, ActorType actorType, ReputationData calldata data)
         external
+        whenNotPaused
     {
         if (msg.sender != oApp) revert NotOApp();
         _applyUpdate(actor, actorType, data);
