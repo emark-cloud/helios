@@ -138,16 +138,16 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
   - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (impl `0x770E3078a285651c11863Ec4D8Be87D0aDE29Cb7`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + `userTotalDeployed` view + capped `_unwindAndCredit` from HIGH #5/#8/#10)
   - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d`
   - `allocatorRegistry` `0xbfeba025ca32324a87c620a5c7c110c7666f417c`
-  - `tradeAttestationVerifier` `0x743e1bd7e9795e78b10965eaeaa93bf215476c96` (TAV; class map rotated 2026-05-07 to the Phase-3 review HIGH #11/#12/#13 verifier adapters below)
-  - Verifier adapters (current, post-Phase-3 redeploy):
-    - momentum_v1 → `0x5bbac36239021129085417911cd156d0284534e3` (raw `0x15a58a0e9cc962f9ab87514ea96adfa700c399bc`)
-    - mean_reversion_v1 → `0xd8cc4082cfedaf4f50eb9302abf20d527ca694d6` (raw `0x097f440aecdd999ad6f33229a6cc24ef27e85267`)
-    - yield_rotation_v1 → `0xda1572e9e8466e04a160af33ad29b569117be7be` (raw `0x065b22534b54a719de3a47bce8082b9383421764`)
+  - `tradeAttestationVerifier` `0x3698F60a6761bfDd1511B4C68d000d55FF8fff81` (TAV; **Phase 6 #13 redeploy 2026-05-08** with PR #70 timelock code — `CHANGE_DELAY = 2 days`, propose/commit machinery present. Supersedes legacy `0x743e1bd7…` which was the lax pre-PR-#70 version with no rotation path.)
+  - Verifier adapters (current, post-Phase-6 #13 redeploy):
+    - momentum_v1 → `0x66d2eb526438745C6acb2e2F1C6738Ce3bFC18E0` (raw `0x6201037d1490C8F5b5c46729F127F14Ff42010ba`; new circuit enforces Constraint 0 `amount_in > 0` — supersedes legacy `0x5bbac362…` which accepted zero-amount no-ops)
+    - mean_reversion_v1 → `0xd52F10D74F4A212347812E78cA42136105d754C9` (raw `0x7Cb4C01909E3E46f45423133072F8F86431daC9a`; same Constraint 0 fix — supersedes legacy `0xd8cc4082…`)
+    - yield_rotation_v1 → `0xda1572e9e8466e04a160af33ad29b569117be7be` (raw `0x065b22534b54a719de3a47bce8082b9383421764`; unchanged — Constraint 7 already enforced positivity)
   - `reputationAnchor` (V1, registry-bound) `0x51c07adf596b1e72697a9b8232d061ed006943dc`
   - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
   - `oraclePriceAnchor` `0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4` (Phase-3 redeploy 2026-05-07; supersedes `0x90e7a456…` which lacked `freshness()` / `unrevokeRoot()` from HIGH #6/#9)
   - `oracleYieldAnchor` `0x345cd375ec42476eb95c5903fb3abb27f9400f9d` (Phase-3 redeploy 2026-05-07; supersedes `0x1e458d57…`)
-  - Strategy vaults per class — all nine proxies now on Phase-3 impls (Variant2 + Variant3 share `0x4510eA78880B7095f1f68F4E8029B776f3c8beA1`; the three **base** proxies were fresh-deployed 2026-05-08 with new addresses on the Phase-3 impl after the layout-drift carve-out was retired):
+  - Strategy vaults per class — all nine proxies UUPS-upgraded 2026-05-08 to **Phase-6 impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`** (adds `migrateVerifier(address) reinitializer(2)`; verifier slot migrated to the new TAV in the same `upgradeToAndCall` tx). Base + Variant2 + Variant3 all share this impl:
     - `strategyVaultMomentum` `0xf11D55a3057A3Da51c9ED63BdC6aE8F666Fa426A` (paramsHash `keccak256("helios.mom_v1.base.phase3-redeploy")`; supersedes legacy `0x818a782f…` which stays registered + active in StrategyRegistry but is unreferenced from JSON)
     - `strategyVaultMeanReversion` `0xE85FC70edC752D3ff283F3FFFA17598d32b5FC07` (supersedes legacy `0x6c1f9466…`)
     - `strategyVaultYieldRotation` `0xb7496bE712Ed62fB02c6b9665F74eE6ff136d0d7` (supersedes legacy `0xbfbf9fa8…`)

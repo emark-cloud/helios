@@ -296,6 +296,46 @@ contract StrategyVaultTest is Test {
         impl.initialize(p);
     }
 
+    // ── migrateVerifier (Phase 6 #13) ───────────────────────────────
+
+    function test_MigrateVerifier_OwnerSwapsAndEmits() public {
+        address newVerifier = makeAddr("newVerifier");
+        address old = vault.verifier();
+        vm.prank(owner);
+        vault.migrateVerifier(newVerifier);
+        assertEq(vault.verifier(), newVerifier, "verifier slot did not update");
+        assertTrue(old != newVerifier, "fixture sanity");
+    }
+
+    function test_MigrateVerifier_RevertsOnSecondCall() public {
+        // reinitializer(2) is a one-shot per impl version. The second
+        // call must revert so an owner-key compromise can't repeatedly
+        // re-point the vault between verifiers without shipping a new
+        // impl with reinitializer(3).
+        address newVerifier = makeAddr("newVerifier");
+        vm.prank(owner);
+        vault.migrateVerifier(newVerifier);
+        address tryAgain = makeAddr("tryAgain");
+        vm.prank(owner);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        vault.migrateVerifier(tryAgain);
+    }
+
+    function test_MigrateVerifier_RevertsOnNonOwner() public {
+        address newVerifier = makeAddr("newVerifier");
+        vm.prank(randomCaller);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, randomCaller)
+        );
+        vault.migrateVerifier(newVerifier);
+    }
+
+    function test_MigrateVerifier_RevertsOnZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        vault.migrateVerifier(address(0));
+    }
+
     // ── allocateFrom ────────────────────────────────────────────────
 
     function test_AllocateFrom_OnlyAllocatorVault() public {

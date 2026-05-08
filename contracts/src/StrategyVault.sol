@@ -304,6 +304,35 @@ contract StrategyVault is
 
     function _authorizeUpgrade(address) internal override onlyOwner { }
 
+    /// @notice Owner-only one-shot setter for the trade-attestation verifier.
+    ///         `verifier` was set once at `initialize` time (Phase 1) with no
+    ///         setter — by design, since the verifier address binds the proof
+    ///         contract that gates `executeWithProof`. Phase 6's circuit fix
+    ///         (Constraint 0: `amount_in > 0`) requires re-pointing every
+    ///         StrategyVault at a freshly-deployed
+    ///         `TradeAttestationVerifier` with timelock-gated rotation, since
+    ///         the legacy testnet TAV pre-dates PR #70's
+    ///         `proposeVerifierChange` machinery and has no in-place
+    ///         rotation path.
+    ///
+    ///         Guarded by `reinitializer(2)`: callable exactly once per
+    ///         proxy after the original `initialize` (which leaves
+    ///         `_initialized = 1`). A future verifier rotation would ship a
+    ///         new impl with `reinitializer(3)`. The owner already holds
+    ///         UUPS upgrade authority, so this setter does not widen the
+    ///         trust model.
+    function migrateVerifier(address newVerifier) external onlyOwner reinitializer(2) {
+        if (newVerifier == address(0)) revert ZeroAddress();
+        address old = verifier;
+        verifier = newVerifier;
+        emit VerifierMigrated(old, newVerifier);
+    }
+
+    /// @dev Emitted by `migrateVerifier`. The old/new addresses let
+    ///      indexers diff which proxies have been migrated and which
+    ///      still point at the legacy TAV during a phased rollout.
+    event VerifierMigrated(address indexed previous, address indexed current);
+
     /// @notice Owner-only emergency stop. Halts new allocations + trade
     ///         execution. Defunds (`withdrawToAllocator`,
     ///         `distributeRealized`) remain open so the AllocatorVault
