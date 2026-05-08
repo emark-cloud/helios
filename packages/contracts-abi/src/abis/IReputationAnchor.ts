@@ -4,6 +4,19 @@
 export const IReputationAnchorAbi = [
   {
     "type": "function",
+    "name": "postCrossChainTradeTick",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "postCrossChainUpdate",
     "inputs": [
       {
@@ -225,6 +238,25 @@ export const IReputationAnchorAbi = [
         "type": "int256",
         "indexed": false,
         "internalType": "int256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CrossChainTradeTick",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newTotalAttestedTrades",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

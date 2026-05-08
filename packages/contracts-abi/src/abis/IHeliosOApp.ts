@@ -498,6 +498,22 @@ export const IHeliosOAppAbi = [
   },
   {
     "type": "error",
+    "name": "CallerActorMismatch",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CrossChainOnly",
     "inputs": [
       {
@@ -537,6 +553,22 @@ export const IHeliosOAppAbi = [
         "name": "dstEid",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PendingCapTooHigh",
+    "inputs": [
+      {
+        "name": "cap",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hardCap",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

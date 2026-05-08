@@ -3019,6 +3019,19 @@ IAllocatorRegistry_ABI = [
 IReputationAnchor_ABI = [
   {
     "type": "function",
+    "name": "postCrossChainTradeTick",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "postCrossChainUpdate",
     "inputs": [
       {
@@ -3240,6 +3253,25 @@ IReputationAnchor_ABI = [
         "type": "int256",
         "indexed": False,
         "internalType": "int256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "CrossChainTradeTick",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "newTotalAttestedTrades",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
       }
     ],
     "anonymous": False
@@ -3877,6 +3909,22 @@ IHeliosOApp_ABI = [
   },
   {
     "type": "error",
+    "name": "CallerActorMismatch",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CrossChainOnly",
     "inputs": [
       {
@@ -3916,6 +3964,22 @@ IHeliosOApp_ABI = [
         "name": "dstEid",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PendingCapTooHigh",
+    "inputs": [
+      {
+        "name": "cap",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hardCap",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
