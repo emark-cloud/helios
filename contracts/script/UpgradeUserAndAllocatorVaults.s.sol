@@ -39,8 +39,7 @@ interface IUUPS {
 ///         layout dump — that is expected).
 contract UpgradeUserAndAllocatorVaults is Script {
     address internal constant DEFAULT_USER_VAULT = 0x78b3515f4e9186d9870dcEF02DA58E4C8c5C6e8f;
-    address internal constant DEFAULT_ALLOCATOR_VAULT =
-        0xf3E4452FE17edBFA6833022B9c186aa14b98955d;
+    address internal constant DEFAULT_ALLOCATOR_VAULT = 0xf3E4452FE17edBFA6833022B9c186aa14b98955d;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PK");

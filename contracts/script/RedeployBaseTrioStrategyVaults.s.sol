@@ -68,10 +68,8 @@ contract RedeployBaseTrioStrategyVaults is Script {
     ///      queries that key on paramsHash.
     bytes32 internal constant PARAMS_HASH_MOM_BASE =
         keccak256("helios.mom_v1.base.phase3-redeploy");
-    bytes32 internal constant PARAMS_HASH_MR_BASE =
-        keccak256("helios.mr_v1.base.phase3-redeploy");
-    bytes32 internal constant PARAMS_HASH_YR_BASE =
-        keccak256("helios.yr_v1.base.phase3-redeploy");
+    bytes32 internal constant PARAMS_HASH_MR_BASE = keccak256("helios.mr_v1.base.phase3-redeploy");
+    bytes32 internal constant PARAMS_HASH_YR_BASE = keccak256("helios.yr_v1.base.phase3-redeploy");
 
     struct Inputs {
         uint256 deployerPk;

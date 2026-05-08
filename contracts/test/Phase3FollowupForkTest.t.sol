@@ -171,8 +171,7 @@ contract Phase3FollowupForkTest is Test {
         deal(usdc, syntheticDeployer, 100_000e6);
 
         RedeployBaseTrioStrategyVaults script = new RedeployBaseTrioStrategyVaults();
-        RedeployBaseTrioStrategyVaults.Inputs memory inputs = RedeployBaseTrioStrategyVaults
-            .Inputs({
+        RedeployBaseTrioStrategyVaults.Inputs memory inputs = RedeployBaseTrioStrategyVaults.Inputs({
             deployerPk: syntheticPk,
             usdc: usdc,
             strategyRegistry: strategyRegistry,
