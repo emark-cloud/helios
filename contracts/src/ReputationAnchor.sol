@@ -145,7 +145,9 @@ contract ReputationAnchor is IReputationAnchor, Ownable, Pausable, EIP712 {
     function postCrossChainTradeTick(address actor) external whenNotPaused {
         if (msg.sender != oApp) revert NotOApp();
         ReputationData storage rep = _reputations[actor];
-        unchecked { rep.totalAttestedTrades += 1; }
+        unchecked {
+            rep.totalAttestedTrades += 1;
+        }
         lastUpdateBySource[oApp] = uint64(block.timestamp);
         emit CrossChainTradeTick(actor, rep.totalAttestedTrades);
     }

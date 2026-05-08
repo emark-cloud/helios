@@ -39,7 +39,9 @@ contract MockReputationAnchor is IReputationAnchor {
 
     function postCrossChainTradeTick(address actor) external {
         require(msg.sender == oApp, "not-oapp");
-        unchecked { trackedTradeTicks[actor] += 1; }
+        unchecked {
+            trackedTradeTicks[actor] += 1;
+        }
         tickCallCount += 1;
         lastTickActor = actor;
         emit CrossChainTradeTick(actor, trackedTradeTicks[actor]);

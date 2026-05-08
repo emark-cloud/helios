@@ -276,8 +276,7 @@ contract HeliosOAppTest is Test {
         entries[0] = CrossChainCodec.ReputationBatchEntry({
             seq: 1, strategy: strategy, data: _sampleData(1)
         });
-        bytes memory legacy =
-            abi.encode(CrossChainCodec.PayloadKind.ReputationUpdateV1, entries);
+        bytes memory legacy = abi.encode(CrossChainCodec.PayloadKind.ReputationUpdateV1, entries);
         vm.expectRevert();
         this.decodeBatch(legacy);
     }
@@ -287,9 +286,7 @@ contract HeliosOAppTest is Test {
     function test_setMaxPendingPerStrategy_revertsAboveHardCap() public {
         uint256 hardCap = baseOApp.MAX_PENDING_HARD_CAP();
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap
-            )
+            abi.encodeWithSelector(IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap)
         );
         vm.prank(owner);
         baseOApp.setMaxPendingPerStrategy(hardCap + 1);
@@ -298,9 +295,7 @@ contract HeliosOAppTest is Test {
     function test_constructor_revertsWhenInitialCapAboveHardCap() public {
         uint256 hardCap = 64;
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap
-            )
+            abi.encodeWithSelector(IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap)
         );
         new HeliosOApp(address(baseEndpoint), owner, KITE_EID, address(0), hardCap + 1);
     }

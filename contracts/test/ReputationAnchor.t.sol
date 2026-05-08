@@ -291,9 +291,7 @@ contract ReputationAnchorTest is Test {
         assertEq(aft.totalRealizedPnL, before.totalRealizedPnL, "pnl must not change");
         assertEq(aft.maxDrawdownBps, before.maxDrawdownBps, "drawdown must not change");
         assertEq(
-            aft.proofValidityRateBps,
-            before.proofValidityRateBps,
-            "validity rate must not change"
+            aft.proofValidityRateBps, before.proofValidityRateBps, "validity rate must not change"
         );
         assertEq(aft.lastUpdateBlock, before.lastUpdateBlock, "lastUpdateBlock must not change");
         assertEq(aft.totalAttestedTrades, before.totalAttestedTrades + 1, "trade count +1");

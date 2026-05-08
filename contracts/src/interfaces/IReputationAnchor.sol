@@ -35,9 +35,7 @@ interface IReputationAnchor {
     ///         Increments `totalAttestedTrades` for the actor without
     ///         touching the engine-authoritative score / PnL / drawdown
     ///         fields. Phase-5 review H3, H4.
-    event CrossChainTradeTick(
-        address indexed actor, uint256 newTotalAttestedTrades
-    );
+    event CrossChainTradeTick(address indexed actor, uint256 newTotalAttestedTrades);
 
     error InvalidSigner();
     error NotOApp();
