@@ -72,10 +72,13 @@ Three options, in order of cleanest to most pragmatic:
    subgraph (which already prefers V2 entries via `source = "V2"`).
    This is the de-facto Phase-2 state and the smallest change.
 
-Phase 5 will execute path (1) at the same time as the registries are
-redeployed for the testnet→mainnet promotion. Until then the codebase
-is in path (3): V2 publishes, V1 registries hold the legacy scalar,
-and the subgraph + audit page surface both.
+Phase 5 executes path (1) on testnet (the registry redeploy happens
+regardless of mainnet timing — it's needed to bind V2 to the live
+contracts so allocator capital flow tracks v2 scores). Mainnet
+promotion is a stretch (see `docs/deployment-strategy.md`); if
+exercised it re-runs the same redeploy on chain 2366. Until path (1)
+ships the codebase is in path (3): V2 publishes, V1 registries hold
+the legacy scalar, and the subgraph + audit page surface both.
 
 ## What NOT to do
 

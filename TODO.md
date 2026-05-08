@@ -115,7 +115,7 @@ Current phase: **Phase 4** (Phases 0–3 complete as of 2026-05-06).
 ### SX — Strategy Service (momentum reference) ✅ (merged to main 2026-04-26 — WS2.D, live tx path wired in WS3)
 - [x] Polls 1-minute bars for WKITE, USDC.e, WETH from a configured price source (Helios oracle for Phase 1). **`runtime.py` ticks `oracle_client` per asset.**
 - [x] `on_bar(asset, snapshot)` implements momentum per `Helios.md §10.2`. **`strategy.py` — N-period return + threshold + flat/short precondition.**
-- [x] Constructs trade calldata for the Algebra Integral DEX router. *Phase 1 targets `MockSwapRouter` (Algebra not on Kite testnet — see memory `reference_kite_contract_surface`); same calldata shape, swap-in is a Phase 6 mainnet promotion concern.*
+- [x] Constructs trade calldata for the Algebra Integral DEX router. *Phase 1 targets `MockSwapRouter` (Algebra not on Kite testnet — see memory `reference_kite_contract_surface`); same calldata shape, swap-in is a mainnet-stretch concern (only if the stretch is exercised).*
 - [x] Calls prover, then `StrategyVault.executeWithProof`. **`executor.py` live path landed in WS3 (web3.py + 256-byte proof bytes).**
 - [x] Reports NAV every 5 minutes. **`reportNAV(total_nav_e18, ts, sig)` live path also landed in WS3; OZ v5 ECDSA `v + 27` correction applied.**
 - [x] Emits events consumed by subgraph. **`TradeAttested` + `NAVReported` indexed in `subgraph/src/strategy-vault.ts`.**
@@ -270,7 +270,7 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 **WS7.A — ZK params commitment binding (CX)**
 - [x] `StrategyRegistry.rotateParams` two-phase API landed 2026-04-29: `commitInitialParamsHash` (one-shot) + `initiateParamsRotation` (cooldown reuses `stakeCooldown`) + `completeParamsRotation` + `ParamsHashCommitted` / `ParamsRotationInitiated` / `ParamsRotated` events. 10 new Foundry tests.
 - [x] `manifest.paramsHash` is now superseded at trade-time: `StrategyVault._activeParamsHash()` prefers the registry-committed value and falls back to the manifest only when zero (Phase-1 compat). Vault test `test_ExecuteWithProof_UsesRegistryParamsHashWhenCommitted` proves rotation is the only mutation path.
-- [ ] `yield_rotation_v1`: full on-chain `trade_hash` reconstruction against `StrategyRegistry.paramsHashOf` requires Poseidon-on-Solidity (not in repo). WS7.A ships the YR-class entry path with class/allocator/window/dedupe checks + verifier dispatch; trade-hash reconstruction is documented as a `TODO(WS7.A)` in `StrategyVault.executeYieldRotationWithProof` and tracked for Phase 5/6.
+- [ ] `yield_rotation_v1`: full on-chain `trade_hash` reconstruction against `StrategyRegistry.paramsHashOf` requires Poseidon-on-Solidity (not in repo). WS7.A ships the YR-class entry path with class/allocator/window/dedupe checks + verifier dispatch; trade-hash reconstruction is documented as a `TODO(WS7.A)` in `StrategyVault.executeYieldRotationWithProof` and tracked for v2 / post-hackathon.
 - [ ] Update `Helios.md §9.3` PI list — done as part of this workstream
 - [ ] Reputation engine: on `ParamsRotated`, reset `AgeScore` and the `PerformanceScore` window to the new params epoch (clean break in track record)
 - [x] `/strategies/[id]` and `/audit/[strategy]` surface the `paramsHash` rotation history (Phase 4 frontend; spec/event in Phase 2). *Shipped WS-FE-3 2026-05-07 — `ParamsRotationTimeline` on `/strategies/[id]`; `/audit/strategy/[id]` JSON dump includes `paramsRotations`.*
@@ -289,13 +289,13 @@ Closes four soundness/framing gaps the reviewer flagged in `Helios.md` (ZK thres
 - [ ] Add `defundRewardCapUsd` (default 500_000_000 = $500 USDC, 6 decimals) to `MetaStrategy` schema in `UserVault` — pairs with the bond-reward implementation below (added 2026-05-05 — Helios.md §6.3 numerical pinning)
 - [x] Frontend `/onboard` Advanced disclosure surfaces the three defaults read-only (`CustomizationPanel.tsx::DefundDefaults`); tuning controls + bond UX deferred to Phase 4
 - [ ] **Implementation deferred to Phase 4** — caller-cadence persistence + bond + confirm-window logic in `AllocatorVault`; Phase 2 only commits the spec shape and meta-strategy fields so existing scenarios still pass. **Phase 4 must enforce these constants per the `Helios.md §6.3` rewrite (2026-05-07 — see WS-CX-1.1 spike note in `docs/phase4-plan.md`):** persistence = `defundTwapBars` consecutive observations spaced ≥ `MIN_BAR_BLOCKS` apart sampled from `IStrategyVault.navOf()`; bond reward = 50 bps of defunded notional, capped at `defundRewardCapUsd` ($500 default); reward paid from the strategy's stake (not user principal); `block.timestamp - OraclePriceAnchor.latest().committedAt < MAX_STALENESS_SEC` (180s) gates the *first* observation as a coarse "oracle online" signal — `latest()` reverts on empty ledger and is treated as stale. The original spec text described `OraclePriceAnchor.twapBars()`-priced marked NAV; that capability is roadmap (`Helios.md §17` Phase 1) because the Phase 2 oracle commits Poseidon roots only — no per-asset on-chain reads. Spec rewrite landed 2026-05-07 in `Helios.md §6.3 / §6.4 / §6.10 / §15.2 / §17` and `docs/phase4-plan.md §4.1`.
-- [ ] **Phase 4 — NAV divergence slash path on `StrategyVault.reportNAV`** (new ticket, added 2026-05-05; spec rewritten 2026-05-07 alongside §6.3 — Helios.md §6.4 numerical pinning). Phase 4 ships a **one-sided cash-floor check** because Kite testnet/mainnet has no on-chain per-asset price source: `markedFloor = baseAsset.balanceOf(strategyVault)` is the lower bound implied by the long-only spot invariant `NAV ≥ cashHeld`. Detect operator **under-reporting** when `signedNAV < markedFloor × (1 - NAV_DIVERGENCE_THRESHOLD_BPS/10_000)` for two consecutive snapshots — emit `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. Multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` directly (no on-chain `queueSlash` — registry is immutable in Phase 3, same blocker as WS-CX-1's `payDefundReward`; deferred to v2 registry rebuild per `Helios.md §17` Phase 1). Operator **over-reporting** detection (the §6.4 "suppress defund" vector) requires an upper-bound recomputation against an on-chain price source — deferred to Phase 5/6 alongside the per-asset TWAP anchor (§17). Tests: single below-floor breach (counter only), two-consecutive emission, breach + recover + breach (counter resets), below-floor by < 5% (no breach), owner setter for the threshold parameter.
+- [ ] **Phase 4 — NAV divergence slash path on `StrategyVault.reportNAV`** (new ticket, added 2026-05-05; spec rewritten 2026-05-07 alongside §6.3 — Helios.md §6.4 numerical pinning). Phase 4 ships a **one-sided cash-floor check** because Kite testnet/mainnet has no on-chain per-asset price source: `markedFloor = baseAsset.balanceOf(strategyVault)` is the lower bound implied by the long-only spot invariant `NAV ≥ cashHeld`. Detect operator **under-reporting** when `signedNAV < markedFloor × (1 - NAV_DIVERGENCE_THRESHOLD_BPS/10_000)` for two consecutive snapshots — emit `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. Multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` directly (no on-chain `queueSlash` — registry is immutable in Phase 3, same blocker as WS-CX-1's `payDefundReward`; deferred to v2 registry rebuild per `Helios.md §17` Phase 1). Operator **over-reporting** detection (the §6.4 "suppress defund" vector) requires an upper-bound recomputation against an on-chain price source — deferred to v2 / post-hackathon alongside the per-asset TWAP anchor (§17). Tests: single below-floor breach (counter only), two-consecutive emission, breach + recover + breach (counter resets), below-floor by < 5% (no breach), owner setter for the threshold parameter.
 - [x] Phase 4 task tracker: bond UX checkbox added to Phase 4 §"FE — System polish"
 
 **WS7.D — Stake-weighting honest framing (docs only)**
 - [x] `Helios.md §8.1` principle 2 reframed as deliberate tradeoff — done
 - [x] `Helios.md §8.5` adds stake-stripped sub-rank as v2 candidate — done
-- [ ] `docs/reputation-math.md` mirrors the framing once the doc is written in Phase 6 (note in this checklist, not separately tracked)
+- [ ] `docs/reputation-math.md` mirrors the framing once the doc is written in v2 / post-hackathon (note in this checklist, not separately tracked)
 
 ### Acceptance for Phase 2
 - [x] Multiple strategies of each class registered with non-zero capital — WS6 PR1 + `RegisterPhase2Strategies.s.sol` + PR3.5.C register 7 vaults across 3 classes (2 per class + 1 cold-start fresh momentum); 5 Foundry tests assert `strategiesByClass(C).length ≥ 2` and stake pulled from operator
@@ -452,20 +452,9 @@ Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport w
 
 ---
 
-## Phase 6 — Audit surface, polish, security hardening
+## Phase 6 — Polish + submission
 
-**Goal.** Judge-ready, defensible under scrutiny. Includes promotion to Kite mainnet per `docs/deployment-strategy.md` (hybrid testnet→mainnet).
-
-### Mainnet promotion (decided 2026-04-25)
-- [ ] Confirm hackathon allows mainnet submission + Passport is live on mainnet (gating questions)
-- [ ] Acquire KITE for deploys + demo capital (~$100–500 demo float)
-- [ ] Slither / Mythril **clean** on every Phase 1 contract before any mainnet tx (Echidna deferred — see Deferred §)
-- [ ] `contracts/script/DeployMainnet.s.sol`; populate `contracts/deployments/kite-mainnet.json`
-- [ ] Swap `MockSwapRouter` calls for real Algebra Integral router on mainnet
-- [ ] Swap `oracle/sources/binance.py` for `oracle/sources/algebra.py` (TWAP from real pools)
-- [ ] Mainnet subgraph deployed alongside testnet (separate Goldsky version)
-- [ ] Frontend chain switcher (testnet = staging, mainnet = demo)
-- [ ] `/judge` page links to live mainnet contracts + the deployment-strategy doc
+**Goal.** Judge-ready, defensible under scrutiny on the testnet stack. Mainnet promotion is **not** in scope for v1 — it lives in the **Stretch** section below and is exercised only if time permits after Phase 6 acceptance.
 
 ### FE — Judge + audit surfaces
 - [ ] `/judge` complete per `DESIGN.md §9.8` — press-kit styling, no marketing copy
@@ -509,6 +498,27 @@ Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport w
 - [ ] Slither/Mythril all pass (or every finding documented + justified)
 - [ ] Cold-start demo succeeds on a machine that has never touched the repo before
 - [ ] Backup video is uploaded and linked
+
+---
+
+## Stretch — Mainnet promotion (only if time permits)
+
+**Status (2026-05-08).** Dropped from planned v1 scope. v1 ships and demos on Kite Testnet through Phase 6 acceptance. The items below are the playbook for promoting to **Kite mainnet (chain 2366)** *only if* time remains after Phase 6 — kept intact so the path is reversible. Per-step playbook in `docs/deployment-strategy.md`.
+
+- [ ] Confirm hackathon allows mainnet submission (gating question — Passport is already live on mainnet)
+- [ ] Acquire KITE for deploys + demo capital (~$100–500 demo float)
+- [ ] Slither / Mythril **clean** on every Phase 1 contract before any mainnet tx (already required by Phase 6 polish; double-check status here)
+- [ ] `contracts/script/DeployMainnet.s.sol`; populate `contracts/deployments/kite-mainnet.json`
+- [ ] Swap `MockSwapRouter` calls for real Algebra Integral router on mainnet
+- [ ] Swap `oracle/sources/binance.py` for `oracle/sources/algebra.py` (TWAP from real pools)
+- [ ] Mainnet subgraph deployed alongside testnet (separate Goldsky version)
+- [ ] Frontend chain switcher (testnet = staging, mainnet = demo)
+- [ ] `/judge` page links to live mainnet contracts + the deployment-strategy doc
+
+### Acceptance for the mainnet stretch (only if exercised)
+- [ ] Same 5-step `/judge` checklist passes against mainnet contract addresses
+- [ ] Real Algebra trade lands with a Groth16 proof, verified independently from mainnet tx hash
+- [ ] No hot-fixes required between testnet acceptance and mainnet demo — proves the stack is portable, not bespoke
 
 ---
 

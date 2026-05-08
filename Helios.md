@@ -260,7 +260,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 **Journey.**
 
 1. **Discovery.** Maya finds Helios via the hackathon demo, the live web app, or a Telegram referral.
-2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. Funds the wallet with 1,000 USDC (Banxa fiat or `bridge.gokite.ai` cross-chain). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
+2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. v1 ships and demos on Kite Testnet (chain 2368, network identifier `kite-testnet`); mainnet promotion (chain 2366) is a stretch deliverable, not a planned phase (see roadmap §17). Funds the wallet with 1,000 USDC (testnet faucet at `https://faucet.gokite.ai`; Banxa fiat or `bridge.gokite.ai` cross-chain only if the mainnet stretch is exercised). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
 3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves once via passkey — the frontend submits a paymaster-sponsored userOp that batches `USDC.approve` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator` in a single transaction.
 4. **Activation.** Within 30 seconds, dashboard shows her capital allocated across 3-5 strategies. Dashboard shows current NAV, allocated capital per strategy, recent trades, current reputation rankings.
 5. **Ongoing.** The dashboard activity rail surfaces meaningful events live: strategy added, strategy defunded, weekly P&L summary, fee accrued. She can adjust meta-strategy at any time (next rebalance picks up changes). A Telegram-bot fan-out for the same events is on the post-hackathon Phase 1 roadmap (§17).
@@ -478,7 +478,7 @@ function slash(string calldata reason) external onlyRegistry;
 **Trust constraints.**
 
 - `executeWithProof` requires a valid Groth16 proof binding the trade calldata to the strategy's declared class. The verifier contract is set at deploy time and cannot be changed (immutable on the manifest). If the proof is invalid, execution reverts and the trade does not happen.
-- `reportNAV` is signed by the **strategy operator** and is used both for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers) and — in Phase 4's caller-cadence defund path (§6.3) — as the on-chain NAV signal the permissionless trigger samples. The Phase 2 oracle architecture commits Poseidon roots only, not per-asset on-chain TWAP prices, so a fully oracle-priced "marked NAV" comparison is not available in v1. Operator-signed NAV is therefore in the trust path for defund observation. The Phase 4 deterrent is a **one-sided NAV-divergence slash path**: long-only spot classes (momentum / mean-reversion / yield-rotation) satisfy the invariant `NAV ≥ cashHeld`, so a signed NAV that falls below the strategy vault's `baseAsset.balanceOf(this)` cash floor by more than **`NAV_DIVERGENCE_THRESHOLD_BPS = 500` (5%)** for two consecutive snapshots emits `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. The Helios multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` (no on-chain queue — `StrategyRegistry` is immutable in Phase 3 and adding `queueSlash` would require a full redeploy + re-registration; deferred to v2 alongside the §17 registry rebuild). The cash-floor check catches **operator under-reporting** (an attack vector against drawdown calculations and fee suppression). The complementary attack — **operator over-reporting** to hide a real drawdown and suppress defund — requires an upper-bound NAV recomputation, i.e., a per-asset on-chain price source for the non-cash legs of the strategy's asset universe. That source doesn't exist on Kite testnet/mainnet in v1 (no Pyth/Chainlink, no Algebra-pool-TWAP read), so over-reporting detection is deferred to Phase 5/6 (`§17` Phase 1) when the per-asset TWAP anchor ships. The 5% threshold is calibrated to be wider than typical legitimate sources of divergence (intra-bar price moves, in-flight swaps) but tight enough that sustained dishonesty is unambiguous; the parameter is owner-controlled in v1 (Helios multi-sig) with a clear v2 path to per-class governance — see §15.1 for the centralization callout.
+- `reportNAV` is signed by the **strategy operator** and is used both for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers) and — in Phase 4's caller-cadence defund path (§6.3) — as the on-chain NAV signal the permissionless trigger samples. The Phase 2 oracle architecture commits Poseidon roots only, not per-asset on-chain TWAP prices, so a fully oracle-priced "marked NAV" comparison is not available in v1. Operator-signed NAV is therefore in the trust path for defund observation. The Phase 4 deterrent is a **one-sided NAV-divergence slash path**: long-only spot classes (momentum / mean-reversion / yield-rotation) satisfy the invariant `NAV ≥ cashHeld`, so a signed NAV that falls below the strategy vault's `baseAsset.balanceOf(this)` cash floor by more than **`NAV_DIVERGENCE_THRESHOLD_BPS = 500` (5%)** for two consecutive snapshots emits `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. The Helios multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` (no on-chain queue — `StrategyRegistry` is immutable in Phase 3 and adding `queueSlash` would require a full redeploy + re-registration; deferred to v2 alongside the §17 registry rebuild). The cash-floor check catches **operator under-reporting** (an attack vector against drawdown calculations and fee suppression). The complementary attack — **operator over-reporting** to hide a real drawdown and suppress defund — requires an upper-bound NAV recomputation, i.e., a per-asset on-chain price source for the non-cash legs of the strategy's asset universe. That source doesn't exist on Kite testnet/mainnet in v1 (no Pyth/Chainlink, no Algebra-pool-TWAP read), so over-reporting detection is deferred to v2 / post-hackathon (`§17` Phase 1) when the per-asset TWAP anchor ships. The 5% threshold is calibrated to be wider than typical legitimate sources of divergence (intra-bar price moves, in-flight swaps) but tight enough that sustained dishonesty is unambiguous; the parameter is owner-controlled in v1 (Helios multi-sig) with a clear v2 path to per-class governance — see §15.1 for the centralization callout.
 - `slash` can only be called by `StrategyRegistry` (e.g., on detected misbehavior — invalid NAV reports, repeated proof failures, manifest-divergent trades).
 - All capital flows are tracked per-allocator so multiple allocators can co-invest in the same strategy.
 
@@ -1625,6 +1625,26 @@ The rule: **Kite is identity + accounting + small-position execution. Base is la
 - **Why not Avalanche C-Chain?** Considered, since Kite originated as an Avalanche subnet and Lucid bridge controllers run on Avalanche. Defer to post-hackathon — Avalanche becomes the natural next chain to add given the existing Lucid bridge primitives.
 - **Why not BSC, given it's the obvious meme-trading chain?** Out of scope — Helios's v1 asset universe is crypto majors. BSC integration is reasonable for v2 if a meme-focused strategy class is added.
 
+#### Passport runs on testnet — v1 uses it directly
+
+Kite Passport supports the Kite Testnet (chain id **2368**) with the same install, passkey, and x402 flow as mainnet — the only thing that differs is the chain target. v1 ships on testnet and integrates **real Passport** end-to-end; no EIP-712 shim, no "deferred until mainnet" stub. **Mainnet promotion (chain 2366) is a stretch goal**, not a planned phase — exercised only if time permits after Phase 6 acceptance. If exercised, the mainnet cutover swaps the chain target and re-runs the demo against `chain id 2366`; nothing about the auth or payment path changes.
+
+Testnet config (verified against `docs.gokite.ai`, 2026-05-08):
+
+| Surface | Value |
+|---|---|
+| Network identifier (Passport API) | `kite-testnet` |
+| Chain id | `2368` |
+| RPC | `https://rpc-testnet.gokite.ai/` (WSS at `wss://rpc-testnet.gokite.ai/ws`) |
+| Faucet | `https://faucet.gokite.ai` |
+| Block explorer | `https://testnet.kitescan.ai/` |
+| x402 facilitator | `0x12343e649e6b2b2b77649DFAb88f103c02F3C78b` |
+| Test payment token used in Passport x402 examples | `0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63` |
+| Live x402 sample service | `https://x402.dev.gokite.ai/api/weather` |
+| Passport CLI install | `curl -fsSL https://agentpassport.ai/install.sh \| bash` |
+
+Note on env-var naming: Passport wallets are MPC-backed and are not exposed as raw private keys on either network, so do not introduce a `*_SIGNER_PK` variable. CLAUDE.md uses `KITE_PASSPORT_SESSION_ID` for the session token plus `KITE_PASSPORT_NETWORK` (`kite-testnet` for v1; `kite-mainnet` only if the mainnet stretch is exercised) to select the chain target.
+
 ### 12.2 Cross-chain lifecycle
 
 A strategy agent deployed on Base:
@@ -1824,7 +1844,7 @@ Defense: LayerZero's standard nonce/replay protection. Plus per-strategy update 
 - **We don't claim the strategies will be profitable.** Markets are risky. Helios is infrastructure for capital allocation, not a return guarantee.
 - **We don't claim the reputation system can't be gamed at all.** We claim it raises the cost of gaming above any rational gain, and we document the specific gaming vectors and their mitigations.
 - **We don't claim full trustlessness in v1.** The reputation signer and the price oracle are centralization points. We say so plainly.
-- **We don't claim production-readiness.** This is a hackathon submission with mainnet-deployable contracts but a known list of items to address before institutional capital should touch it.
+- **We don't claim production-readiness.** This is a hackathon submission with mainnet-portable contracts but a known list of items to address before institutional capital should touch it.
 
 ---
 

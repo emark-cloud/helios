@@ -164,8 +164,8 @@ Phase 4 adopts a **caller-cadence persistence design** instead:
 
 A real per-asset TWAP path (e.g., reading from Algebra V3 pool TWAPs
 on Kite mainnet, or a separate per-asset price-anchor service) is
-deferred to Phase 5/6 — log this deviation in the WS-CX-1 PR and a
-TODO entry under Phase 5 cross-chain.
+deferred to v2 / post-hackathon (`Helios.md §17` Phase 1) — log this
+deviation in the WS-CX-1 PR and a TODO entry under Phase 5 cross-chain.
 
 **Existing state.** `AllocatorVault.defundStrategy` (lines 210–237) does
 single-snapshot drawdown check only. Permissionless path computes
@@ -331,7 +331,7 @@ For the v1 long-only spot classes (`momentum_v1`, `mean_reversion_v1`,
 and fee crystallization). Phase 4 ships exactly this check. Operator
 **over-reporting** (the spec's "suppress defund" vector) needs an
 upper-bound recomputation against an on-chain price source — deferred
-to Phase 5/6 (§17 Phase 1) along with the per-asset TWAP anchor.
+to v2 / post-hackathon (§17 Phase 1) along with the per-asset TWAP anchor.
 
 **Implementation.**
 
@@ -662,13 +662,13 @@ audit (Phase 2) and stays unchanged. The Phase 4 page adds
      on the public-input vector against the on-chain verifier;
      prints the verifier's exact return.
    - Link to `scripts/verify-trade.js` source on GitHub.
-   - **Note:** `scripts/verify-trade.js` is a Phase 6 deliverable
-     per `TODO.md` line 473. For Phase 4, the modal documents the
-     command shape and links to a placeholder script that prints
-     "verify-trade.js — full implementation lands Phase 6". The
-     command block itself is real and copyable; only the binary
-     it invokes is stubbed. (Avoids stranding the audit page
-     until Phase 6.)
+   - **Note:** `scripts/verify-trade.js` is a Phase 6 polish
+     deliverable per `TODO.md` line 473. For Phase 4, the modal
+     documents the command shape and links to a placeholder
+     script that prints "verify-trade.js — full implementation
+     lands Phase 6 polish". The command block itself is real and
+     copyable; only the binary it invokes is stubbed. (Avoids
+     stranding the audit page until Phase 6 polish.)
 4. **Reputation calculation inputs panel.** Re-uses
    `ComponentBreakdown` from `/audit/[actor]`. Shows the inputs
    (realized P&L, drawdown events, proof validity rate) that
@@ -717,20 +717,21 @@ TokenSwatch placeholder (`frontend/src/app/page.tsx`).
 **`/judge` per `DESIGN.md §9.8` + `TODO.md` line 371.**
 
 - Top: 3-min demo video iframe + "90s backup" link. Both Vimeo
-  hosted (link is fine as a placeholder until Phase 6 demo
+  hosted (link is fine as a placeholder until Phase 6 polish demo
   recording lands).
 - "Try the demo scenario" button — POST `/v1/scenario/run` on
   Sentinel; the dashboard streams the cascade. Button is the
   one amber accent on the page.
-- Contract addresses table (Kite testnet today, Kite mainnet +
-  Base/Arbitrum sepolia rows reserved as "Phase 5/6"). Each
-  row links to Kitescan / BaseScan / Arbiscan. **Reads from
+- Contract addresses table (Kite testnet today, Base/Arbitrum
+  sepolia rows reserved as "Phase 5"; the Kite mainnet row is
+  marked "Stretch — only if mainnet promotion is exercised").
+  Each row links to Kitescan / BaseScan / Arbiscan. **Reads from
   `contracts/deployments/*.json` at build time** so addresses
   don't drift.
 - GitHub links: code, SDK packages (4), circuits, subgraph.
 - `verify-trade.js` command block, syntax-highlighted via
   Shiki (already in deps via `@shikijs/markdown`). Same Phase 6
-  caveat as §4.7.
+  polish caveat as §4.7.
 - 5-step eval checklist from `Helios.md §19`, each step a
   direct link.
 - Live transaction counts, refresh on 30s — strategies deployed,

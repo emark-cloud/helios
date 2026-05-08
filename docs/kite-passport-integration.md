@@ -116,7 +116,7 @@ These are **orthogonal**: pick one from §4.1, then independently decide on §4.
 
 **Phase 2:** Add G — convert Oracle, Prover, Audit endpoints to x402; Allocator pays via active Passport session. Pieverse-compatible middleware in `services/oracle`, `services/prover`, `services/reputation`. New demo beat: live x402 settle in the activity feed.
 
-**Phase 5/6:** Promote to mainnet (chain 2366). If AA SDK by then exposes session-key delegation natively, evaluate D for the cascade story. If not, ship E and rewrite the spec language to match.
+**Stretch (mainnet promotion, not in v1 scope):** Promote to mainnet (chain 2366) only if time permits after Phase 6 acceptance. If AA SDK by then exposes session-key delegation natively, evaluate D for the cascade story. If not, ship E and rewrite the spec language to match.
 
 ## 6. Concrete spec & code changes (if proposal accepted)
 

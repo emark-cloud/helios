@@ -25,7 +25,7 @@ Both layered on the same primitive: an ERC-4337 smart account on Kite, owned by 
 | `gokite-aa-sdk` | `1.0.15` | npm. Pin exact; the verifier-adapter ABIs and EntryPoint addresses bind to this. |
 | `@gokite-network/auth` | `0.1.16` | npm. Particle-Network-backed; last published 2025-11-01. Pin exact; revisit during Phase 4. |
 | Kite testnet | chain id `2368`, RPC `https://rpc-testnet.gokite.ai/`, explorer `https://testnet.kitescan.io/`, faucet `https://faucet.gokite.ai` | |
-| Kite mainnet | chain id `2366`, RPC `https://rpc.gokite.ai/`, explorer `https://kitescan.ai/` | Live since 2026-04-28; Phase 6 promotion target. |
+| Kite mainnet | chain id `2366`, RPC `https://rpc.gokite.ai/`, explorer `https://kitescan.ai/` | Live since 2026-04-28. Promotion target only if the mainnet stretch is exercised — not in v1 scope. |
 | Pieverse facilitator | `https://facilitator.pieverse.io`, scheme `gokite-aa` | x402 settlement. Phase 2 demo polish only. |
 | Testnet USDC (x402 examples) | `0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63` | Used in Kite docs' x402 walkthrough. |
 

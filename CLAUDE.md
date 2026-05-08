@@ -80,10 +80,10 @@ Copy `.env.example` to `.env` and fill in. Required for running the full stack:
 
 | Variable | Used by | Notes |
 |---|---|---|
-| `KITE_RPC_URL` | contracts, services, subgraph | Kite testnet RPC (chain id 2368) |
+| `KITE_RPC_URL` | contracts, services, subgraph | Kite testnet RPC, e.g. `https://rpc-testnet.gokite.ai/` (chain id 2368). Mainnet RPC is `https://rpc.gokite.ai/` (chain id 2366) if we elect the mainnet stretch. |
 | `BASE_SEPOLIA_RPC_URL` | contracts, services | Phase 5+ |
 | `ARBITRUM_SEPOLIA_RPC_URL` | contracts, services | Phase 5+ |
-| `KITE_PASSPORT_SIGNER_PK` | services | Passport root key for the demo user (never commit) |
+| `KITE_PASSPORT_SESSION_ID` | services, frontend | Passport session token issued by the `kpass` CLI for the demo user. Passport wallets are MPC-backed — they do NOT expose raw private keys, so do not use a `*_SIGNER_PK` variable here. Same variable on testnet and mainnet; the chain target is set by `KITE_PASSPORT_NETWORK` (`kite-testnet` for v1; `kite-mainnet` only if we exercise the mainnet stretch). |
 | `REPUTATION_SIGNER_PK` | services/reputation | Registered signer posting to `ReputationAnchor` |
 | `ORACLE_SIGNER_PK` | services/oracle | Price/yield oracle signing key |
 | `DATABASE_URL` | services | Postgres connection string |
@@ -151,8 +151,8 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - `strategyVaultMomentum` `0xf11D55a3057A3Da51c9ED63BdC6aE8F666Fa426A` (paramsHash `keccak256("helios.mom_v1.base.phase3-redeploy")`; supersedes legacy `0x818a782f…` which stays registered + active in StrategyRegistry but is unreferenced from JSON)
     - `strategyVaultMeanReversion` `0xE85FC70edC752D3ff283F3FFFA17598d32b5FC07` (supersedes legacy `0x6c1f9466…`)
     - `strategyVaultYieldRotation` `0xb7496bE712Ed62fB02c6b9665F74eE6ff136d0d7` (supersedes legacy `0xbfbf9fa8…`)
-    All bake the new oracle anchors as constructor immutables. Phase 6 mainnet does a fresh deploy from a clean slate.
-- **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
+    All bake the new oracle anchors as constructor immutables. The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
+- **Kite mainnet**: *(Stretch — only if time permits; playbook in `docs/deployment-strategy.md`. Not in v1 scope.)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
 
@@ -188,11 +188,19 @@ It's spec'd in `Helios.md §8.2` with specific weights. Changes require updating
 **Before changing motion or color:**
 Check `DESIGN.md §13` (motion) and `§4.3` (color). Amber is ~2–5% of pixels total; green/red are data-signal only; no smooth easings on anything that maps to a discrete on-chain event.
 
+**Before integrating Kite Passport:**
+Passport supports Kite Testnet (chain 2368) and Kite Mainnet (chain 2366) with the **same** install / passkey / x402 flow — only the chain target differs. v1 runs real Passport against testnet through Phase 6; mainnet promotion is a stretch goal (flow is identical, only the chain target changes). There is no EIP-712 shim; the v0 spec's "user signs one meta-strategy" framing maps onto a Passport passkey-approved session, not a raw signing key. Reference: `Helios.md §12.1` (Passport on testnet subsection) and the testnet config table there.
+- CLI install (same on both networks): `curl -fsSL https://agentpassport.ai/install.sh | bash`
+- Testnet faucet: `https://faucet.gokite.ai`
+- Testnet x402 facilitator: `0x12343e649e6b2b2b77649DFAb88f103c02F3C78b`
+- Test payment token in Passport x402 examples: `0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63`
+- Live x402 sample service: `https://x402.dev.gokite.ai/api/weather`
+
 ---
 
 ## Testing discipline
 
-- **Contracts**: Foundry unit tests per contract + invariant tests for state-changing flows. Slither + Mythril run in CI from Phase 6.
+- **Contracts**: Foundry unit tests per contract + invariant tests for state-changing flows. Slither + Mythril run in CI from Phase 6 polish.
 - **Circuits**: input unit tests covering zero, max, and boundary cases; proof generation tested end-to-end against the deployed verifier.
 - **Services**: pytest + httpx against a docker-compose stack; scenario-mode replay runs as an integration test.
 - **Frontend**: Playwright for the three signature interactions (cascade, auto-defund, cross-chain rep update). Component snapshots via Storybook from Phase 4.

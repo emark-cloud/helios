@@ -1,6 +1,8 @@
 # Deployment strategy — hybrid testnet → mainnet
 
-Decided 2026-04-25. Updated 2026-04-27 (Phase 1 testnet live).
+> **Status: Stretch (optional). Mainnet promotion is not in v1 scope** as of 2026-05-08. v1 ships and demos on Kite Testnet through Phase 6 (polish + submission). This document is the playbook **if** we elect to promote to Kite mainnet (chain 2366) after Phase 6 acceptance. Kept intact so the path is reversible — nothing in v1 depends on it.
+
+Decided 2026-04-25. Updated 2026-04-27 (Phase 1 testnet live). Reframed 2026-05-08 (mainnet dropped from planned scope; now stretch).
 Read before any deployment-related work.
 
 ## TL;DR

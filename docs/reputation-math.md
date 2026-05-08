@@ -1,6 +1,6 @@
 # Reputation math
 
-Long-form companion to `Helios.md §8`. The full per-component derivation, cohort statistics, and stake-weighting tradeoff write-up land in Phase 6 (see `TODO.md` Phase 2 §WS7.D). This file currently scopes only what Phase 2 ships and references — anything past the headings below is a Phase 6 placeholder.
+Long-form companion to `Helios.md §8`. The full per-component derivation, cohort statistics, and stake-weighting tradeoff write-up are deferred to v2 / post-hackathon (see `TODO.md` Phase 2 §WS7.D for the original origin). This file currently scopes only what Phase 2 ships and references — anything past the headings below is a post-hackathon placeholder.
 
 ---
 
@@ -100,9 +100,9 @@ Tested by `services/reputation/tests/test_engine_allocator.py` (synthetic-ledger
 
 ---
 
-## Phase 6 placeholders
+## Deferred (post-hackathon)
 
-The sections below land in Phase 6 alongside the rest of this file:
+The sections below are deferred to v2 / post-hackathon alongside the rest of this file:
 
 - Cohort statistics (median + IQR derivation, why exclusive quartiles, edge cases)
 - Per-component scoring with worked examples (the Helios.md §8.2 numerical block, expanded)
