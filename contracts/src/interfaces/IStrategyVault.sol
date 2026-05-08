@@ -75,6 +75,20 @@ interface IStrategyVault {
         uint64 blockWindowEnd
     );
 
+    /// @notice Cross-chain reputation forwarder rotation. Phase-5 WS5
+    ///         tracks Base / Arbitrum execution-chain wiring; Kite
+    ///         vaults stay at the zero default.
+    event HeliosOAppUpdated(address indexed previous, address indexed current);
+    /// @notice Emitted when a cross-chain reputation tick was queued on
+    ///         the OApp after a successful executeWithProof /
+    ///         executeYieldRotationWithProof on a non-canonical chain.
+    ///         Mirrors the LayerZero-side `AttestationQueued` event so
+    ///         off-chain consumers can reconcile the vault-side trade
+    ///         and the OApp-side queue without joining two subgraphs.
+    event CrossChainAttestationQueued(
+        address indexed strategy, address indexed oApp, bytes32 indexed tradeHash
+    );
+
     error InvalidProof();
     error NotOperator();
     error NotRegistry();
