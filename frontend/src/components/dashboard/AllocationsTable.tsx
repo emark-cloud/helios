@@ -35,7 +35,7 @@ import type { AllocationView } from "@/lib/sentinel";
 const MAX_CASCADE_DELAY_MS = 800;
 
 export function AllocationsTable({ allocations }: { allocations: AllocationView[] }): JSX.Element {
-  const { defundOf, repPulseOf } = useSentinelStream();
+  const { defundOf, crossChainRepOf } = useSentinelStream();
   const router = useRouter();
   const { selectedIndex } = useTableRowNav({
     rowCount: allocations.length,
@@ -73,14 +73,21 @@ export function AllocationsTable({ allocations }: { allocations: AllocationView[
           {allocations.map((a, i) => {
             const sid = a.strategy_id.toLowerCase();
             const liveDefund = defundOf.get(sid);
-            const repPulse = repPulseOf.get(sid)?.firedAt;
+            // Phase-5 / WS7: `inFlight` reflects a sustained LZ latency
+            // window (any pending GUID), `pulseKey` is the Kite-side
+            // block number of the *latest* resolved arrival so the
+            // 600ms keyframe re-fires exactly once per resolution.
+            const xchain = crossChainRepOf.get(sid);
+            const repInFlight = xchain ? xchain.pendingGuids.size > 0 : false;
+            const repPulseKey = xchain?.lastResolvedBlock;
             return (
               <Row
                 key={a.strategy_id}
                 alloc={a}
                 index={i}
                 liveDefund={liveDefund}
-                repPulseKey={repPulse}
+                repInFlight={repInFlight}
+                repPulseKey={repPulseKey}
                 selected={i === selectedIndex}
               />
             );
@@ -95,13 +102,15 @@ function Row({
   alloc,
   index,
   liveDefund,
+  repInFlight,
   repPulseKey,
   selected,
 }: {
   alloc: AllocationView;
   index: number;
   liveDefund: DefundRowState | undefined;
-  repPulseKey: number | undefined;
+  repInFlight: boolean;
+  repPulseKey: string | undefined;
   selected: boolean;
 }): JSX.Element {
   const pnl = alloc.current_nav_usd - alloc.high_water_mark_usd;
@@ -156,7 +165,7 @@ function Row({
         <ChainBadge
           chainId={alloc.chain_id}
           pulseKey={repPulseKey}
-          inFlight={repPulseKey != null}
+          inFlight={repInFlight}
         />
       </td>
       <td className="px-3 py-2.5 text-right">
