@@ -43,7 +43,16 @@ export type SentinelEventKind =
   | "DEFUND_ARMED"
   | "DEFUND_FINALIZED"
   | "DEFUND_CANCELLED"
-  | "NAV_DIVERGENCE";
+  | "NAV_DIVERGENCE"
+  // Phase 5 / WS7: cross-chain reputation flow. INFLIGHT marks the
+  // moment `HeliosOApp.ReputationMessageSent` fires on Base/Arb;
+  // RESOLVED pairs by GUID with the matching `ReputationMessageReceived`
+  // on Kite. Sentinel does NOT emit these — they're synthesized client-
+  // side by `crossChainWatcher.ts` and pushed through the same
+  // SentinelStream channel so the activity rail can render them
+  // alongside loop events.
+  | "CROSS_CHAIN_REP_UPDATE_INFLIGHT"
+  | "CROSS_CHAIN_REP_UPDATE_RESOLVED";
 
 export type SentinelEvent = {
   user: string;
