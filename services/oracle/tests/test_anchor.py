@@ -349,12 +349,8 @@ def test_multichain_post_dry_run_records_canonical_and_mirrors() -> None:
     canonical = AnchorPoster(
         kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=2368
     )
-    base = AnchorPoster(
-        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=84_532
-    )
-    arb = AnchorPoster(
-        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=421_614
-    )
+    base = AnchorPoster(kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=84_532)
+    arb = AnchorPoster(kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=421_614)
     multi = MultiChainAnchorPoster(canonical=canonical, mirrors=[base, arb])
 
     rec = multi.post(_payload())
@@ -367,11 +363,17 @@ def test_multichain_post_dry_run_records_canonical_and_mirrors() -> None:
 
 async def test_multichain_post_async_runs_chains_in_parallel() -> None:
     canonical = AnchorPoster(
-        kind="price", rpc_url="http://k", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        kind="price",
+        rpc_url="http://k",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
         chain_id=2368,
     )
     base = AnchorPoster(
-        kind="price", rpc_url="http://b", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        kind="price",
+        rpc_url="http://b",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
         chain_id=84_532,
     )
     for p in (canonical, base):
@@ -401,11 +403,17 @@ async def test_multichain_post_async_runs_chains_in_parallel() -> None:
 
 def test_multichain_post_isolates_mirror_failure_from_canonical() -> None:
     canonical = AnchorPoster(
-        kind="price", rpc_url="http://k", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        kind="price",
+        rpc_url="http://k",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
         chain_id=2368,
     )
     bad_mirror = AnchorPoster(
-        kind="price", rpc_url="http://b", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        kind="price",
+        rpc_url="http://b",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
         chain_id=84_532,
     )
     canonical._ensure_live = lambda: None  # type: ignore[assignment]
