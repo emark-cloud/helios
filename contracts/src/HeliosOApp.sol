@@ -51,6 +51,12 @@ contract HeliosOApp is OApp, IHeliosOApp {
     ///         until flushAttestations clears it.
     uint256 public maxPendingPerStrategy;
 
+    /// @notice Hard upper bound on `maxPendingPerStrategy`. Receiver-side
+    ///         `_handleReputationBatch` does an external call per entry, so
+    ///         an over-large cap can push `_lzReceive` past the executor gas
+    ///         budget and brick the packet. Phase-5 review H6.
+    uint256 public constant MAX_PENDING_HARD_CAP = 64;
+
     constructor(
         address endpoint_,
         address delegate_,
@@ -60,7 +66,9 @@ contract HeliosOApp is OApp, IHeliosOApp {
     ) OApp(endpoint_, delegate_) Ownable(delegate_) {
         kiteEid = kiteEid_;
         reputationAnchor = IReputationAnchor(reputationAnchor_);
-        maxPendingPerStrategy = maxPendingPerStrategy_ == 0 ? 64 : maxPendingPerStrategy_;
+        uint256 cap = maxPendingPerStrategy_ == 0 ? MAX_PENDING_HARD_CAP : maxPendingPerStrategy_;
+        if (cap > MAX_PENDING_HARD_CAP) revert PendingCapTooHigh(cap, MAX_PENDING_HARD_CAP);
+        maxPendingPerStrategy = cap;
     }
 
     // ── Admin ───────────────────────────────────────────────────────
@@ -75,6 +83,7 @@ contract HeliosOApp is OApp, IHeliosOApp {
 
     function setMaxPendingPerStrategy(uint256 cap) external onlyOwner {
         require(cap > 0, "cap=0");
+        if (cap > MAX_PENDING_HARD_CAP) revert PendingCapTooHigh(cap, MAX_PENDING_HARD_CAP);
         maxPendingPerStrategy = cap;
     }
 
@@ -87,6 +96,13 @@ contract HeliosOApp is OApp, IHeliosOApp {
         IReputationAnchor.ReputationData calldata data,
         bytes calldata options
     ) external payable {
+        // Phase-5 review C1: a vault on Base/Arb may only attest its own
+        // reputation. Without this gate, any address on a remote chain could
+        // forge an arbitrary `actor` + `data` blob to overwrite reputation on
+        // Kite (the LZ peer is trusted, the OApp's caller is not).
+        if (!isStrategyVault[msg.sender]) revert NotStrategyVault(msg.sender);
+        if (actor != msg.sender) revert CallerActorMismatch(msg.sender, actor);
+
         if (peers[dstEid] == bytes32(0)) {
             revert PeerNotSet(dstEid);
         }
@@ -176,6 +192,14 @@ contract HeliosOApp is OApp, IHeliosOApp {
         uint256 amount,
         bytes calldata options
     ) external payable {
+        // Phase-5 review C2: only an allowlisted local vault can originate a
+        // bridge-and-deploy, and only to its own address on the destination
+        // chain. Today `bridgeReceiver` is unset so the on-chain effect is a
+        // no-op, but once wired this gate prevents any address from forging a
+        // capital credit for an arbitrary strategy.
+        if (!isStrategyVault[msg.sender]) revert NotStrategyVault(msg.sender);
+        if (strategyOnDst != msg.sender) revert CallerActorMismatch(msg.sender, strategyOnDst);
+
         if (peers[dstEid] == bytes32(0)) revert PeerNotSet(dstEid);
 
         uint64 nextSeq = lastSeqOut[strategyOnDst] + 1;
@@ -207,24 +231,15 @@ contract HeliosOApp is OApp, IHeliosOApp {
         address, /*executor*/
         bytes calldata /*extraData*/
     ) internal override {
+        // Phase-5 review H5: route purely on the kind byte. Single and batch
+        // payloads use distinct PayloadKind values so there is no calldata
+        // heuristic that can collide on a chosen `seq` value.
         CrossChainCodec.PayloadKind kind = CrossChainCodec.peekKind(message);
 
         if (kind == CrossChainCodec.PayloadKind.ReputationUpdateV1) {
-            // Could be either single-update or batched. Discriminate by trying
-            // batch decode first — abi.decode reverts on shape mismatch, so we
-            // fall through to single decode in a try/catch-style guard via the
-            // codec: encoders set a different shape for each.
-            // Cheaper: peek the second word — for the single shape it’s a uint64
-            // seq; for the batch shape it’s a 0x40 offset to the dynamic array.
-            uint256 second;
-            assembly ("memory-safe") {
-                second := calldataload(add(message.offset, 32))
-            }
-            if (second == 0x40) {
-                _handleReputationBatch(origin, guid, message);
-            } else {
-                _handleReputationSingle(origin, guid, message);
-            }
+            _handleReputationSingle(origin, guid, message);
+        } else if (kind == CrossChainCodec.PayloadKind.ReputationBatchV1) {
+            _handleReputationBatch(origin, guid, message);
         } else if (kind == CrossChainCodec.PayloadKind.BridgeDeployV1) {
             _handleBridgeDeploy(origin, guid, message);
         } else {
@@ -245,18 +260,28 @@ contract HeliosOApp is OApp, IHeliosOApp {
     function _handleReputationBatch(Origin calldata origin, bytes32 guid, bytes calldata message)
         internal
     {
+        // Phase-5 review H3, H4: batch entries are *trade ticks*, not score
+        // writes. Increment `totalAttestedTrades` on the canonical anchor;
+        // leave the engine-managed score/PnL fields and lastUpdateBlock
+        // untouched. The single-update path (`sendReputationUpdate`) keeps
+        // calling `postCrossChainUpdate` for engine-signed payloads.
         CrossChainCodec.ReputationBatchEntry[] memory batch =
             CrossChainCodec.decodeReputationBatch(message);
         for (uint256 i = 0; i < batch.length; i++) {
-            _applyReputation(
-                origin.srcEid,
-                batch[i].strategy,
-                batch[i].seq,
-                IReputationAnchor.ActorType.STRATEGY,
-                batch[i].data,
-                guid
-            );
+            _applyTradeTick(origin.srcEid, batch[i].strategy, batch[i].seq, guid);
         }
+    }
+
+    function _applyTradeTick(uint32 srcEid, address actor, uint64 seq, bytes32 guid) internal {
+        uint64 last = lastSeqIn[srcEid][actor];
+        if (seq <= last) revert ReplaySeq(srcEid, actor, seq, last);
+        lastSeqIn[srcEid][actor] = seq;
+
+        if (address(reputationAnchor) != address(0)) {
+            reputationAnchor.postCrossChainTradeTick(actor);
+        }
+
+        emit ReputationMessageReceived(srcEid, actor, IReputationAnchor.ActorType.STRATEGY, guid);
     }
 
     function _applyReputation(

@@ -174,12 +174,20 @@ contract StrategyVaultCrossChainTest is Test {
         vm.prank(operator);
         vault.executeWithProof(_proofBytes(), pi, trades);
 
+        // Phase-5 review H3, H4: the queued payload is now tick-only. The
+        // canonical-side OApp routes the batch entry through
+        // `postCrossChainTradeTick` which only reads `strategy` (and
+        // implicitly the seq). Score / PnL / drawdown / lastUpdateBlock are
+        // intentionally zero on the wire — leaving the only non-zero data
+        // field as `componentsHash` so the subgraph can still surface the
+        // originating trade hash.
         assertEq(oApp.queueCount(), 1);
         (address strategy, IReputationAnchor.ReputationData memory data) = oApp.queuedAt(0);
         assertEq(strategy, address(vault));
-        assertEq(data.totalAttestedTrades, 1);
-        assertEq(data.proofValidityRateBps, 10_000);
-        assertEq(data.lastUpdateBlock, block.number);
+        assertEq(data.totalAttestedTrades, 0, "tick-only: counter not in payload");
+        assertEq(data.currentScore, 0);
+        assertEq(data.proofValidityRateBps, 0, "tick-only: validity not in payload");
+        assertEq(data.lastUpdateBlock, 0, "tick-only: no remote block leaks across");
         assertEq(uint256(data.actorType), uint256(IReputationAnchor.ActorType.STRATEGY));
         assertEq(data.componentsHash, bytes32(pi[0]));
     }

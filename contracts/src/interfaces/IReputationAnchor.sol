@@ -31,6 +31,11 @@ interface IReputationAnchor {
     event CrossChainReputationPosted(
         address indexed actor, ActorType indexed actorType, uint32 srcEid, int256 newScore
     );
+    /// @notice Counter-only ping from a cross-chain attestation flush.
+    ///         Increments `totalAttestedTrades` for the actor without
+    ///         touching the engine-authoritative score / PnL / drawdown
+    ///         fields. Phase-5 review H3, H4.
+    event CrossChainTradeTick(address indexed actor, uint256 newTotalAttestedTrades);
 
     error InvalidSigner();
     error NotOApp();
@@ -44,6 +49,13 @@ interface IReputationAnchor {
 
     function postCrossChainUpdate(address actor, ActorType actorType, ReputationData calldata data)
         external;
+
+    /// @notice OApp-gated counter increment. Used by the cross-chain
+    ///         attestation forwarder so a successful trade on Base/Arb bumps
+    ///         `totalAttestedTrades` on the canonical anchor without
+    ///         clobbering the score/PnL/lastUpdateBlock that the off-chain
+    ///         engine maintains. Phase-5 review H3, H4.
+    function postCrossChainTradeTick(address actor) external;
 
     function reputationOf(address actor) external view returns (ReputationData memory);
 }
