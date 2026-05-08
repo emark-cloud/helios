@@ -80,70 +80,50 @@ services:
 
   # ── Python services ──────────────────────────────────────
   # Each one builds from python.Dockerfile with its package + module args.
-  # Un-comment as Phase 1 lands real behavior per service.
+  # helix + bot stay commented (post-hackathon scope per project memory).
 
-  # sentinel:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/services/python.Dockerfile
-  #     args:
-  #       SERVICE_PACKAGE: helios-sentinel
-  #       SERVICE_MODULE: sentinel
-  #   image: helios/sentinel:latest
-  #   restart: *restart
-  #   env_file: /srv/helios/.env
-  #   environment:
-  #     HTTP_PORT: "8001"
-  #     DATABASE_URL: postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios
-  #   ports: ["127.0.0.1:8001:8001"]
-  #   depends_on: [postgres, redis, prover]
+  # http_host defaults to "0.0.0.0" and http_port defaults to the
+  # canonical per-service port via _template.config.BaseServiceSettings,
+  # so neither needs to be set explicitly here. Override via env_file
+  # using the service's prefix (e.g. SENTINEL_HTTP_PORT) when needed.
 
-  # helix:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/services/python.Dockerfile
-  #     args:
-  #       SERVICE_PACKAGE: helios-helix
-  #       SERVICE_MODULE: helix
-  #   image: helios/helix:latest
-  #   restart: *restart
-  #   env_file: /srv/helios/.env
-  #   environment:
-  #     HTTP_PORT: "8006"
-  #     DATABASE_URL: postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios
-  #   ports: ["127.0.0.1:8006:8006"]
-  #   depends_on: [postgres, redis, prover]
+  sentinel:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args:
+        SERVICE_PACKAGE: helios-sentinel
+        SERVICE_MODULE: sentinel
+    image: helios/sentinel:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      DATABASE_URL: postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios
+    ports: ["127.0.0.1:8001:8001"]
+    depends_on: [postgres, redis, prover]
 
-  # reputation:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/services/python.Dockerfile
-  #     args: { SERVICE_PACKAGE: helios-reputation, SERVICE_MODULE: reputation }
-  #   image: helios/reputation:latest
-  #   restart: *restart
-  #   env_file: /srv/helios/.env
-  #   environment: { HTTP_PORT: "8002" }
-  #   ports: ["127.0.0.1:8002:8002"]
-  #   depends_on: [postgres]
+  reputation:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args: { SERVICE_PACKAGE: helios-reputation, SERVICE_MODULE: reputation }
+    image: helios/reputation:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      DATABASE_URL: postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios
+    ports: ["127.0.0.1:8002:8002"]
+    depends_on: [postgres]
 
-  # oracle:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/services/python.Dockerfile
-  #     args: { SERVICE_PACKAGE: helios-oracle, SERVICE_MODULE: oracle }
-  #   image: helios/oracle:latest
-  #   restart: *restart
-  #   env_file: /srv/helios/.env
-  #   environment: { HTTP_PORT: "8003" }
-  #   ports: ["127.0.0.1:8003:8003"]
+  oracle:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args: { SERVICE_PACKAGE: helios-oracle, SERVICE_MODULE: oracle }
+    image: helios/oracle:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    ports: ["127.0.0.1:8003:8003"]
 
-  # bot:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/services/python.Dockerfile
-  #     args: { SERVICE_PACKAGE: helios-bot, SERVICE_MODULE: bot }
-  #   image: helios/bot:latest
-  #   restart: *restart
-  #   env_file: /srv/helios/.env
-  #   environment: { HTTP_PORT: "8005" }
-  #   ports: ["127.0.0.1:8005:8005"]
+  # helix:    # deferred post-hackathon (regime/correlation scope cut)
+  # bot:      # deferred post-hackathon (Telegram bot scope cut)

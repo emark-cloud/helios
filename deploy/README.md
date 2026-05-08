@@ -62,11 +62,7 @@ See `bootstrap.sh` for exact versions; see `docker-compose.prod.yml` for the ser
 
 ## Phase status
 
-This is **Phase 0 scaffolding** — the templates are in place and parameterized. Phase 1 fills in:
-
-- per-service Dockerfile shims under `services/<name>/Dockerfile` extending `python.Dockerfile` with the right `SERVICE_PACKAGE` and entrypoint
-- compose entries un-commented as each service has real behavior
-- nginx upstream config validated against the actual ports
+Phase 6: production stack live. `postgres`, `redis`, `prover`, `sentinel`, `reputation`, `oracle` are all un-commented in `docker-compose.prod.yml`. `helix` and `bot` stay deferred per the post-hackathon scope cut. The generic `services/python.Dockerfile` reads `SERVICE_PACKAGE` + `SERVICE_MODULE` build args, so no per-service Dockerfile shim is needed; nginx upstreams in `nginx/helios.conf` already match the canonical service ports (8001 sentinel, 8002 reputation, 8003 oracle, 8004 prover).
 
 ## Rate limits
 
@@ -142,10 +138,14 @@ Variables that must be set:
 | `KITE_PASSPORT_SESSION_ID` | services + frontend | Passport-issued session token (MPC-backed; no raw private key). |
 | `REPUTATION_SIGNER_PK` | services/reputation | Raw EOA key for signing scores into `ReputationAnchor`. |
 | `ORACLE_SIGNER_PK` | services/oracle | Raw EOA key for signing price + yield commits. |
+| `OPERATOR_PK` | reference-strategies | Raw EOA key the strategy operator uses for `executeWithProof` — required for WS5-prep attested-trade smoke. |
 | `POSTGRES_PASSWORD` | docker-compose | Strong random; rotated on signer-key rotation events. |
 | `DATABASE_URL` | services | Constructed from the above — `postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios`. |
+| `GOLDSKY_ENDPOINT` | services + frontend | Read endpoint of the deployed subgraph. Required by sentinel (allocator decisions) + reputation (score rollups). |
 | `GOLDSKY_API_KEY` | subgraph deploys | Only needed when running `pnpm --filter subgraph deploy` from the workstation. |
-| `TELEGRAM_BOT_TOKEN` | services/bot | Deferred. |
+| `PROVER_AUTH_TOKEN` | services/prover + reference strategies | Bearer token gating `POST /prove`. Empty disables auth (local dev only). VPS deploys must set a random secret. |
+| `CORS_ALLOWED_ORIGINS` | services | Comma-separated list of public frontend hosts; `*` is rejected when paired with credentials. |
+| `TELEGRAM_BOT_TOKEN` | services/bot | Deferred (post-hackathon). |
 
 Sanity check from a fresh checkout:
 
