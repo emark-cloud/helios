@@ -39,6 +39,18 @@ _EXACT_INPUT_SINGLE_SELECTOR = keccak(
     b"exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))"
 )[:4]
 
+# Uniswap V3 SwapRouter02 has a *different* tuple layout — fee tier
+# instead of recipient-before-deadline ordering, and a `sqrtPriceLimitX96`
+# field. Phase-5 momentum-on-Base uses this selector directly against the
+# canonical V3 router (`0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4`).
+# Reference: Uniswap V3 periphery `ISwapRouter.exactInputSingle` —
+# `(address tokenIn, address tokenOut, uint24 fee, address recipient,
+#  uint256 deadline, uint256 amountIn, uint256 amountOutMinimum,
+#  uint160 sqrtPriceLimitX96)`.
+_UNISWAP_V3_EXACT_INPUT_SINGLE_SELECTOR = keccak(
+    b"exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"
+)[:4]
+
 
 @dataclass(frozen=True, slots=True)
 class TradeCall:
@@ -73,6 +85,18 @@ class ExecutionRecord:
 
 
 class TradeExecutor:
+    """Encodes + submits one swap per signal.
+
+    `venue_kind` selects the calldata shape. `"algebra"` (default,
+    Kite + the SDK's MockSwapRouter fallback) emits the seven-word
+    Algebra Integral tuple; `"uniswap_v3"` (Phase-5 Base Sepolia)
+    emits the eight-word V3 SwapRouter02 tuple with `fee` +
+    `sqrtPriceLimitX96`. The pool fee tier is read from
+    `pool_fee_bps` (in hundredths of a bp — UniV3's canonical
+    `uint24 fee`, e.g. 500 = 0.05%, 3000 = 0.3%, 10000 = 1%).
+    Algebra has no fee tier (single dynamic fee), so `pool_fee_bps`
+    is ignored on that path."""
+
     def __init__(
         self,
         rpc_url: str,
@@ -81,13 +105,20 @@ class TradeExecutor:
         mock_router_address: str,
         chain_id: int,
         deadline_buffer_sec: int = 120,
+        *,
+        venue_kind: str = "algebra",
+        pool_fee_bps: int = 500,
     ) -> None:
+        if venue_kind not in {"algebra", "uniswap_v3"}:
+            raise ValueError(f"unknown venue_kind: {venue_kind}")
         self._rpc_url = rpc_url
         self._operator_pk = operator_pk
         self._vault = strategy_vault_address
         self._router = mock_router_address
         self._chain_id = chain_id
         self._deadline_buffer = deadline_buffer_sec
+        self._venue_kind = venue_kind
+        self._pool_fee_bps = pool_fee_bps
         self._live = bool(rpc_url and operator_pk and strategy_vault_address)
         self.pending: list[ExecutionRecord] = []
 
@@ -111,6 +142,14 @@ class TradeExecutor:
     @property
     def chain_id(self) -> int:
         return self._chain_id
+
+    @property
+    def venue_kind(self) -> str:
+        return self._venue_kind
+
+    @property
+    def pool_fee_bps(self) -> int:
+        return self._pool_fee_bps
 
     # ── Calldata builders ─────────────────────────────────────
     def build_swap_calldata(
@@ -142,6 +181,43 @@ class TradeExecutor:
         ]
         return _EXACT_INPUT_SINGLE_SELECTOR + b"".join(words)
 
+    def build_uniswap_v3_calldata(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        recipient: str,
+        amount_in: int,
+        amount_out_minimum: int,
+        deadline_unix: int,
+        fee: int | None = None,
+    ) -> bytes:
+        """Encode `exactInputSingle` calldata for the canonical Uniswap
+        V3 SwapRouter02 deployment on Base Sepolia.
+
+        Tuple layout (from `ISwapRouter.ExactInputSingleParams`):
+          `(address tokenIn, address tokenOut, uint24 fee,
+           address recipient, uint256 deadline, uint256 amountIn,
+           uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)`
+
+        Eight 32-byte words behind the V3 selector — different field
+        order from Algebra's seven-word tuple, plus a fee tier slot.
+        Hand-rolled to keep the dep tree minimal; see the module
+        docstring on `_addr_word` for the address-to-word convention.
+        """
+        fee_tier = fee if fee is not None else self._pool_fee_bps
+        words = [
+            _addr_word(token_in),
+            _addr_word(token_out),
+            int(fee_tier).to_bytes(32, "big"),
+            _addr_word(recipient),
+            deadline_unix.to_bytes(32, "big"),
+            amount_in.to_bytes(32, "big"),
+            amount_out_minimum.to_bytes(32, "big"),
+            (0).to_bytes(32, "big"),  # sqrtPriceLimitX96 = 0 ⇒ no limit
+        ]
+        return _UNISWAP_V3_EXACT_INPUT_SINGLE_SELECTOR + b"".join(words)
+
     def build_plan(
         self,
         *,
@@ -155,14 +231,25 @@ class TradeExecutor:
     ) -> ExecutionPlan:
         if not self._router:
             raise ValueError("router address required for build_plan")
-        swap_data = self.build_swap_calldata(
-            token_in=token_in,
-            token_out=token_out,
-            recipient=self._vault or "0x" + "0" * 40,
-            amount_in=amount_in,
-            amount_out_minimum=min_amount_out,
-            deadline_unix=deadline_unix,
-        )
+        recipient = self._vault or "0x" + "0" * 40
+        if self._venue_kind == "uniswap_v3":
+            swap_data = self.build_uniswap_v3_calldata(
+                token_in=token_in,
+                token_out=token_out,
+                recipient=recipient,
+                amount_in=amount_in,
+                amount_out_minimum=min_amount_out,
+                deadline_unix=deadline_unix,
+            )
+        else:
+            swap_data = self.build_swap_calldata(
+                token_in=token_in,
+                token_out=token_out,
+                recipient=recipient,
+                amount_in=amount_in,
+                amount_out_minimum=min_amount_out,
+                deadline_unix=deadline_unix,
+            )
         return ExecutionPlan(
             proof=proof,
             public_inputs=list(public_inputs),

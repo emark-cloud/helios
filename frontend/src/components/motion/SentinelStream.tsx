@@ -4,15 +4,24 @@
  * without re-prompting the user for an EIP-191 signature.
  *
  * Surfaces:
- *   - `events`     — newest-first list (capped at 50)
- *   - `defundOf`   — `Map<strategyId, DefundRowState>` for table animation
- *   - `repPulseOf` — `Map<strategyId, { firedAt: number }>` so a
- *                    chain badge can play one 600ms pulse on cross-chain
- *                    reputation arrival (DESIGN §10.3)
- *   - `connState`  — open / connecting / error / closed
+ *   - `events`            — newest-first list (capped at 50)
+ *   - `defundOf`          — `Map<strategyId, DefundRowState>` for table animation
+ *   - `crossChainRepOf`   — per-strategy cross-chain reputation state:
+ *                           pending GUIDs (drives `inFlight`) plus the
+ *                           last resolved block number (drives
+ *                           `pulseKey` so a 600ms pulse fires on a
+ *                           genuinely new resolution).
+ *   - `connState`         — open / connecting / error / closed
  *
- * Phase 4 visual machinery only — the cross-chain reputation source is
- * a Phase 5 LayerZero deliverable per `docs/phase4-plan.md §4.9`.
+ * Phase-5 / WS7: the cross-chain reputation source is wired through
+ * `lib/crossChainWatcher.ts`, which subscribes to LayerZero
+ * `ReputationMessageSent` events on Base/Arb and the matching
+ * `ReputationMessageReceived` on Kite, then dispatches DOM events
+ * we listen for here. The watcher silently no-ops when the
+ * `NEXT_PUBLIC_HELIOS_OAPP_*` env addresses aren't populated, which
+ * is the path exercised by Playwright's signature-interaction suite
+ * (it drives the same DOM events directly via the `fireCrossChainRep*`
+ * test helpers below).
  */
 
 "use client";
@@ -28,6 +37,7 @@ import {
 } from "react";
 import { useSignMessage } from "wagmi";
 
+import { startCrossChainWatcher } from "@/lib/crossChainWatcher";
 import {
   subscribeUserEvents,
   type SentinelEvent,
@@ -44,19 +54,35 @@ export type DefundRowState = "triggered" | "armed" | "finalizing" | "breaching" 
 
 export type StreamRailEvent = SentinelEvent & { uid: string };
 
+/** Per-strategy cross-chain reputation state. Decoupled from
+ *  `repPulseOf` (the legacy single-timestamp shape) so the chain badge
+ *  can render a sustained "in flight" dot during the LayerZero latency
+ *  window without the pulse keyframe re-firing on every poll, and so
+ *  it can pulse *only once* on the matching resolution. */
+export type CrossChainRepState = {
+  /** GUIDs of `ReputationMessageSent` emits on Base/Arb that have not
+   *  yet been paired with a `ReputationMessageReceived` on Kite. */
+  pendingGuids: ReadonlySet<string>;
+  /** ms timestamp of the most recent resolution. */
+  lastResolvedAt?: number;
+  /** Kite-side block number that delivered the most recent resolution.
+   *  Stable across re-renders, which is what `ChainBadge.pulseKey`
+   *  needs to fire its keyframe exactly once per real arrival. */
+  lastResolvedBlock?: string;
+};
+
 export type SentinelStream = {
   events: StreamRailEvent[];
   defundOf: ReadonlyMap<string, DefundRowState>;
-  /** Cross-chain reputation pings keyed by strategy id, with a
-   *  `firedAt` ms timestamp so consumers can key animation restart. */
-  repPulseOf: ReadonlyMap<string, { firedAt: number }>;
+  /** Cross-chain reputation pings keyed by strategy id. */
+  crossChainRepOf: ReadonlyMap<string, CrossChainRepState>;
   connState: ConnState;
 };
 
 const noopStream: SentinelStream = {
   events: [],
   defundOf: new Map(),
-  repPulseOf: new Map(),
+  crossChainRepOf: new Map(),
   connState: "closed",
 };
 
@@ -71,6 +97,27 @@ function _mintUid(): string {
   return `stream-${Date.now()}-${_railUidCounter}`;
 }
 
+/** Synthesize a `SentinelEvent`-shaped row so the activity rail can
+ *  render cross-chain rep updates through the same code path as the
+ *  Sentinel-emitted rows. `tx_hash` is empty by design — the GUID
+ *  isn't a transaction hash, and the rail's row component falls back
+ *  cleanly when tx_hash is empty. */
+function synthCrossChainEvent(
+  kind: SentinelEventKind,
+  strategyId: string,
+  reason: string,
+): SentinelEvent {
+  return {
+    user: "",
+    kind,
+    strategy: strategyId,
+    amount_usd: 0,
+    reason,
+    timestamp: Math.floor(Date.now() / 1000),
+    tx_hash: "",
+  };
+}
+
 export function SentinelStreamProvider({
   user,
   children,
@@ -80,9 +127,16 @@ export function SentinelStreamProvider({
 }): JSX.Element {
   const [events, setEvents] = useState<StreamRailEvent[]>([]);
   const [defundOf, setDefundOf] = useState<Map<string, DefundRowState>>(new Map());
-  const [repPulseOf, setRepPulseOf] = useState<Map<string, { firedAt: number }>>(new Map());
+  const [crossChainRepOf, setCrossChainRepOf] = useState<Map<string, CrossChainRepState>>(new Map());
   const [connState, setConnState] = useState<ConnState>(user ? "connecting" : "closed");
   const { signMessageAsync } = useSignMessage();
+
+  const pushSynth = useCallback((evt: SentinelEvent) => {
+    setEvents((prev) => {
+      const next = [{ ...evt, uid: _mintUid() }, ...prev];
+      return next.length > MAX_RAIL_ENTRIES ? next.slice(0, MAX_RAIL_ENTRIES) : next;
+    });
+  }, []);
 
   const handleEvent = useCallback((evt: SentinelEvent) => {
     setEvents((prev) => {
@@ -99,26 +153,76 @@ export function SentinelStreamProvider({
         return next;
       });
     }
-    // Cross-chain reputation hook is dormant in Phase 4 — see plan
-    // §4.9. Reserved kinds map here in Phase 5.
   }, []);
 
-  // Phase-4 fixture bridge — see `fireCrossChainRepPulse` doc. Wired
-  // here so the provider is the single source of truth for the
-  // signature-moment animations.
+  // Phase-5 / WS7 — cross-chain reputation event bridge. The
+  // `crossChainWatcher` module subscribes to viem `watchContractEvent`
+  // for the LayerZero OApps and dispatches these DOM events; the
+  // Playwright signature-interaction suite drives the same events
+  // directly via `fireCrossChainRepInflight` / `fireCrossChainRepResolved`.
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const handler = (e: Event): void => {
-      const ce = e as CustomEvent<{ strategyId: string; firedAt: number }>;
-      setRepPulseOf((prev) => {
+
+    const onInflight = (e: Event): void => {
+      const ce = e as CustomEvent<{ strategyId: string; guid: string; srcChainId?: number }>;
+      const sid = ce.detail.strategyId.toLowerCase();
+      const guid = ce.detail.guid.toLowerCase();
+      setCrossChainRepOf((prev) => {
         const next = new Map(prev);
-        next.set(ce.detail.strategyId, { firedAt: ce.detail.firedAt });
+        const cur = next.get(sid) ?? { pendingGuids: new Set<string>() };
+        const guids = new Set(cur.pendingGuids);
+        if (guids.has(guid)) return prev; // idempotent — duplicate poll
+        guids.add(guid);
+        next.set(sid, { ...cur, pendingGuids: guids });
         return next;
       });
+      pushSynth(
+        synthCrossChainEvent(
+          "CROSS_CHAIN_REP_UPDATE_INFLIGHT",
+          sid,
+          ce.detail.srcChainId ? `srcChain_${ce.detail.srcChainId}` : "",
+        ),
+      );
     };
-    window.addEventListener("helios:rep-pulse", handler);
-    return () => window.removeEventListener("helios:rep-pulse", handler);
-  }, []);
+
+    const onResolved = (e: Event): void => {
+      const ce = e as CustomEvent<{ strategyId: string; guid: string; dstBlockNumber?: string }>;
+      const sid = ce.detail.strategyId.toLowerCase();
+      const guid = ce.detail.guid.toLowerCase();
+      setCrossChainRepOf((prev) => {
+        const next = new Map(prev);
+        const cur = next.get(sid) ?? { pendingGuids: new Set<string>() };
+        const guids = new Set(cur.pendingGuids);
+        guids.delete(guid);
+        next.set(sid, {
+          pendingGuids: guids,
+          lastResolvedAt: Date.now(),
+          lastResolvedBlock: ce.detail.dstBlockNumber,
+        });
+        return next;
+      });
+      pushSynth(
+        synthCrossChainEvent("CROSS_CHAIN_REP_UPDATE_RESOLVED", sid, ""),
+      );
+    };
+
+    window.addEventListener("helios:cross-chain-rep-inflight", onInflight);
+    window.addEventListener("helios:cross-chain-rep-resolved", onResolved);
+    return () => {
+      window.removeEventListener("helios:cross-chain-rep-inflight", onInflight);
+      window.removeEventListener("helios:cross-chain-rep-resolved", onResolved);
+    };
+  }, [pushSynth]);
+
+  // Boot the on-chain watcher exactly once for the provider's lifetime.
+  // The watcher is keyed off env vars, not React state — gated to only
+  // run when a user is connected so we don't burn RPC quota on the
+  // unauthenticated landing page.
+  useEffect(() => {
+    if (!user) return undefined;
+    const { teardown } = startCrossChainWatcher();
+    return teardown;
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -158,8 +262,8 @@ export function SentinelStreamProvider({
   }, [user, signMessageAsync, handleEvent]);
 
   const value = useMemo<SentinelStream>(
-    () => ({ events, defundOf, repPulseOf, connState }),
-    [events, defundOf, repPulseOf, connState],
+    () => ({ events, defundOf, crossChainRepOf, connState }),
+    [events, defundOf, crossChainRepOf, connState],
   );
 
   return <StreamCtx.Provider value={value}>{children}</StreamCtx.Provider>;
@@ -169,14 +273,61 @@ export function useSentinelStream(): SentinelStream {
   return useContext(StreamCtx);
 }
 
-/** Test-only escape hatch so signature-interaction Playwright tests
- *  can drive the cross-chain pulse without LayerZero. The shape mirrors
- *  the future Phase 5 reputation_updated event. */
+/** Test-only escape hatch: simulate a cross-chain reputation update
+ *  going in flight (Base/Arb `ReputationMessageSent`). The Playwright
+ *  signature-interaction suite uses this to drive the chain badge
+ *  in-flight dot without spinning up real LayerZero infrastructure.
+ *  Pass a stable `guid` so the matching `fireCrossChainRepResolved`
+ *  call clears the pending entry. */
+export function fireCrossChainRepInflight(
+  strategyId: string,
+  guid: string,
+  srcChainId: number = 84_532,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("helios:cross-chain-rep-inflight", {
+      detail: {
+        strategyId: strategyId.toLowerCase(),
+        guid: guid.toLowerCase(),
+        srcChainId,
+        srcBlockNumber: "0",
+      },
+    }),
+  );
+}
+
+/** Test-only escape hatch: simulate the matching Kite-side
+ *  `ReputationMessageReceived`. */
+export function fireCrossChainRepResolved(
+  strategyId: string,
+  guid: string,
+  dstBlockNumber: string = `${Date.now()}`,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("helios:cross-chain-rep-resolved", {
+      detail: {
+        strategyId: strategyId.toLowerCase(),
+        guid: guid.toLowerCase(),
+        dstBlockNumber,
+      },
+    }),
+  );
+}
+
+/** @deprecated Phase-4 fixture helper retained for back-compat with
+ *  the existing Playwright test that simply wants to flash the pulse
+ *  without orchestrating a paired GUID. Fires a synthetic inflight +
+ *  immediate resolved against the same GUID. */
 export function fireCrossChainRepPulse(strategyId: string): void {
-  const detail = { strategyId: strategyId.toLowerCase(), firedAt: Date.now() };
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("helios:rep-pulse", { detail }));
-  }
+  const guid = `0x${Date.now().toString(16).padStart(64, "0")}`;
+  fireCrossChainRepInflight(strategyId, guid);
+  // Microtask: keep the sequence ordered without forcing the consumer
+  // to await a tick — the sentinel stream provider applies state
+  // updates serially and the rail expects "inflight then resolved" in
+  // that order.
+  queueMicrotask(() => fireCrossChainRepResolved(strategyId, guid));
 }
 
 function defundTransitionFor(kind: SentinelEventKind): DefundRowState | null | undefined {

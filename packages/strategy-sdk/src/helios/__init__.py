@@ -15,6 +15,13 @@ from helios.backtest import (
     synthesize_random_walk,
 )
 from helios.nav import NAVTracker, max_drawdown, sharpe_ratio
+from helios.runtime import (
+    ChainSurface,
+    ChainTarget,
+    DeploymentNotFoundError,
+    VenueMode,
+    load_chain_surface,
+)
 from helios.sizing import nav_target_notional
 from helios.types import (
     Direction,
@@ -28,6 +35,9 @@ from helios.types import (
 
 __all__ = [
     "BacktestReport",
+    "ChainSurface",
+    "ChainTarget",
+    "DeploymentNotFoundError",
     "Direction",
     "MarketSnapshot",
     "NAVTracker",
@@ -38,8 +48,10 @@ __all__ = [
     "StrategyManifest",
     "TradeFill",
     "TradeIntent",
+    "VenueMode",
     "YieldBacktestReport",
     "YieldTick",
+    "load_chain_surface",
     "max_drawdown",
     "nav_target_notional",
     "run_backtest",

@@ -427,10 +427,117 @@ class YieldAnchorScheduler:
         return payload
 
 
+@dataclass
+class MultiChainAnchorPoster:
+    """Fan-out wrapper that submits the same commit payload to one
+    canonical anchor (Kite) plus N mirror anchors (Base, Arbitrum) in
+    parallel. Each underlying `AnchorPoster` keeps its own per-chain
+    nonce — the contract's `nonce()` is read per submit, so the chains
+    are allowed to drift relative to each other (one missed commit on
+    Arbitrum doesn't poison Kite or Base).
+
+    Implements the same `post` / `post_async` surface as `AnchorPoster`
+    so the schedulers can use either type unchanged. Returns the
+    canonical chain's `CommitRecord`; per-chain mirror records are
+    appended to `mirror_records` for `/v1/audit` introspection. Mirror
+    failures are logged but never propagated — execution chains losing
+    a commit window is a degraded state, not a halting one.
+
+    phase5-plan.md §WS3.
+    """
+
+    canonical: AnchorPoster
+    mirrors: list[AnchorPoster] = field(default_factory=list)
+
+    mirror_records: deque[CommitRecord] = field(
+        default_factory=lambda: deque(maxlen=_PENDING_RING_CAP)
+    )
+
+    @property
+    def kind(self) -> AnchorKind:
+        return self.canonical.kind
+
+    @property
+    def pending(self) -> deque[CommitRecord]:
+        # Schedulers / API expose this for /v1/audit; surface canonical's.
+        return self.canonical.pending
+
+    @property
+    def live(self) -> bool:
+        return self.canonical.live
+
+    def post(self, payload: CommitPayload) -> CommitRecord:
+        """Synchronous fan-out. Mirrors run sequentially after the canonical
+        commit so test ordering is deterministic; production paths
+        should use `post_async` for parallelism."""
+        canonical_rec = self.canonical.post(payload)
+        for m in self.mirrors:
+            try:
+                rec = m.post(payload)
+            except Exception as exc:  # pragma: no cover - defensive
+                rec = CommitRecord(
+                    kind=payload.kind,
+                    root_hex="0x" + payload.root.hex(),
+                    window_start=payload.window_start,
+                    window_end=payload.window_end,
+                    nonce=payload.nonce,
+                    error=f"mirror[{m.chain_id}] raised: {exc}",
+                )
+                _log.error(
+                    "oracle.anchor.mirror_raised",
+                    kind=payload.kind,
+                    chain_id=m.chain_id,
+                    err=str(exc),
+                )
+            self.mirror_records.append(rec)
+        return canonical_rec
+
+    async def post_async(self, payload: CommitPayload) -> CommitRecord:
+        """Async fan-out: canonical + all mirrors run concurrently. The
+        scheduler waits on the canonical record (so nonce sync stays
+        attached to Kite); mirror outcomes are recorded asynchronously.
+        Mirror exceptions are caught and logged."""
+        tasks: list[asyncio.Task[CommitRecord]] = [
+            asyncio.create_task(self.canonical.post_async(payload))
+        ]
+        for m in self.mirrors:
+            tasks.append(asyncio.create_task(m.post_async(payload)))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        canonical_outcome = results[0]
+        if isinstance(canonical_outcome, BaseException):
+            raise canonical_outcome
+        canonical_rec: CommitRecord = canonical_outcome  # type: ignore[assignment]
+
+        for idx, outcome in enumerate(results[1:], start=0):
+            mirror = self.mirrors[idx]
+            if isinstance(outcome, BaseException):
+                rec = CommitRecord(
+                    kind=payload.kind,
+                    root_hex="0x" + payload.root.hex(),
+                    window_start=payload.window_start,
+                    window_end=payload.window_end,
+                    nonce=payload.nonce,
+                    error=f"mirror[{mirror.chain_id}] raised: {outcome}",
+                )
+                _log.error(
+                    "oracle.anchor.mirror_raised",
+                    kind=payload.kind,
+                    chain_id=mirror.chain_id,
+                    err=str(outcome),
+                )
+            else:
+                rec = outcome
+            self.mirror_records.append(rec)
+
+        return canonical_rec
+
+
 __all__ = [
     "AnchorPoster",
     "CommitPayload",
     "CommitRecord",
+    "MultiChainAnchorPoster",
     "PriceAnchorScheduler",
     "SignedCommit",
     "YieldAnchorScheduler",

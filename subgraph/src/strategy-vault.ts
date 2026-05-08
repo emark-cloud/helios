@@ -6,7 +6,13 @@ import {
   YieldRotationAttested,
 } from "../generated/StrategyVault/StrategyVault";
 import { Trade, NAVSnapshot, YieldRotation } from "../generated/schema";
-import { getOrCreateAllocator, getOrCreateStrategy, logEventId, PHASE1_CHAIN_ID } from "./helpers";
+import {
+  currentChainId,
+  getOrCreateAllocator,
+  getOrCreateStrategy,
+  logEventId,
+  recordExecutingChain,
+} from "./helpers";
 
 // YR events surface a market-rotation rather than a swap, so the
 // directional `Trade.assetIn` / `Trade.assetOut` slots have no
@@ -36,12 +42,14 @@ export function handleTradeAttested(event: TradeAttested): void {
   trade.blockWindowEnd = event.params.blockWindowEnd;
   trade.timestamp = event.block.timestamp;
   trade.txHash = event.transaction.hash;
-  trade.chainId = PHASE1_CHAIN_ID;
+  const chainId = currentChainId();
+  trade.chainId = chainId;
   trade.save();
 
   // Make sure parent entities exist so `@derivedFrom` lookups work.
   const strategy = getOrCreateStrategy(event.params.strategy as Bytes, event.block.timestamp);
   strategy.totalAttestedTrades = strategy.totalAttestedTrades + 1;
+  recordExecutingChain(strategy, chainId);
   strategy.save();
   getOrCreateAllocator(event.params.allocator as Bytes, event.block.timestamp).save();
 }
@@ -104,11 +112,13 @@ export function handleYieldRotationAttested(event: YieldRotationAttested): void 
   trade.blockWindowEnd = event.params.blockWindowEnd;
   trade.timestamp = event.block.timestamp;
   trade.txHash = event.transaction.hash;
-  trade.chainId = PHASE1_CHAIN_ID;
+  const chainId = currentChainId();
+  trade.chainId = chainId;
   trade.save();
 
   const strategy = getOrCreateStrategy(strategyId, event.block.timestamp);
   strategy.totalAttestedTrades = strategy.totalAttestedTrades + 1;
+  recordExecutingChain(strategy, chainId);
   strategy.save();
   getOrCreateAllocator(allocatorId, event.block.timestamp).save();
 }

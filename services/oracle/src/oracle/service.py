@@ -22,7 +22,12 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
-from oracle.anchor import AnchorPoster, PriceAnchorScheduler, YieldAnchorScheduler
+from oracle.anchor import (
+    AnchorPoster,
+    MultiChainAnchorPoster,
+    PriceAnchorScheduler,
+    YieldAnchorScheduler,
+)
 from oracle.poller import Poller, YieldPoller
 from oracle.signer import LocalSigner
 from oracle.sources.base import PriceSource
@@ -64,6 +69,34 @@ class Settings(BaseServiceSettings):
     anchor_interval_bars: int = Field(default=50, validation_alias="ORACLE_ANCHOR_INTERVAL_BARS")
     anchor_chain_depth: int = Field(default=16, validation_alias="ORACLE_ANCHOR_CHAIN_DEPTH")
 
+    # Phase 5 cross-chain replication. Each mirror chain is fully
+    # optional — leaving the RPC blank disables replication for that
+    # chain. The same `ORACLE_SIGNER_PK` signs all chains; only the
+    # EIP-712 domain (chainId + verifyingContract) differs per mirror.
+    base_sepolia_rpc_url: str = Field(default="", validation_alias="ORACLE_BASE_SEPOLIA_RPC")
+    base_sepolia_chain_id: int = Field(
+        default=84_532, validation_alias="ORACLE_BASE_SEPOLIA_CHAIN_ID"
+    )
+    base_sepolia_price_anchor: str = Field(
+        default="", validation_alias="ORACLE_BASE_SEPOLIA_PRICE_ANCHOR"
+    )
+    base_sepolia_yield_anchor: str = Field(
+        default="", validation_alias="ORACLE_BASE_SEPOLIA_YIELD_ANCHOR"
+    )
+
+    arbitrum_sepolia_rpc_url: str = Field(
+        default="", validation_alias="ORACLE_ARBITRUM_SEPOLIA_RPC"
+    )
+    arbitrum_sepolia_chain_id: int = Field(
+        default=421_614, validation_alias="ORACLE_ARBITRUM_SEPOLIA_CHAIN_ID"
+    )
+    arbitrum_sepolia_price_anchor: str = Field(
+        default="", validation_alias="ORACLE_ARBITRUM_SEPOLIA_PRICE_ANCHOR"
+    )
+    arbitrum_sepolia_yield_anchor: str = Field(
+        default="", validation_alias="ORACLE_ARBITRUM_SEPOLIA_YIELD_ANCHOR"
+    )
+
 
 # Default symbol mappings. Override at process boundary if Binance / Coingecko
 # add or rename listings.
@@ -82,6 +115,44 @@ _COINGECKO_SLUGS: dict[str, tuple[str, str]] = {
 
 def _parse_assets(raw: str) -> list[str]:
     return [a.strip() for a in raw.split(",") if a.strip()]
+
+
+def _build_mirror_posters(cfg: Settings, kind: str) -> list[AnchorPoster]:
+    """Build the optional per-chain mirror posters. A chain is enabled
+    when its RPC URL *and* the per-kind anchor address are both set;
+    half-configured chains are skipped silently so a partial deploy
+    can't accidentally start submitting to nowhere.
+    """
+    mirrors: list[AnchorPoster] = []
+    chains: list[tuple[str, str, int, str]] = [
+        (
+            "base-sepolia",
+            cfg.base_sepolia_rpc_url,
+            cfg.base_sepolia_chain_id,
+            cfg.base_sepolia_price_anchor if kind == "price" else cfg.base_sepolia_yield_anchor,
+        ),
+        (
+            "arbitrum-sepolia",
+            cfg.arbitrum_sepolia_rpc_url,
+            cfg.arbitrum_sepolia_chain_id,
+            cfg.arbitrum_sepolia_price_anchor
+            if kind == "price"
+            else cfg.arbitrum_sepolia_yield_anchor,
+        ),
+    ]
+    for _label, rpc, cid, addr in chains:
+        if not rpc or not addr:
+            continue
+        mirrors.append(
+            AnchorPoster(
+                kind=kind,  # type: ignore[arg-type]
+                rpc_url=rpc,
+                signer_pk=cfg.signer_pk,
+                anchor_address=addr,
+                chain_id=cid,
+            )
+        )
+    return mirrors
 
 
 def _hex(b: bytes) -> str:
@@ -108,29 +179,34 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # Compound integrations land in Phase 5.
     yield_sources: list[YieldSource] = [AaveStubSource(), CompoundStubSource()]
 
-    price_poster = AnchorPoster(
+    price_canonical = AnchorPoster(
         kind="price",
         rpc_url=cfg.rpc_url,
         signer_pk=cfg.signer_pk,
         anchor_address=cfg.price_anchor_address,
         chain_id=cfg.chain_id,
     )
-    price_scheduler = PriceAnchorScheduler(
-        store=store,
-        poster=price_poster,
-        interval_bars=cfg.anchor_interval_bars,
-        chain_depth=cfg.anchor_chain_depth,
-    )
-    yield_poster = AnchorPoster(
+    yield_canonical = AnchorPoster(
         kind="yield",
         rpc_url=cfg.rpc_url,
         signer_pk=cfg.signer_pk,
         anchor_address=cfg.yield_anchor_address,
         chain_id=cfg.chain_id,
     )
+    price_mirrors = _build_mirror_posters(cfg, "price")
+    yield_mirrors = _build_mirror_posters(cfg, "yield")
+    price_poster = MultiChainAnchorPoster(canonical=price_canonical, mirrors=price_mirrors)
+    yield_poster = MultiChainAnchorPoster(canonical=yield_canonical, mirrors=yield_mirrors)
+
+    price_scheduler = PriceAnchorScheduler(
+        store=store,
+        poster=price_poster,  # type: ignore[arg-type]
+        interval_bars=cfg.anchor_interval_bars,
+        chain_depth=cfg.anchor_chain_depth,
+    )
     yield_scheduler = YieldAnchorScheduler(
         store=yield_store,
-        poster=yield_poster,
+        poster=yield_poster,  # type: ignore[arg-type]
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
     )

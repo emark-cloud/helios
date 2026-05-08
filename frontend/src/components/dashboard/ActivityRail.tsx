@@ -113,6 +113,8 @@ const KIND_LABEL: Record<SentinelEventKind, string> = {
   DEFUND_FINALIZED: "Defund finalized",
   DEFUND_CANCELLED: "Defund cancelled",
   NAV_DIVERGENCE: "NAV divergence",
+  CROSS_CHAIN_REP_UPDATE_INFLIGHT: "Cross-chain in flight",
+  CROSS_CHAIN_REP_UPDATE_RESOLVED: "Cross-chain resolved",
 };
 
 function describeEvent(evt: SentinelEvent): string {
@@ -157,7 +159,28 @@ function describeEvent(evt: SentinelEvent): string {
         : `${where || "Strategy"} defund cancelled — bond refunded.`;
     case "NAV_DIVERGENCE":
       return `${where || "Strategy"} NAV divergence flagged — under cash floor.`;
+    case "CROSS_CHAIN_REP_UPDATE_INFLIGHT": {
+      // `reason` carries `srcChain_<id>` when the watcher fired with a
+      // known source chain; we render the chain name when we can map
+      // it, otherwise we just say "execution chain".
+      const src = evt.reason.match(/^srcChain_(\d+)$/)?.[1];
+      const chainHint = src ? chainNameForCopy(Number(src)) : "execution chain";
+      return `${where || "Strategy"} reputation update in flight from ${chainHint} via LayerZero.`;
+    }
+    case "CROSS_CHAIN_REP_UPDATE_RESOLVED":
+      return `${where || "Strategy"} reputation arrived on Kite — score posted to ReputationAnchor.`;
   }
+}
+
+/** Tight chain-name helper for the activity-rail copy. We can't reuse
+ *  `formatStrategyClass` here and `chainName` from `lib/format` is a
+ *  client-side surface that returns the badge label; the rail's
+ *  sentence form prefers the colloquial chain name. */
+function chainNameForCopy(chainId: number): string {
+  if (chainId === 84_532) return "Base Sepolia";
+  if (chainId === 421_614) return "Arbitrum Sepolia";
+  if (chainId === 2368) return "Kite";
+  return "execution chain";
 }
 
 /** Sentinel doesn't carry the class on the event payload yet; we extract from

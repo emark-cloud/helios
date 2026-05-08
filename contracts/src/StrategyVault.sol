@@ -25,6 +25,8 @@ import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { ITradeAttestationVerifier } from "./interfaces/ITradeAttestationVerifier.sol";
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
+import { IHeliosOApp } from "./interfaces/IHeliosOApp.sol";
+import { IReputationAnchor } from "./interfaces/IReputationAnchor.sol";
 
 /// @title StrategyVault
 /// @notice Per-strategy capital + ZK-gated trade execution + NAV tracking.
@@ -140,12 +142,23 @@ contract StrategyVault is
     ///         markedFloor or divergence < threshold).
     uint8 public consecutiveNavDivergenceBreaches;
 
+    /// @notice LayerZero-aware OApp glue used to forward trade
+    ///         attestations back to Kite when this vault runs on a
+    ///         non-canonical execution chain (Base / Arbitrum). Zero
+    ///         on the canonical chain (Kite testnet) where reputation
+    ///         lands directly via `ReputationAnchor`. Owner-settable;
+    ///         the post-verify hook is a no-op until set, which keeps
+    ///         existing Kite proxies layout-compatible without forcing
+    ///         a re-init. phase5-plan.md §WS5.
+    address public heliosOApp;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays
     ///      compatible. WS-CX-2 used 1 of the prior 47 slots:
     ///      `navDivergenceThresholdBps` + `consecutiveNavDivergenceBreaches`
-    ///      pack into the same slot (16 + 8 = 24 bits).
-    uint256[46] private __gap;
+    ///      pack into the same slot (16 + 8 = 24 bits). Phase-5 WS5 used
+    ///      another for `heliosOApp`, leaving 45.
+    uint256[45] private __gap;
 
     error ZeroAddress();
     error NotAllocatorVault();
@@ -185,6 +198,13 @@ contract StrategyVault is
     ///         valid candidates at any given time. HIGH #6 in
     ///         `docs/phase-3-review.md`.
     uint256 internal constant _MAX_ORACLE_STALENESS_SEC = 180;
+
+    /// @dev Canonical chain id. The post-verify cross-chain hook is a
+    ///      no-op when `block.chainid == _KITE_TESTNET_CHAIN_ID` —
+    ///      reputation on the canonical chain reaches the anchor via
+    ///      the off-chain engine's signed `postReputationUpdate`,
+    ///      not the LayerZero forwarder. Phase-5 WS5.
+    uint256 internal constant _KITE_TESTNET_CHAIN_ID = 2368;
 
     /// @dev Selector for the canonical Algebra-Integral exactInputSingle
     ///      shape: `(address tokenIn, address tokenOut, address recipient,
@@ -298,6 +318,20 @@ contract StrategyVault is
         _unpause();
     }
 
+    /// @notice Owner-only setter for the cross-chain reputation forwarder.
+    ///         On execution chains (Base / Arbitrum) this points at the
+    ///         local `HeliosOApp` so successful trades enqueue a
+    ///         cross-chain reputation tick. On Kite (canonical) it stays
+    ///         zero — the off-chain reputation engine signs and posts
+    ///         scores directly via `ReputationAnchor.postReputationUpdate`.
+    ///         Setting to `address(0)` re-disables forwarding.
+    ///         phase5-plan.md §WS5.
+    function setHeliosOApp(address newOApp) external onlyOwner {
+        address prev = heliosOApp;
+        heliosOApp = newOApp;
+        emit HeliosOAppUpdated(prev, newOApp);
+    }
+
     // ── Capital flow (allocator vault entry/exit) ───────────────────
 
     /// @notice Pull base-asset capital in from the paired allocator vault.
@@ -360,6 +394,7 @@ contract StrategyVault is
         _validateAndVerify(proof, publicInputs);
         _runSwapTrades(publicInputs, trades);
         _emitTradeAttested(publicInputs);
+        _forwardAttestationIfRemote(bytes32(publicInputs[PI_TRADE_HASH]));
     }
 
     /// @notice yield_rotation_v1 entry path. The 13-PI layout omits asset
@@ -388,6 +423,7 @@ contract StrategyVault is
         // any non-empty trades[] would bypass it. phase2-review.md item 4.
         if (trades.length != 0) revert YRTradesNotSupported();
         _emitYieldRotationAttested(publicInputs);
+        _forwardAttestationIfRemote(bytes32(publicInputs[PI_YR_TRADE_HASH]));
     }
 
     function _validateAndVerify(bytes calldata proof, uint256[] calldata publicInputs) internal {
@@ -600,6 +636,39 @@ contract StrategyVault is
             uint64(publicInputs[PI_BLOCK_WINDOW_START]),
             uint64(publicInputs[PI_BLOCK_WINDOW_END])
         );
+    }
+
+    /// @dev Phase-5 WS5: on a non-canonical chain (Base / Arbitrum),
+    ///      queue a cross-chain reputation tick on the local OApp so a
+    ///      downstream keeper can flush a batch back to Kite. The tick
+    ///      is a tx-level signal only — `totalAttestedTrades = 1`,
+    ///      `proofValidityRateBps = 10_000`, `componentsHash =
+    ///      tradeHash`. The off-chain reputation engine on Kite is the
+    ///      authoritative source of scores; this path keeps the
+    ///      cross-chain pipe live so subgraph + UI can render execution
+    ///      events from the canonical chain in real time.
+    ///
+    ///      No-op when (a) running on Kite, or (b) `heliosOApp` is
+    ///      unset — both branches keep this contract a drop-in for the
+    ///      existing Kite proxies.
+    function _forwardAttestationIfRemote(bytes32 tradeHash) internal {
+        if (block.chainid == _KITE_TESTNET_CHAIN_ID) return;
+        address oApp = heliosOApp;
+        if (oApp == address(0)) return;
+
+        IReputationAnchor.ReputationData memory data = IReputationAnchor.ReputationData({
+            currentScore: 0,
+            lastUpdateBlock: block.number,
+            totalAttestedTrades: 1,
+            totalRealizedPnL: 0,
+            maxDrawdownBps: 0,
+            proofValidityRateBps: 10_000,
+            actorType: IReputationAnchor.ActorType.STRATEGY,
+            componentsHash: tradeHash
+        });
+
+        IHeliosOApp(oApp).queueAttestation(address(this), data);
+        emit CrossChainAttestationQueued(address(this), oApp, tradeHash);
     }
 
     // ── NAV reporting (off-chain signed) ────────────────────────────
