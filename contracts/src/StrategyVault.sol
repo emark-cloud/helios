@@ -640,13 +640,13 @@ contract StrategyVault is
 
     /// @dev Phase-5 WS5: on a non-canonical chain (Base / Arbitrum),
     ///      queue a cross-chain reputation tick on the local OApp so a
-    ///      downstream keeper can flush a batch back to Kite. The tick
-    ///      is a tx-level signal only — `totalAttestedTrades = 1`,
-    ///      `proofValidityRateBps = 10_000`, `componentsHash =
-    ///      tradeHash`. The off-chain reputation engine on Kite is the
-    ///      authoritative source of scores; this path keeps the
-    ///      cross-chain pipe live so subgraph + UI can render execution
-    ///      events from the canonical chain in real time.
+    ///      downstream keeper can flush a batch back to Kite. The tick is
+    ///      a tx-level signal only — the OApp's batch receiver on Kite
+    ///      now calls `postCrossChainTradeTick(strategy)` which only
+    ///      increments `totalAttestedTrades`; every other field of the
+    ///      `ReputationData` payload is ignored on the receiving side.
+    ///      The off-chain reputation engine on Kite remains the
+    ///      authoritative source of scores. Phase-5 review H3, H4.
     ///
     ///      No-op when (a) running on Kite, or (b) `heliosOApp` is
     ///      unset — both branches keep this contract a drop-in for the
@@ -656,16 +656,13 @@ contract StrategyVault is
         address oApp = heliosOApp;
         if (oApp == address(0)) return;
 
-        IReputationAnchor.ReputationData memory data = IReputationAnchor.ReputationData({
-            currentScore: 0,
-            lastUpdateBlock: block.number,
-            totalAttestedTrades: 1,
-            totalRealizedPnL: 0,
-            maxDrawdownBps: 0,
-            proofValidityRateBps: 10_000,
-            actorType: IReputationAnchor.ActorType.STRATEGY,
-            componentsHash: tradeHash
-        });
+        // The receiver consumes only the strategy address + seq from the
+        // queued entry. Pass a zeroed `ReputationData` to make the
+        // tick-only intent unambiguous on the wire; carry `componentsHash`
+        // so the subgraph can still surface the originating trade hash.
+        IReputationAnchor.ReputationData memory data;
+        data.actorType = IReputationAnchor.ActorType.STRATEGY;
+        data.componentsHash = tradeHash;
 
         IHeliosOApp(oApp).queueAttestation(address(this), data);
         emit CrossChainAttestationQueued(address(this), oApp, tradeHash);

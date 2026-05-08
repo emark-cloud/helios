@@ -137,6 +137,17 @@ contract ReputationAnchorV2 is IReputationAnchor, Ownable, EIP712 {
         emit ComponentsAnchored(actor, data.componentsHash);
     }
 
+    /// @notice Counter-only cross-chain tick mirroring ReputationAnchor V1.
+    ///         Increments `totalAttestedTrades`; leaves all engine-managed
+    ///         fields and `lastUpdateBlock` untouched. Phase-5 review H3, H4.
+    function postCrossChainTradeTick(address actor) external {
+        if (msg.sender != oApp) revert NotOApp();
+        ReputationData storage rep = _reputations[actor];
+        unchecked { rep.totalAttestedTrades += 1; }
+        lastUpdateBySource[oApp] = uint64(block.timestamp);
+        emit CrossChainTradeTick(actor, rep.totalAttestedTrades);
+    }
+
     // ── Views ───────────────────────────────────────────────────────
 
     function reputationOf(address actor) external view returns (ReputationData memory) {

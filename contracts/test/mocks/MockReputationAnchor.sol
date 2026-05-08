@@ -15,6 +15,13 @@ contract MockReputationAnchor is IReputationAnchor {
 
     LastCall public lastCall;
     uint256 public callCount;
+    /// @dev Per-actor counter incremented by postCrossChainTradeTick. Lets
+    ///      tests assert the H3/H4 fix routes batches through the
+    ///      tick-only entrypoint instead of clobbering score via
+    ///      postCrossChainUpdate.
+    mapping(address => uint256) public trackedTradeTicks;
+    uint256 public tickCallCount;
+    address public lastTickActor;
 
     function setOApp(address oApp_) external {
         oApp = oApp_;
@@ -28,6 +35,14 @@ contract MockReputationAnchor is IReputationAnchor {
             LastCall({ actor: actor, actorType: actorType, score: data.currentScore, seen: true });
         callCount += 1;
         emit CrossChainReputationPosted(actor, actorType, 0, data.currentScore);
+    }
+
+    function postCrossChainTradeTick(address actor) external {
+        require(msg.sender == oApp, "not-oapp");
+        unchecked { trackedTradeTicks[actor] += 1; }
+        tickCallCount += 1;
+        lastTickActor = actor;
+        emit CrossChainTradeTick(actor, trackedTradeTicks[actor]);
     }
 
     function postReputationUpdate(address, ActorType, ReputationData calldata, bytes calldata)

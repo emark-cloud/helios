@@ -260,18 +260,28 @@ contract HeliosOApp is OApp, IHeliosOApp {
     function _handleReputationBatch(Origin calldata origin, bytes32 guid, bytes calldata message)
         internal
     {
+        // Phase-5 review H3, H4: batch entries are *trade ticks*, not score
+        // writes. Increment `totalAttestedTrades` on the canonical anchor;
+        // leave the engine-managed score/PnL fields and lastUpdateBlock
+        // untouched. The single-update path (`sendReputationUpdate`) keeps
+        // calling `postCrossChainUpdate` for engine-signed payloads.
         CrossChainCodec.ReputationBatchEntry[] memory batch =
             CrossChainCodec.decodeReputationBatch(message);
         for (uint256 i = 0; i < batch.length; i++) {
-            _applyReputation(
-                origin.srcEid,
-                batch[i].strategy,
-                batch[i].seq,
-                IReputationAnchor.ActorType.STRATEGY,
-                batch[i].data,
-                guid
-            );
+            _applyTradeTick(origin.srcEid, batch[i].strategy, batch[i].seq, guid);
         }
+    }
+
+    function _applyTradeTick(uint32 srcEid, address actor, uint64 seq, bytes32 guid) internal {
+        uint64 last = lastSeqIn[srcEid][actor];
+        if (seq <= last) revert ReplaySeq(srcEid, actor, seq, last);
+        lastSeqIn[srcEid][actor] = seq;
+
+        if (address(reputationAnchor) != address(0)) {
+            reputationAnchor.postCrossChainTradeTick(actor);
+        }
+
+        emit ReputationMessageReceived(srcEid, actor, IReputationAnchor.ActorType.STRATEGY, guid);
     }
 
     function _applyReputation(

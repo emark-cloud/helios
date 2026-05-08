@@ -261,4 +261,80 @@ contract ReputationAnchorTest is Test {
         assertEq(anchor.reputationOf(stratVault).currentScore, 900);
         assertEq(sr.strategyOf(stratVault).currentReputation, 900);
     }
+
+    // ── postCrossChainTradeTick (Phase-5 review H3, H4) ─────────────
+
+    function test_TradeTick_OnlyOApp() public {
+        vm.prank(makeAddr("notOApp"));
+        vm.expectRevert(IReputationAnchor.NotOApp.selector);
+        anchor.postCrossChainTradeTick(stratVault);
+    }
+
+    function test_TradeTick_IncrementsCounterOnly() public {
+        // Seed a real engine score on Kite so we can prove the tick does
+        // not clobber it (H3 canary).
+        IReputationAnchor.ReputationData memory seed =
+            _data(750, block.number, IReputationAnchor.ActorType.STRATEGY);
+        anchor.postReputationUpdate(
+            stratVault,
+            IReputationAnchor.ActorType.STRATEGY,
+            seed,
+            _sign(stratVault, IReputationAnchor.ActorType.STRATEGY, seed)
+        );
+        IReputationAnchor.ReputationData memory before = anchor.reputationOf(stratVault);
+
+        vm.prank(oApp);
+        anchor.postCrossChainTradeTick(stratVault);
+
+        IReputationAnchor.ReputationData memory aft = anchor.reputationOf(stratVault);
+        assertEq(aft.currentScore, before.currentScore, "score must not change");
+        assertEq(aft.totalRealizedPnL, before.totalRealizedPnL, "pnl must not change");
+        assertEq(aft.maxDrawdownBps, before.maxDrawdownBps, "drawdown must not change");
+        assertEq(
+            aft.proofValidityRateBps,
+            before.proofValidityRateBps,
+            "validity rate must not change"
+        );
+        assertEq(aft.lastUpdateBlock, before.lastUpdateBlock, "lastUpdateBlock must not change");
+        assertEq(aft.totalAttestedTrades, before.totalAttestedTrades + 1, "trade count +1");
+        // Registry score also must not be touched — no delta propagated.
+        assertEq(sr.strategyOf(stratVault).currentReputation, 750, "registry score untouched");
+    }
+
+    function test_TradeTick_DoesNotDoSEngineUpdates() public {
+        // H4 canary: a tick must not freeze the engine's freshness check.
+        // Pre-fix, the OApp wrote `lastUpdateBlock = remote block.number`
+        // which (e.g. an Arb sequencer block ~190M) prevented every
+        // subsequent engine `postReputationUpdate` from passing
+        // `data.lastUpdateBlock > prev.lastUpdateBlock`.
+        IReputationAnchor.ReputationData memory seed =
+            _data(500, block.number, IReputationAnchor.ActorType.STRATEGY);
+        anchor.postReputationUpdate(
+            stratVault,
+            IReputationAnchor.ActorType.STRATEGY,
+            seed,
+            _sign(stratVault, IReputationAnchor.ActorType.STRATEGY, seed)
+        );
+
+        vm.prank(oApp);
+        anchor.postCrossChainTradeTick(stratVault);
+
+        // Roll forward and let the engine post its next score normally.
+        vm.roll(block.number + 1);
+        IReputationAnchor.ReputationData memory next =
+            _data(620, block.number, IReputationAnchor.ActorType.STRATEGY);
+        bytes memory sig = _sign(stratVault, IReputationAnchor.ActorType.STRATEGY, next);
+        anchor.postReputationUpdate(stratVault, IReputationAnchor.ActorType.STRATEGY, next, sig);
+        assertEq(anchor.reputationOf(stratVault).currentScore, 620, "engine update must apply");
+    }
+
+    function test_TradeTick_FromZeroState_DoesNotCrashRegistry() public {
+        // No prior state for stratVault. Tick must succeed and not push a
+        // registry delta (no propagation), so the registry's
+        // `currentReputation` stays at 0.
+        vm.prank(oApp);
+        anchor.postCrossChainTradeTick(stratVault);
+        assertEq(anchor.reputationOf(stratVault).totalAttestedTrades, 1);
+        assertEq(sr.strategyOf(stratVault).currentReputation, 0, "no registry delta");
+    }
 }

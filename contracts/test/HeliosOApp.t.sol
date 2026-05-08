@@ -264,7 +264,7 @@ contract HeliosOAppTest is Test {
         baseOApp.flushAttestationsFor(strategy, KITE_EID, "");
         baseEndpoint.deliverTo(address(kiteOApp), _addrToBytes32(address(baseOApp)));
 
-        assertEq(anchor.callCount(), 2, "batch must produce 2 anchor calls");
+        assertEq(anchor.tickCallCount(), 2, "batch must produce 2 trade ticks");
         assertEq(kiteOApp.lastSeqIn(BASE_EID, strategy), 2, "batch seq advance");
     }
 
@@ -322,7 +322,11 @@ contract HeliosOAppTest is Test {
         assertEq(baseOApp.pendingCount(strategy), 0, "queue-not-cleared");
 
         baseEndpoint.deliverTo(address(kiteOApp), _addrToBytes32(address(baseOApp)));
-        assertEq(anchor.callCount(), 2, "expect-two-anchor-calls");
+        // H3/H4: batch entries route to postCrossChainTradeTick, NOT
+        // postCrossChainUpdate. The score-bearing path stays untouched.
+        assertEq(anchor.callCount(), 0, "batch must not call postCrossChainUpdate");
+        assertEq(anchor.tickCallCount(), 2, "expect-two-tick-calls");
+        assertEq(anchor.trackedTradeTicks(strategy), 2, "trade-tick-counter");
         assertEq(kiteOApp.lastSeqIn(BASE_EID, strategy), 2, "seq-not-advanced");
     }
 

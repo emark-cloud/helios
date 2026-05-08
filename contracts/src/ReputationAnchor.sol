@@ -132,6 +132,24 @@ contract ReputationAnchor is IReputationAnchor, Ownable, Pausable, EIP712 {
         emit CrossChainReputationPosted(actor, actorType, 0, data.currentScore);
     }
 
+    /// @notice Counter-only cross-chain tick. Increments
+    ///         `totalAttestedTrades` for `actor` and emits a tick event;
+    ///         leaves `currentScore`, `totalRealizedPnL`, `maxDrawdownBps`,
+    ///         `proofValidityRateBps`, and `lastUpdateBlock` untouched. The
+    ///         off-chain engine remains the authoritative source of scores;
+    ///         no registry delta is propagated.
+    ///
+    ///         Phase-5 review H3 (avoid score-zeroing on remote trades) and
+    ///         H4 (avoid `lastUpdateBlock` collisions across chain block
+    ///         numbers that would freeze the engine via StaleUpdate).
+    function postCrossChainTradeTick(address actor) external whenNotPaused {
+        if (msg.sender != oApp) revert NotOApp();
+        ReputationData storage rep = _reputations[actor];
+        unchecked { rep.totalAttestedTrades += 1; }
+        lastUpdateBySource[oApp] = uint64(block.timestamp);
+        emit CrossChainTradeTick(actor, rep.totalAttestedTrades);
+    }
+
     // ── Views ───────────────────────────────────────────────────────
 
     function reputationOf(address actor) external view returns (ReputationData memory) {
