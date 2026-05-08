@@ -263,7 +263,8 @@ contract DeployPhase5Execution is Script {
     }
 
     function _buildJsonAddresses(Phase5Addresses memory a) internal view returns (string memory) {
-        return string.concat(_jsonCoreAddresses(a), _jsonVerifierAddresses(a), _jsonTailAddresses(a));
+        return
+            string.concat(_jsonCoreAddresses(a), _jsonVerifierAddresses(a), _jsonTailAddresses(a));
     }
 
     function _jsonCoreAddresses(Phase5Addresses memory a) internal pure returns (string memory) {
