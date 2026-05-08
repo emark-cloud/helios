@@ -16,7 +16,7 @@ import {
   ParamsRotationCancellation,
   ParamsRotationProposal,
 } from "../generated/schema";
-import { getOrCreateStrategy, PHASE1_CHAIN_ID } from "./helpers";
+import { currentChainId, getOrCreateStrategy } from "./helpers";
 
 export function handleStrategyRegistered(event: StrategyRegistered): void {
   const id = event.params.strategyId as Bytes;
@@ -28,9 +28,13 @@ export function handleStrategyRegistered(event: StrategyRegistered): void {
   strategy.stakeAmount = event.params.stakeAmount;
   strategy.active = true;
   strategy.registeredAt = event.block.timestamp;
-  // chainId is set when StrategyVault first emits NAVReported / TradeAttested for a
-  // multi-chain strategy. Phase 1 is single-chain so default to Kite testnet.
-  strategy.chainId = PHASE1_CHAIN_ID;
+  // The strategy's *registry-of-record* chain id — i.e. where the
+  // canonical StrategyRegistry row lives. In v1 this is always Kite
+  // (registry only deploys on Kite); on Phase-5 execution chains the
+  // strategy's local trades populate `executingChainIds` instead. Read
+  // from the active datasource so the value tracks the manifest if a
+  // future phase ships a per-chain registry.
+  strategy.chainId = currentChainId();
   strategy.save();
 }
 
