@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # WS3 — Phase 1 e2e scenario (Track A canonical, Track B opt-in).
+# WS8 — Phase 5 multi-chain mode (`./scripts/e2e-scenario.sh phase5`).
 #
 # Track A (default): boots a local anvil-kite, runs DeployPhase1, drives
 # the full vertical slice via scripts/e2e_scenario.py, asserts the
@@ -9,16 +10,32 @@
 # broadcasts the deploy + scenario to Kite testnet. Skips local anvil
 # bootstrap; populates contracts/deployments/kite-testnet.json.
 #
+# Phase 5 mode: `./scripts/e2e-scenario.sh phase5` runs the Track A
+# scenario plus a synthetic three-chain check that exercises the
+# strategy-SDK chain dispatcher (see WS4) with venue=MOCK by default.
+# Set `HELIOS_VENUE_BASE=REAL` / `HELIOS_VENUE_ARBITRUM=REAL` to flip
+# the demo runbook into real-venue mode after `preflight-phase5.sh`
+# clears the chain. The Phase-5 chain-dispatch correctness test is
+# the canonical assertion for `v0.5.0`; the live LZ round-trip is
+# covered by the demo runbook, not CI.
+#
 # Env knobs:
 #   RPC_URL            default http://127.0.0.1:8545
 #   DEPLOYER_PK        default = anvil[0]  (omit on Track A)
 #   OUT_LABEL          default = anvil-kite (set to kite-testnet on Track B)
 #   SKIP_ANVIL_BOOT    set to skip the local anvil spin-up (Track B / CI compose)
+#   HELIOS_VENUE_BASE / HELIOS_VENUE_ARBITRUM / HELIOS_VENUE_KITE
+#                      `REAL` or `MOCK` per chain. Default MOCK so CI is
+#                      not hostage to live testnet liquidity. Demo runs
+#                      flip these via preflight output.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+MODE="${1:-default}"
+shift || true
 
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 DEPLOYER_PK="${DEPLOYER_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
@@ -77,3 +94,20 @@ RPC_URL="$RPC_URL" DEPLOYMENTS_FILE="$DEPLOYMENTS_FILE" \
   --rpc-url "$RPC_URL" --deployments "$DEPLOYMENTS_FILE"
 
 echo "[e2e] WS3 acceptance: GREEN"
+
+# ── 4. Phase 5 multi-chain dispatch check ─────────────────────────
+# CI gate for `v0.5.0`. Runs the chain-dispatcher unit/integration
+# test that exercises the Phase-5 strategy SDK against all three
+# chain targets (mean-reversion on Kite, momentum on Base,
+# yield-rotation on Arb). venue=MOCK by default so the test isn't
+# coupled to testnet liquidity; the demo runbook flips the venue
+# flags after `preflight-phase5.sh` clears each chain.
+if [[ "$MODE" == "phase5" ]]; then
+  echo "[e2e] phase5 — running cross-chain dispatcher acceptance test"
+  HELIOS_VENUE_BASE="${HELIOS_VENUE_BASE:-MOCK}" \
+  HELIOS_VENUE_ARBITRUM="${HELIOS_VENUE_ARBITRUM:-MOCK}" \
+  HELIOS_VENUE_KITE="${HELIOS_VENUE_KITE:-MOCK}" \
+    uv run --package helios-sentinel \
+      pytest -q services/sentinel/tests/test_phase5_xchain.py
+  echo "[e2e] phase5 acceptance: GREEN"
+fi
