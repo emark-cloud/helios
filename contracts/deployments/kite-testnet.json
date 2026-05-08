@@ -1,8 +1,8 @@
 {
   "chainId": 2368,
   "deployedAt": 1777277331,
-  "phase": "2",
-  "phase2BVariant3DeployedAt": 1777985446,
+  "phase": "3",
+  "phase3BaseTrioRedeployedAt": 1778239548,
   "addresses": {
     "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
     "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
@@ -12,9 +12,6 @@
     "tradeAttestationVerifier": "0x743e1bd7e9795e78b10965eaeaa93bf215476c96",
     "userVault": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
     "allocatorVault": "0xf3e4452fe17edbfa6833022b9c186aa14b98955d",
-    "strategyVaultMomentum": "0x818a782f040f09389e7c34b1e2e33188d473a950",
-    "strategyVaultMeanReversion": "0x6c1f9466db7bc2364b0bac051e73421d5b75354b",
-    "strategyVaultYieldRotation": "0xbfbf9fa82b5df3b080be27f64d650101ee69c36f",
     "momentumVerifier": "0x15a58a0e9cc962f9ab87514ea96adfa700c399bc",
     "meanReversionVerifier": "0x097f440aecdd999ad6f33229a6cc24ef27e85267",
     "yieldRotationVerifier": "0x065b22534b54a719de3a47bce8082b9383421764",
@@ -29,6 +26,9 @@
     "strategyVaultYieldRotationVariant2": "0x5605b2e1883428680266fd25cb7429f2001c0c17",
     "strategyVaultMomentumVariant3": "0x4e19e5eec25fc15fbc30a9446d283f4ebed6462c",
     "strategyVaultMeanReversionVariant3": "0x50c1dcc21e571c106eee21f42f22fb6ea0d4a708",
-    "strategyVaultYieldRotationVariant3": "0x3863f44fe693764562c0d239e05c5f194544b0b4"
+    "strategyVaultYieldRotationVariant3": "0x3863f44fe693764562c0d239e05c5f194544b0b4",
+    "strategyVaultMomentum": "0xf11d55a3057a3da51c9ed63bdc6ae8f666fa426a",
+    "strategyVaultMeanReversion": "0xe85fc70edc752d3ff283f3fffa17598d32b5fc07",
+    "strategyVaultYieldRotation": "0xb7496be712ed62fb02c6b9665f74ee6ff136d0d7"
   }
 }

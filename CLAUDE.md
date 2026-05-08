@@ -134,8 +134,8 @@ Secrets never go in the repo. Use `.env` for local, Vercel/VPS env for prod.
 Deployed contract addresses per chain live in `contracts/deployments/*.json`, auto-written by deploy scripts. Frontend and services read from these files — no hardcoded addresses elsewhere. Current snapshot:
 
 - **Kite testnet (2368)** — Phase 2 deployed; full set in `contracts/deployments/kite-testnet.json`. Pinned references:
-  - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f`
-  - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d`
+  - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f` (impl `0x245a96310b228016d79f6b93d934eb26c1FcE209`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + setMeta tightening guard from HIGH #5/#10)
+  - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (impl `0x770E3078a285651c11863Ec4D8Be87D0aDE29Cb7`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + `userTotalDeployed` view + capped `_unwindAndCredit` from HIGH #5/#8/#10)
   - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d`
   - `allocatorRegistry` `0xbfeba025ca32324a87c620a5c7c110c7666f417c`
   - `tradeAttestationVerifier` `0x743e1bd7e9795e78b10965eaeaa93bf215476c96` (TAV; class map rotated 2026-05-07 to the Phase-3 review HIGH #11/#12/#13 verifier adapters below)
@@ -147,7 +147,11 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
   - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
   - `oraclePriceAnchor` `0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4` (Phase-3 redeploy 2026-05-07; supersedes `0x90e7a456…` which lacked `freshness()` / `unrevokeRoot()` from HIGH #6/#9)
   - `oracleYieldAnchor` `0x345cd375ec42476eb95c5903fb3abb27f9400f9d` (Phase-3 redeploy 2026-05-07; supersedes `0x1e458d57…`)
-  - Strategy vaults per class — Variant2 + Variant3 (six proxies) on the Phase-3 impl `0x4510eA78880B7095f1f68F4E8029B776f3c8beA1` (constructor immutables → new oracle anchors). The three **base** proxies (`strategyVaultMomentum` / `strategyVaultMeanReversion` / `strategyVaultYieldRotation`) remain on their pre-Phase-3 impls because they were deployed before commit `a4b844a` added `bytes32 paramsHash` mid-struct on 2026-04-28; their `_manifest` is one slot shorter, so the new impl's storage layout doesn't fit. They keep their original isKnownRoot freshness behavior (no HIGH #6/#8/#10 fixes). E2E + judge demos drive Variant2/Variant3 only — do not target the base trio for new flows. Phase 6 mainnet does a fresh deploy and won't carry the layout drift.
+  - Strategy vaults per class — all nine proxies now on Phase-3 impls (Variant2 + Variant3 share `0x4510eA78880B7095f1f68F4E8029B776f3c8beA1`; the three **base** proxies were fresh-deployed 2026-05-08 with new addresses on the Phase-3 impl after the layout-drift carve-out was retired):
+    - `strategyVaultMomentum` `0xf11D55a3057A3Da51c9ED63BdC6aE8F666Fa426A` (paramsHash `keccak256("helios.mom_v1.base.phase3-redeploy")`; supersedes legacy `0x818a782f…` which stays registered + active in StrategyRegistry but is unreferenced from JSON)
+    - `strategyVaultMeanReversion` `0xE85FC70edC752D3ff283F3FFFA17598d32b5FC07` (supersedes legacy `0x6c1f9466…`)
+    - `strategyVaultYieldRotation` `0xb7496bE712Ed62fB02c6b9665F74eE6ff136d0d7` (supersedes legacy `0xbfbf9fa8…`)
+    All bake the new oracle anchors as constructor immutables. Phase 6 mainnet does a fresh deploy from a clean slate.
 - **Kite mainnet**: *(Phase 6 — judge demo deployment per hybrid strategy in `docs/deployment-strategy.md`)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
