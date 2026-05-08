@@ -28,8 +28,10 @@ COPY ${SERVICE_DIR} ./${SERVICE_DIR}
 # Make the entrypoint discoverable to the runtime CMD without baking the path.
 ENV SERVICE_DIR=${SERVICE_DIR}
 
-RUN useradd --system --uid 1000 --create-home --shell /usr/sbin/nologin helios
-USER helios
+# `node:bookworm-slim` already ships a `node` user at UID 1000, so we
+# don't claim that UID. Use the existing `node` user — it has the same
+# unprivileged-runtime semantics as a custom `helios` user would.
+USER node
 
 EXPOSE 8000-8099
 CMD ["sh", "-c", "node ${SERVICE_DIR}/src/index.js"]
