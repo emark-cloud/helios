@@ -125,9 +125,7 @@ def _resolve_endpoints(source: str) -> tuple[str, str, str, str]:
     )
 
 
-def _wait_for_sent(
-    w3: Web3, contract, deadline: float
-) -> tuple[float, str] | None:
+def _wait_for_sent(w3: Web3, contract, deadline: float) -> tuple[float, str] | None:
     src_event = contract.events.ReputationMessageSent
     last_block = w3.eth.block_number
     while time.time() < deadline:
@@ -143,10 +141,7 @@ def _wait_for_sent(
             for log in logs:
                 gb = log["args"]["guid"]
                 guid = _hex(gb) if isinstance(gb, bytes) else gb
-                print(
-                    f"[src] ReputationMessageSent guid={guid} "
-                    f"block={log['blockNumber']}"
-                )
+                print(f"[src] ReputationMessageSent guid={guid} block={log['blockNumber']}")
                 return (time.time(), guid)
             last_block = head
         time.sleep(1.5)
@@ -160,16 +155,17 @@ def main() -> int:
     src_w3 = Web3(Web3.HTTPProvider(src_rpc))
     dst_w3 = Web3(Web3.HTTPProvider(dst_rpc))
     src_contract = src_w3.eth.contract(
-        address=Web3.to_checksum_address(src_oapp), abi=_OAPP_EVENT_ABI,
+        address=Web3.to_checksum_address(src_oapp),
+        abi=_OAPP_EVENT_ABI,
     )
     dst_contract = dst_w3.eth.contract(
-        address=Web3.to_checksum_address(dst_oapp), abi=_OAPP_EVENT_ABI,
+        address=Web3.to_checksum_address(dst_oapp),
+        abi=_OAPP_EVENT_ABI,
     )
 
     deadline = time.time() + args.timeout
     print(
-        f"[harness] listening on {args.source} for ReputationMessageSent "
-        f"(timeout={args.timeout}s)",
+        f"[harness] listening on {args.source} for ReputationMessageSent (timeout={args.timeout}s)",
     )
 
     sent = _wait_for_sent(src_w3, src_contract, deadline)
@@ -192,8 +188,7 @@ def main() -> int:
     )
     if pair is None:
         print(
-            "[harness] FAIL: ReputationMessageReceived not observed on Kite "
-            "before timeout",
+            "[harness] FAIL: ReputationMessageReceived not observed on Kite before timeout",
             file=sys.stderr,
         )
         return 1
@@ -203,8 +198,7 @@ def main() -> int:
     print(f"[harness] round-trip: {elapsed:.1f}s (block={log['blockNumber']})")
     if elapsed > args.max_seconds:
         print(
-            f"[harness] FAIL: round-trip {elapsed:.1f}s exceeds budget "
-            f"{args.max_seconds}s",
+            f"[harness] FAIL: round-trip {elapsed:.1f}s exceeds budget {args.max_seconds}s",
             file=sys.stderr,
         )
         return 1

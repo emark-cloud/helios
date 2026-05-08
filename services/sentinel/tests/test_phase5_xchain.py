@@ -116,8 +116,13 @@ def _meta(
     )
 
 
-def _build(rows: list[StrategyDirectoryRow]) -> tuple[
-    AllocatorLoop, AllocatorStore, AllocatorOnChain, _MutableGoldsky,
+def _build(
+    rows: list[StrategyDirectoryRow],
+) -> tuple[
+    AllocatorLoop,
+    AllocatorStore,
+    AllocatorOnChain,
+    _MutableGoldsky,
 ]:
     store = AllocatorStore()
     allocator = SentinelAllocator()
@@ -193,9 +198,7 @@ async def test_cross_chain_rep_tick_shifts_allocation() -> None:
     # capital is 50%, so we gate at 53% to keep a safe margin.
     base_total = sum(treated.values())
     base_share_pct = treated[s_base_b.strategy_id] / base_total * 100
-    control_share_pct = (
-        control[s_base_a.strategy_id] / sum(control.values()) * 100
-    )
+    control_share_pct = control[s_base_a.strategy_id] / sum(control.values()) * 100
     shift_pp = base_share_pct - control_share_pct
     assert shift_pp >= 3.0, (
         f"cross-chain rep tick shifted base share by only {shift_pp:.2f}pp; "
@@ -217,17 +220,13 @@ async def test_cross_chain_suppression_leaves_allocation_flat() -> None:
     user.delegated_capital_usd = 10_000
 
     await loop.tick_once(now=1_000)
-    pre_capital = {
-        sid: state.capital_deployed_usd for sid, state in user.allocations.items()
-    }
+    pre_capital = {sid: state.capital_deployed_usd for sid, state in user.allocations.items()}
 
     onchain.pending.clear()
     # No score mutation — exactly the suppression case. Advance past
     # the rebalance cadence so the loop runs the second pass fully.
     await loop.tick_once(now=1_000 + 1_000)
-    post_capital = {
-        sid: state.capital_deployed_usd for sid, state in user.allocations.items()
-    }
+    post_capital = {sid: state.capital_deployed_usd for sid, state in user.allocations.items()}
 
     # Capital snapshot stays within 1% of itself — score-weighted
     # math has integer rounding noise but should not produce a real
@@ -286,9 +285,7 @@ async def test_three_chain_class_dispatch_keys_on_chain_id() -> None:
     # by max_strategies_count + per-strategy share), but it MUST be
     # capable of selecting from at least 2 distinct chains — anything
     # less suggests a hidden Kite-only filter still in the path.
-    assert len(seen_chains) >= 2, (
-        f"chain dispatch missing: only allocated to {seen_chains}"
-    )
+    assert len(seen_chains) >= 2, f"chain dispatch missing: only allocated to {seen_chains}"
 
 
 @pytest.mark.asyncio
