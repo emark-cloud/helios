@@ -26,6 +26,8 @@ from eth_account.messages import encode_typed_data
 from oracle.anchor import (
     AnchorPoster,
     CommitPayload,
+    CommitRecord,
+    MultiChainAnchorPoster,
     PriceAnchorScheduler,
     YieldAnchorScheduler,
     sign_commit,
@@ -341,3 +343,87 @@ def test_yield_scheduler_emits_for_market() -> None:
             rec = r
     assert rec is not None and rec.kind == "yield"
     assert rec.window_start == 1000 and rec.window_end == 3000
+
+
+def test_multichain_post_dry_run_records_canonical_and_mirrors() -> None:
+    canonical = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=2368
+    )
+    base = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=84_532
+    )
+    arb = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=421_614
+    )
+    multi = MultiChainAnchorPoster(canonical=canonical, mirrors=[base, arb])
+
+    rec = multi.post(_payload())
+    assert rec.kind == "price"
+    # Canonical record exposed via `pending`; mirrors tracked separately.
+    assert len(canonical.pending) == 1
+    assert len(multi.mirror_records) == 2  # one per mirror
+    assert all(r.submitted is False for r in multi.mirror_records)
+
+
+async def test_multichain_post_async_runs_chains_in_parallel() -> None:
+    canonical = AnchorPoster(
+        kind="price", rpc_url="http://k", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        chain_id=2368,
+    )
+    base = AnchorPoster(
+        kind="price", rpc_url="http://b", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        chain_id=84_532,
+    )
+    for p in (canonical, base):
+        p._ensure_live = lambda: None  # type: ignore[assignment]
+        p._read_onchain_nonce = lambda: 0  # type: ignore[assignment, method-assign]
+
+    def slow_submit(_signed):  # type: ignore[no-untyped-def]
+        time.sleep(0.3)
+        return ("0x" + "ab" * 32, 1)
+
+    canonical._submit = slow_submit  # type: ignore[assignment]
+    base._submit = slow_submit  # type: ignore[assignment]
+
+    multi = MultiChainAnchorPoster(canonical=canonical, mirrors=[base])
+
+    started = time.monotonic()
+    rec = await multi.post_async(_payload())
+    elapsed = time.monotonic() - started
+
+    assert rec.submitted is True
+    # Both submits sleep 0.3s — sequential would be ~0.6s; gather bounds it
+    # under ~0.5s with comfortable headroom for thread-pool scheduling.
+    assert elapsed < 0.5, f"chains ran sequentially (elapsed={elapsed:.3f}s)"
+    assert len(multi.mirror_records) == 1
+    assert multi.mirror_records[0].submitted is True
+
+
+def test_multichain_post_isolates_mirror_failure_from_canonical() -> None:
+    canonical = AnchorPoster(
+        kind="price", rpc_url="http://k", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        chain_id=2368,
+    )
+    bad_mirror = AnchorPoster(
+        kind="price", rpc_url="http://b", signer_pk=_TEST_PK, anchor_address=_ANCHOR_ADDR,
+        chain_id=84_532,
+    )
+    canonical._ensure_live = lambda: None  # type: ignore[assignment]
+    canonical._read_onchain_nonce = lambda: 0  # type: ignore[assignment, method-assign]
+    canonical._submit = lambda _s: ("0x" + "ee" * 32, 1)  # type: ignore[assignment]
+
+    bad_mirror._ensure_live = lambda: None  # type: ignore[assignment]
+    bad_mirror._read_onchain_nonce = lambda: 0  # type: ignore[assignment, method-assign]
+
+    def boom(_s):  # type: ignore[no-untyped-def]
+        raise RuntimeError("base sepolia rpc dead")
+
+    bad_mirror._submit = boom  # type: ignore[assignment]
+
+    multi = MultiChainAnchorPoster(canonical=canonical, mirrors=[bad_mirror])
+    rec = multi.post(_payload())
+    assert rec.submitted is True  # canonical succeeded
+    assert len(multi.mirror_records) == 1
+    mirror_rec: CommitRecord = multi.mirror_records[0]
+    assert mirror_rec.submitted is False
+    assert "base sepolia rpc dead" in mirror_rec.error
