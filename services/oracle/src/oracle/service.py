@@ -74,7 +74,9 @@ class Settings(BaseServiceSettings):
     # chain. The same `ORACLE_SIGNER_PK` signs all chains; only the
     # EIP-712 domain (chainId + verifyingContract) differs per mirror.
     base_sepolia_rpc_url: str = Field(default="", validation_alias="ORACLE_BASE_SEPOLIA_RPC")
-    base_sepolia_chain_id: int = Field(default=84_532, validation_alias="ORACLE_BASE_SEPOLIA_CHAIN_ID")
+    base_sepolia_chain_id: int = Field(
+        default=84_532, validation_alias="ORACLE_BASE_SEPOLIA_CHAIN_ID"
+    )
     base_sepolia_price_anchor: str = Field(
         default="", validation_alias="ORACLE_BASE_SEPOLIA_PRICE_ANCHOR"
     )
@@ -115,7 +117,7 @@ def _parse_assets(raw: str) -> list[str]:
     return [a.strip() for a in raw.split(",") if a.strip()]
 
 
-def _build_mirror_posters(cfg: "Settings", kind: str) -> list[AnchorPoster]:
+def _build_mirror_posters(cfg: Settings, kind: str) -> list[AnchorPoster]:
     """Build the optional per-chain mirror posters. A chain is enabled
     when its RPC URL *and* the per-kind anchor address are both set;
     half-configured chains are skipped silently so a partial deploy

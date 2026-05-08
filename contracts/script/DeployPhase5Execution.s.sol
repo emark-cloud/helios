@@ -237,18 +237,10 @@ contract DeployPhase5Execution is Script {
     }
 
     function _buildJson(Phase5Addresses memory a) internal view returns (string memory) {
-        string memory venueRealKey;
-        string memory venueMockKey;
-        if (block.chainid == 84_532) {
-            venueRealKey = "swapRouter";
-            venueMockKey = "mockSwapRouter";
-        } else if (block.chainid == 421_614) {
-            venueRealKey = "aavePool";
-            venueMockKey = "mockYieldVault";
-        } else {
-            venueRealKey = "venueReal";
-            venueMockKey = "venueMock";
-        }
+        return string.concat(_buildJsonHeader(a), _buildJsonAddresses(a), "  }\n}\n");
+    }
+
+    function _buildJsonHeader(Phase5Addresses memory a) internal view returns (string memory) {
         return string.concat(
             "{\n",
             '  "chainId": ',
@@ -266,23 +258,56 @@ contract DeployPhase5Execution is Script {
             ",\n",
             '  "lzLocalEid": ',
             vm.toString(uint256(a.lzLocalEid)),
-            ',\n  "addresses": {\n',
+            ',\n  "addresses": {\n'
+        );
+    }
+
+    function _buildJsonAddresses(Phase5Addresses memory a) internal view returns (string memory) {
+        return string.concat(_jsonCoreAddresses(a), _jsonVerifierAddresses(a), _jsonTailAddresses(a));
+    }
+
+    function _jsonCoreAddresses(Phase5Addresses memory a) internal pure returns (string memory) {
+        return string.concat(
             _kv("usdc", a.mockUsdc),
             _kv("heliosOApp", a.heliosOApp),
-            _kv("tradeAttestationVerifier", a.tradeAttestationVerifier),
+            _kv("tradeAttestationVerifier", a.tradeAttestationVerifier)
+        );
+    }
+
+    function _jsonVerifierAddresses(Phase5Addresses memory a)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
             _kv("momentumVerifier", a.momentumVerifier),
             _kv("momentumVerifierAdapter", a.momentumVerifierAdapter),
             _kv("meanReversionVerifier", a.meanReversionVerifier),
             _kv("meanReversionVerifierAdapter", a.meanReversionVerifierAdapter),
             _kv("yieldRotationVerifier", a.yieldRotationVerifier),
-            _kv("yieldRotationVerifierAdapter", a.yieldRotationVerifierAdapter),
+            _kv("yieldRotationVerifierAdapter", a.yieldRotationVerifierAdapter)
+        );
+    }
+
+    function _jsonTailAddresses(Phase5Addresses memory a) internal view returns (string memory) {
+        (string memory venueRealKey, string memory venueMockKey) = _venueKeys();
+        return string.concat(
             _kv("oraclePriceAnchor", a.oraclePriceAnchor),
             _kv("oracleYieldAnchor", a.oracleYieldAnchor),
             _kv("strategyVaultImpl", a.strategyVaultImpl),
             _kv(venueRealKey, a.venueReal),
-            _kvLast(venueMockKey, a.venueMock),
-            "  }\n}\n"
+            _kvLast(venueMockKey, a.venueMock)
         );
+    }
+
+    function _venueKeys() internal view returns (string memory realKey, string memory mockKey) {
+        if (block.chainid == 84_532) {
+            return ("swapRouter", "mockSwapRouter");
+        } else if (block.chainid == 421_614) {
+            return ("aavePool", "mockYieldVault");
+        } else {
+            return ("venueReal", "venueMock");
+        }
     }
 
     function _kv(string memory k, address v) internal pure returns (string memory) {
