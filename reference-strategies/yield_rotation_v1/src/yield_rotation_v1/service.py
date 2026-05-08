@@ -46,6 +46,12 @@ class Settings(BaseServiceSettings):
     declared_class_field: int = Field(default=0, validation_alias="YIELD_ROT_DECLARED_CLASS_FIELD")
     market_ids: str = Field(default="", validation_alias="YIELD_ROT_MARKET_IDS")
     registry_ids: str = Field(default="", validation_alias="YIELD_ROT_REGISTRY_IDS")
+    # Phase-5: Arbitrum-Sepolia deploys set venue_kind=aave_v3 and
+    # lending_pool_address to the chosen pool (canonical Aave V3 or
+    # the SDK's MockYieldVault fallback). Default keeps Phase-2 Kite
+    # behavior (proof-only, no on-chain trades).
+    venue_kind: str = Field(default="passive", validation_alias="YIELD_ROT_VENUE_KIND")
+    lending_pool_address: str = Field(default="", validation_alias="YIELD_ROT_LENDING_POOL_ADDRESS")
     signal_threshold_bps: int = 80
     bridging_cost_bps: int = 30
     yield_interval_sec: int = 300
@@ -68,6 +74,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         operator_pk=cfg.operator_pk,
         strategy_vault_address=cfg.strategy_vault_address,
         chain_id=cfg.kite_chain_id,
+        lending_pool_address=cfg.lending_pool_address,
+        venue_kind=cfg.venue_kind,
     )
 
     subs = _parse_subscriptions(cfg.market_ids, cfg.registry_ids)

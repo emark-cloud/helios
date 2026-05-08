@@ -36,6 +36,11 @@ class Settings(BaseServiceSettings):
     nav_oracle_pk: str = Field(default="", validation_alias="NAV_ORACLE_PK")
     allocator_address: str = Field(default="0x" + "0" * 40, validation_alias="ALLOCATOR_ADDRESS")
     declared_class_field: int = Field(default=0, validation_alias="MOMENTUM_DECLARED_CLASS_FIELD")
+    # Phase-5: when running on Base Sepolia, set venue_kind=uniswap_v3 +
+    # pool_fee_bps to the chosen pool's fee tier (e.g. 500 for
+    # ETH/USDC 0.05%). Defaults preserve Kite/Algebra behavior.
+    venue_kind: str = Field(default="algebra", validation_alias="MOMENTUM_VENUE_KIND")
+    pool_fee_bps: int = Field(default=500, validation_alias="MOMENTUM_POOL_FEE_BPS")
     bar_interval_sec: int = 60
     nav_interval_sec: int = 300
     signal_threshold: float = 0.015
@@ -55,6 +60,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         strategy_vault_address=cfg.strategy_vault_address,
         mock_router_address=cfg.mock_router_address,
         chain_id=cfg.kite_chain_id,
+        venue_kind=cfg.venue_kind,
+        pool_fee_bps=cfg.pool_fee_bps,
     )
     strategy = MomentumStrategy(
         signal_threshold=cfg.signal_threshold, lookback_bars=cfg.lookback_bars

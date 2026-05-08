@@ -28,6 +28,11 @@ from helios_contracts_abi.abis import IStrategyVault_ABI
 from web3 import Web3
 from web3.types import TxReceipt
 
+from yield_rotation_v1.aave_v3 import (
+    build_aave_supply_calldata,
+    build_aave_withdraw_calldata,
+)
+
 _log = structlog.get_logger(__name__)
 
 _RECEIPT_TIMEOUT_SEC = 30
@@ -57,17 +62,35 @@ class ExecutionRecord:
 
 
 class TradeExecutor:
+    """Phase-2 Kite-only behavior is preserved by the empty default for
+    `lending_pool_address`. Phase-5 Arbitrum-Sepolia callers pass the
+    Aave V3 Pool address (or the MockYieldVault address) and the
+    executor packs an Aave-shape supply/withdraw call into the
+    `trades` array instead of leaving it empty.
+
+    `venue_kind` is metadata only on this side — Aave V3 calldata is
+    the same regardless of whether the target address is the real
+    Pool or the mock vault. The deploy JSON keeps both addresses; the
+    SDK's chain-config resolver picks one based on `VenueMode`."""
+
     def __init__(
         self,
         rpc_url: str,
         operator_pk: str,
         strategy_vault_address: str,
         chain_id: int,
+        *,
+        lending_pool_address: str = "",
+        venue_kind: str = "passive",
     ) -> None:
+        if venue_kind not in {"passive", "aave_v3"}:
+            raise ValueError(f"unknown venue_kind: {venue_kind}")
         self._rpc_url = rpc_url
         self._operator_pk = operator_pk
         self._vault = strategy_vault_address
         self._chain_id = chain_id
+        self._lending_pool = lending_pool_address
+        self._venue_kind = venue_kind
         self._live = bool(rpc_url and operator_pk and strategy_vault_address)
         self.pending: list[ExecutionRecord] = []
 
@@ -87,6 +110,14 @@ class TradeExecutor:
     def chain_id(self) -> int:
         return self._chain_id
 
+    @property
+    def lending_pool(self) -> str:
+        return self._lending_pool
+
+    @property
+    def venue_kind(self) -> str:
+        return self._venue_kind
+
     # ── Plan builder ─────────────────────────────────────────
     def build_plan(
         self,
@@ -100,6 +131,44 @@ class TradeExecutor:
             public_inputs=list(public_inputs),
             trades=list(trades) if trades else [],
         )
+
+    # ── Aave V3 calldata builders (Phase-5 Arbitrum-Sepolia) ──
+    def build_aave_rotation_calls(
+        self,
+        *,
+        from_asset: str,
+        to_asset: str,
+        amount: int,
+        on_behalf_of: str,
+    ) -> list[TradeCall]:
+        """Pack a withdraw-then-supply rotation against the configured
+        Aave V3 Pool. The vault is both the recipient of the withdraw
+        and the owner of the new supply, so `on_behalf_of` and the
+        withdraw `to` collapse to the StrategyVault address.
+
+        Returns an empty list when `lending_pool_address` is unset,
+        which matches Phase-2 Kite behavior (the runtime drops the
+        local trades array and only emits the proof). A non-empty
+        result requires `venue_kind == "aave_v3"` so a passive vault
+        can't accidentally emit Aave-shape calldata."""
+        if not self._lending_pool:
+            return []
+        if self._venue_kind != "aave_v3":
+            raise RuntimeError("build_aave_rotation_calls requires venue_kind=aave_v3")
+        withdraw_data = build_aave_withdraw_calldata(
+            asset=from_asset,
+            amount=amount,
+            to=on_behalf_of,
+        )
+        supply_data = build_aave_supply_calldata(
+            asset=to_asset,
+            amount=amount,
+            on_behalf_of=on_behalf_of,
+        )
+        return [
+            TradeCall(target=self._lending_pool, value=0, data=withdraw_data),
+            TradeCall(target=self._lending_pool, value=0, data=supply_data),
+        ]
 
     # ── Submission ────────────────────────────────────────────
     def submit(self, plan: ExecutionPlan, **extras: Any) -> ExecutionRecord:
