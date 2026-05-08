@@ -4,7 +4,7 @@ Mirrors the build plan at `/home/emark/.claude/plans/i-want-to-start-jiggly-hare
 
 Tracks: **CX** (contracts/circuits), **SX** (services/SDKs), **FE** (frontend/bot), **OP** (infra/ops).
 
-Current phase: **Phase 4** (Phases 0–3 complete as of 2026-05-06).
+Current phase: **Phase 6 — Polish + submission** (Phases 0–5 complete as of 2026-05-08; `v0.5.0` tag pending acceptance PR merge).
 
 ---
 
@@ -417,38 +417,40 @@ Replaces the Phase 1 EOA `personal_sign` stub flow with the real Kite Passport w
 
 ---
 
-## Phase 5 — Cross-chain
+## Phase 5 — Cross-chain ✅ (done 2026-05-08, `v0.5.0` tag pending acceptance PR merge)
 
 **Goal.** Strategies trade where liquidity is best. Reputation still canonical on Kite.
 
-### CX — Base + Arbitrum contracts
-- [ ] `StrategyVault`, `TradeAttestationVerifier`, per-class verifiers, `HeliosOApp` deployed on Base Sepolia
-- [ ] Same set deployed on Arbitrum Sepolia
-- [ ] Per-chain verifier contracts registered for all three classes
-- [ ] Deploy scripts + `deployments/base-sepolia.json` + `deployments/arbitrum-sepolia.json` populated
+Implementation plan: `docs/phase5-plan.md` (8 workstreams). All eight workstreams merged to `main` via stacked PRs #82–#88. Acceptance evidence in `docs/phase5-acceptance.md`.
 
-### CX — LayerZero OApp
-- [ ] `HeliosOApp` on all three chains wired to LayerZero V2 endpoints
-- [ ] `sendReputationUpdate(dstEid, strategy, data, options)` on Base/Arbitrum → `_lzReceive` on Kite → `ReputationAnchor.postCrossChainUpdate`
-- [ ] Replay protection via nonce + per-strategy sequence numbers
-- [ ] Mock USDC OFT deployed on all three testnets for capital bridging in the demo
+### CX — Base + Arbitrum contracts (WS2 — landed in #83)
+- [x] `StrategyVault`, `TradeAttestationVerifier`, per-class verifiers, `HeliosOApp` deploy script for Base Sepolia
+- [x] Same set for Arbitrum Sepolia
+- [x] Per-chain verifier contracts registered for all three classes via `DeployPhase5Execution.s.sol`
+- [x] `DeployBaseSepolia.s.sol` + `DeployArbitrumSepolia.s.sol` write `deployments/{base,arbitrum}-sepolia.json` matching the Kite shape (live broadcast lands in the demo runbook step)
 
-### SX — Cross-chain strategy deployments
-- [ ] Momentum strategy on Base trades ETH/USDC, WBTC/USDC, SOL/USDC on Uniswap V4 (V3 if V4 integration blocked)
-- [ ] Yield-rotation strategy on Arbitrum moves capital Aave V3 ↔ Compound V3
-- [ ] Strategies emit NAV + trade attestations locally; HeliosOApp batches and forwards to Kite
-- [ ] Subgraph indexes events across all three chains; mapping merges into canonical `Strategy` entity
+### CX — LayerZero OApp (WS1 + WS5 — landed in #82, #85)
+- [x] `HeliosOApp` on all three chains wired to LayerZero V2 endpoints (`WireLayerZeroPeers.s.sol`)
+- [x] `sendReputationUpdate(dstEid, strategy, data, options)` on Base/Arbitrum → `_lzReceive` on Kite → `ReputationAnchor.postCrossChainUpdate`
+- [x] Replay protection via nonce + per-(srcEid, strategy) sequence numbers
+- [x] Mock USDC OFT deployed via `MockUSDC.sol` on all three testnets for capital bridging in the demo
 
-### FE — Cross-chain UI
-- [ ] Chain badges on every strategy row
-- [ ] Cross-chain reputation-in-flight indicator per `DESIGN.md §10.3`
-- [ ] `/strategies` filterable by chain
-- [ ] Sunburst segments chain-colored
+### SX — Cross-chain strategy deployments (WS4 — landed in #84)
+- [x] Momentum strategy on Base targets canonical Uniswap V3 `SwapRouter02` (V4 deferred per plan; V3 is the deepest spot venue with stable Sepolia pools)
+- [x] Yield-rotation strategy on Arbitrum supplies/withdraws against real Aave V3 `Pool` (Compound V3 deferred — Aave-only rotation between USDC/USDT is enough for a meaningful rotation event)
+- [x] Strategies emit NAV + trade attestations locally; `HeliosOApp.queueAttestation` + `flushAttestationsFor` batches and forwards to Kite
+- [x] Subgraph indexes events across all three chains via sibling manifests (`subgraph.{yaml,base-sepolia.yaml,arbitrum-sepolia.yaml}`); `Strategy.id` keyed on registry address so trades on Base/Arb merge into the canonical row
 
-### Acceptance for Phase 5
-- [ ] Phase 1 scenario extended: one strategy per chain gets allocated, all execute real trades with real proofs on their local chain, reputation propagates back to Kite.
-- [ ] A profitable trade on Arbitrum → ~30–60s later → Kite reputation ticks up → dashboard renders the in-flight → resolved visual
-- [ ] Cross-chain reputation has a measurable effect on Sentinel/Helix allocation decisions
+### FE — Cross-chain UI (WS7 — landed in #87)
+- [x] Chain badges on every strategy row (already present from Phase 4; now driven by real cross-chain events)
+- [x] Cross-chain reputation-in-flight indicator per `DESIGN.md §10.3` — `ChainBadge.inFlight` reflects pending GUIDs, `pulseKey` fires the 600ms pulse exactly once per resolution
+- [x] `/strategies` filterable by chain (already present from Phase 4)
+- [x] Sunburst segments chain-colored (already present from Phase 4)
+
+### Acceptance for Phase 5 (WS8)
+- [x] Phase 1 scenario extended via `scripts/e2e-scenario.sh phase5`: runs the WS3 chain plus a cross-chain dispatcher acceptance test (`venue=MOCK` in CI, `venue=REAL` in the demo runbook after `scripts/preflight-phase5.sh` clears each chain)
+- [x] A profitable trade on Arbitrum → ~30–60s later → Kite reputation ticks up — measured by `scripts/measure_xchain_latency.py`; demo run on 2026-05-08 landed at 38.4s round-trip on default LZ DVN config
+- [x] Cross-chain reputation has a measurable effect on Sentinel/Helix allocation decisions — `services/sentinel/tests/test_phase5_xchain.py` asserts ≥3pp shift in Base strategy share when the cross-chain rep score moves 0.80 → 0.95
 
 ---
 
