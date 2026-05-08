@@ -109,6 +109,15 @@ type Strategy @entity {
   totalRealizedPnL: BigInt!
   totalAttestedTrades: Int!
   maxDrawdownBps: Int!
+  # Phase 5 / WS6 — chain ids on which this strategy has actually
+  # attested trades. Populated lazily by `handleTradeAttested` /
+  # `handleYieldRotationAttested` whenever a TradeAttested fires on
+  # a previously-unseen chain. The frontend `/strategies` filter and
+  # the `ChainBadge` component drive their "executes on Base" /
+  # "executes on Arb" affordances off this list, so the canonical
+  # registry-side `chainId` (always Kite) doesn't get confused with
+  # the venue chains a strategy reaches.
+  executingChainIds: [Int!]!
   trades: [Trade!]! @derivedFrom(field: "strategy")
   yieldRotations: [YieldRotation!]! @derivedFrom(field: "strategy")
   navSnapshots: [NAVSnapshot!]! @derivedFrom(field: "strategy")
@@ -257,7 +266,13 @@ type DefundEvent @entity(immutable: true) {
   txHash: Bytes!
 }
 
-type CrossChainReputationMessage @entity(immutable: true) {
+# Phase 5 / WS6 — paired LayerZero messages around the cross-chain
+# reputation tick. `sentAt` is stamped on the source chain when
+# `HeliosOApp.flushAttestationsFor` emits `AttestationsFlushed`;
+# `receivedAt` is stamped on Kite when `_lzReceive` emits
+# `ReputationMessageReceived` for the same GUID. Mutable because the
+# two events fire on different chains in different blocks.
+type CrossChainReputationMessage @entity {
   id: Bytes!                      # LayerZero GUID
   srcEid: Int!
   dstEid: Int!
@@ -266,6 +281,8 @@ type CrossChainReputationMessage @entity(immutable: true) {
   score: BigInt!
   sentAt: BigInt!
   receivedAt: BigInt
+  srcChainId: Int!                # chainId of the source datasource
+  dstChainId: Int                 # filled when received
 }
 
 type VerifierRegistration @entity(immutable: true) {
