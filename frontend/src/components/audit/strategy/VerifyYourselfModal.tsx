@@ -1,10 +1,10 @@
 /**
  * "Verify this proof yourself" modal — `DESIGN.md §12` celebrated tier.
  *
- * The command itself is real and copyable. The binary it invokes
- * (`scripts/verify-trade.js`) lands fully in Phase 6 per `TODO.md`
- * line 473; for Phase 4 the script prints a placeholder. We document
- * that explicitly so a judge isn't surprised.
+ * The command shape matches `scripts/verify-trade.js` exactly: positional
+ * <tx-hash>, optional --rpc / --deployments overrides. Single dep
+ * (`ethers@^6`); reads the on-chain TAV mapping to find the registered
+ * class verifier and re-runs `verifyProof` against it.
  */
 
 "use client";
@@ -34,7 +34,7 @@ export function VerifyYourselfModal({
 
   if (!txHash) return null;
 
-  const command = `node scripts/verify-trade.js --tx ${txHash} --rpc $KITE_RPC_URL`;
+  const command = `node scripts/verify-trade.js ${txHash} --rpc $KITE_RPC_URL`;
 
   return (
     <div
@@ -81,21 +81,9 @@ export function VerifyYourselfModal({
             args required
           </li>
           <li>
-            requires <code className="font-mono">snarkjs</code> 0.7.6 — pin matches{" "}
-            <code className="font-mono">services/prover</code>
+            single dependency: <code className="font-mono">ethers@^6</code>. Exit 0 on PASS, 1 on FAIL.
           </li>
         </ul>
-
-        <details className="mt-4 rounded-sm border border-surface-line bg-surface-elev/40 p-3 text-[12px] text-fg-muted">
-          <summary className="cursor-pointer font-mono text-fg-secondary">
-            Phase status
-          </summary>
-          <p className="mt-2 leading-snug">
-            The wrapper script (<code className="font-mono">scripts/verify-trade.js</code>) lands
-            fully in Phase 6 per <code className="font-mono">TODO.md</code> line 473. The current
-            tip prints a stub; the command shape itself is final and stable.
-          </p>
-        </details>
       </div>
     </div>
   );

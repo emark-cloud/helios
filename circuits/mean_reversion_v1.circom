@@ -128,6 +128,15 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     component maxPosBits = Num2Bits(128);
     maxPosBits.in <== max_position_size;
 
+    // ── Constraint 0: amount_in > 0 ─────────────────────────────────
+    // Reject zero-amount entries (otherwise the proof is decorative —
+    // a no-op trade can still pollute the attestation stream and the
+    // reputation calc). Mirrors yield_rotation_v1.circom Constraint 7.
+    signal amount_in_minus_one;
+    amount_in_minus_one <== amount_in - 1;
+    component amountInPositive = Num2Bits(128);
+    amountInPositive.in <== amount_in_minus_one;
+
     // ── Constraint 1: amount_in <= max_position_size ────────────────
     component sizeOk = LessEqThan(128);
     sizeOk.in[0] <== amount_in;

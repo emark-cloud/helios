@@ -1,0 +1,19 @@
+{
+  "_comment": "Slither config used by .github/workflows/security.yml. Filters out third-party libs, tests, scripts, and mocks so the report focuses on protocol contracts. Severity tuning lives in docs/audit-checklist.md.",
+  "filter_paths": "lib/|test/|script/|mocks/",
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "disable_color": true,
+  "solc_remaps": [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@layerzerolabs/oapp-evm/=lib/layerzero-v2/packages/layerzero-v2/evm/oapp/contracts/",
+    "@layerzerolabs/lz-evm-protocol-v2/=lib/layerzero-v2/packages/layerzero-v2/evm/protocol/",
+    "@layerzerolabs/lz-evm-messagelib-v2/=lib/layerzero-v2/packages/layerzero-v2/evm/messagelib/",
+    "@layerzerolabs/oapp-evm-test/=lib/layerzero-v2/packages/layerzero-v2/evm/oapp/test/",
+    "solady/=lib/solady/src/"
+  ]
+}

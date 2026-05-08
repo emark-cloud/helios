@@ -87,7 +87,7 @@ export function AuditTradeRow({
           )}
         </td>
         <td className="px-3 py-3 align-top text-right">
-          <ChevronDown className={cn("inline h-4 w-4 text-fg-muted transition-transform motion-reduce:transition-none", expanded && "rotate-180")} />
+          <ChevronDown className={cn("inline h-4 w-4 text-fg-muted", expanded && "rotate-180")} />
         </td>
       </tr>
       {expanded ? (

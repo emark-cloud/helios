@@ -1,0 +1,79 @@
+name: Security
+
+# Phase 6 polish — informational static-analysis pass. This workflow is a
+# triage signal, NOT a merge gate; the human-side gate is the
+# audit-checklist (`docs/audit-checklist.md`). Findings are reviewed there
+# and either marked as accepted-risk, mitigated, or queued for fix.
+#
+# Triggered on every PR to `main` so reviewers get a fresh Slither report
+# without having to install the toolchain locally. Also exposed via
+# workflow_dispatch for ad-hoc runs (e.g. before a release tag).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/security.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slither:
+    name: slither (static analysis)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required only if SARIF upload is added later; harmless to leave.
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # crytic/slither-action handles solc selection + Foundry remappings
+      # automatically when target is a Foundry project. We still install
+      # Foundry explicitly so `forge build` works the same way as the
+      # `contracts` job in ci.yml — the action invokes it under the hood.
+      - name: Install Foundry
+        id: foundry-install
+        uses: foundry-rs/foundry-toolchain@v1
+        continue-on-error: true
+        with:
+          version: stable
+      - name: Install Foundry (retry on flake)
+        if: steps.foundry-install.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        # Phase 6: do NOT fail the build on findings. Triage happens in
+        # docs/audit-checklist.md. If we ever want to gate, switch
+        # `fail-on` to `high` (or `medium` after the AllocatorVault
+        # reentrancy-no-eth false positives are filtered).
+        with:
+          target: contracts/
+          slither-config: contracts/slither.config.json
+          fail-on: none
+          slither-args: --filter-paths "lib/|test/|script/|mocks/"
+
+  # Mythril is intentionally NOT run in CI:
+  #   * Symbolic execution against the full contract surface routinely
+  #     exceeds 30 minutes per contract on GH-hosted runners and burns
+  #     CI minutes for low signal — most reachable findings overlap with
+  #     Slither's reentrancy / integer-overflow detectors, which are
+  #     covered above at zero cost.
+  #   * The vault contracts use `via_ir = true` (foundry.toml), and
+  #     Mythril's IR support is flaky enough that the runs frequently
+  #     error out before producing a report.
+  #   * For Phase 6 we run Mythril manually against `AllocatorVault`,
+  #     `UserVault`, and `StrategyVault` before tagging a release; the
+  #     procedure and results land in `docs/audit-checklist.md` under
+  #     the Mythril section.
+  # If you want to enable a one-shot CI Mythril pass, scope it to a single
+  # contract and pin `continue-on-error: true` so the build stays green.

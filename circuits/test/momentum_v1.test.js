@@ -158,6 +158,15 @@ test("momentum_v1: amount_in over cap rejected", async () => {
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
 });
 
+test("momentum_v1: amount_in == 0 rejected", async () => {
+  // Constraint 0: amount_in > 0. Mirrors yield_rotation_v1 Constraint 7.
+  const input = buildValidInput();
+  input.amount_in = "0";
+  input.min_amount_out = "0";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
 test("momentum_v1: asset_in_idx out of range rejected", async () => {
   const input = buildValidInput();
   input.asset_in_idx = String(UNIVERSE_SIZE); // == UNIVERSE_SIZE → must fail (< check)
@@ -301,4 +310,43 @@ test("momentum_v1: self-swap rejected", async () => {
   input.asset_out_idx = "3";
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_momentum_witness.wtns"));
+});
+
+// docs/circuit-specs.md §1.6 gap — bit-width-edge: amount_in,
+// min_amount_out, max_position_size all at exactly 2^128 − 1 must
+// still satisfy Num2Bits(128) (Constraint A.2 / B.2). max_slippage_bps
+// pinned to 0 so the slippage bound collapses to min_amount_out ≥
+// amount_in. Sub-160-bit slipRhs (~142 bits) keeps Constraint 2 happy.
+test("momentum_v1: amounts at 2^128 − 1 boundary accepted", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_momentum_witness.wtns";
+  const max128 = ((1n << 128n) - 1n).toString();
+  const input = buildValidInput();
+  input.max_slippage_bps = "0";
+  input.max_position_size = max128;
+  input.amount_in = max128;
+  input.min_amount_out = max128;
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+// docs/circuit-specs.md §1.6 gap — short-entry happy path mirrors the
+// long-entry fixture but on a falling-series witness. Exercises
+// Constraint 4 short branch end-to-end.
+test("momentum_v1: valid short entry on falling prices", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_momentum_witness.wtns";
+  const input = buildValidInput();
+  const falling = Array.from({ length: 16 }, (_, i) => asField(1075 - i * 5));
+  input.price_observations = falling;
+  input.oracle_root = chainedPoseidon(falling);
+  input.trade_direction = "2";
+  input.is_long_entry = "0";
+  input.is_short_entry = "1";
+  input.is_exit = "0";
+  input.trade_hash = tradeHashOf(input);
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
 });

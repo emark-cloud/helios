@@ -209,6 +209,15 @@ test("mean_reversion_v1: amount_in over cap rejected", async () => {
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
 });
 
+test("mean_reversion_v1: amount_in == 0 rejected", async () => {
+  // Constraint 0: amount_in > 0. Mirrors yield_rotation_v1 Constraint 7.
+  const input = buildLongEntryInput();
+  input.amount_in = "0";
+  input.min_amount_out = "0";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
+});
+
 test("mean_reversion_v1: asset_in_idx out of range rejected", async () => {
   const input = buildLongEntryInput();
   input.asset_in_idx = String(UNIVERSE_SIZE);
@@ -320,6 +329,42 @@ test("mean_reversion_v1: self-swap rejected", async () => {
   const input = buildLongEntryInput();
   input.asset_in_idx = "3";
   input.asset_out_idx = "3";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
+});
+
+// docs/circuit-specs.md §2.6 gap — bit-width-edge: amount_in /
+// min_amount_out / max_position_size at exactly 2^128 − 1 still
+// satisfy Num2Bits(128) (Constraint A.2 / B.2 reused from §1.3).
+// max_slippage_bps pinned to 0 collapses Constraint 2 to
+// min_amount_out ≥ amount_in.
+test("mean_reversion_v1: amounts at 2^128 − 1 boundary accepted", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_meanrev_witness.wtns";
+  const max128 = ((1n << 128n) - 1n).toString();
+  const input = buildLongEntryInput();
+  input.max_slippage_bps = "0";
+  input.max_position_size = max128;
+  input.amount_in = max128;
+  input.min_amount_out = max128;
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+// docs/circuit-specs.md §2.6 gap — claiming both is_signal_flip = 1 and
+// is_stop_loss = 1 simultaneously must fail Constraint 6's
+// `is_exit === is_signal_flip + is_stop_loss` (1 ≠ 2). Exit-reason
+// algebra forecloses double-counting.
+test("mean_reversion_v1: is_signal_flip + is_stop_loss > 1 rejected", async () => {
+  const input = buildExitFlipInput();
+  input.is_signal_flip = "1";
+  input.is_stop_loss = "1";
+  // Last bar = 1040; stop above last keeps the stop-loss raw excess
+  // ≥ 0 so the failure is the exit-reason sum, not the stop predicate.
+  input.stop_loss_price = "1100";
+  input.params_hash = paramsHashOf(input);
   input.trade_hash = tradeHashOf(input);
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_meanrev_witness.wtns"));
 });

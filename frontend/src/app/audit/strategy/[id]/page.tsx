@@ -2,12 +2,12 @@
  * /audit/strategy/[id] — forensic per-strategy audit (Phase 4 WS-FE-4).
  *
  * Distinct from `/audit/[actor]` (the reputation-engine breakdown,
- * Phase 2). This page surfaces every attested trade ever, paginated,
- * with the "celebrated" ZK shield treatment from `DESIGN.md §12`.
+ * Phase 2). Surfaces every attested trade ever, paginated, with the ZK
+ * proof treatment from `DESIGN.md §12`.
  *
- * The "verify yourself" CTA shows the real, copyable command shape;
- * the wrapper script `scripts/verify-trade.js` lands fully in Phase 6
- * per `TODO.md` line 473 and the modal documents that explicitly.
+ * The "verify yourself" CTA invokes `scripts/verify-trade.js` — single
+ * file, single dep (`ethers@^6`), reads the on-chain TAV mapping and
+ * re-runs `verifyProof` against the registered class verifier.
  */
 
 "use client";
@@ -80,10 +80,9 @@ export default function StrategyAuditPage({
         }
         summary={
           <>
-            Every attested trade ever, paginated. Each row carries a Groth16
-            shield; click any row to inspect the proof&apos;s public inputs and
-            re-verify it off-line. The reputation engine reads from this same
-            stream.
+            Every attested trade, paginated. Click a row to inspect the
+            proof&apos;s public inputs and re-verify it locally. The reputation
+            engine reads from this same stream.
           </>
         }
         actions={
@@ -265,10 +264,10 @@ function TradesTable({
   isFetching: boolean;
 }): JSX.Element {
   const trades = strategy.trades;
-  const totalPages = Math.max(
-    1,
-    Math.ceil((strategy.totalAttestedTrades || trades.length) / PAGE_SIZE),
-  );
+  const totalKnown = strategy.totalAttestedTrades > 0;
+  const totalPages = totalKnown
+    ? Math.max(1, Math.ceil(strategy.totalAttestedTrades / PAGE_SIZE))
+    : null;
 
   return (
     <section data-testid="audit-trades">
@@ -277,7 +276,7 @@ function TradesTable({
           Attested trades — every record
         </h2>
         <span className="font-mono text-[12px] uppercase tracking-[0.12em] text-fg-muted">
-          page {page + 1} / {totalPages}
+          page {page + 1} / {totalPages ?? "—"}
           {isFetching ? " · loading…" : ""}
         </span>
       </header>
@@ -361,9 +360,9 @@ function dominantComponent(
 
 function Skeleton(): JSX.Element {
   return (
-    <div className="flex flex-col gap-6">
-      <div className="h-32 animate-pulse rounded-md border border-surface-line bg-surface-panel" />
-      <div className="h-72 animate-pulse rounded-md border border-surface-line bg-surface-panel" />
+    <div className="flex flex-col gap-6" aria-busy="true" aria-live="polite">
+      <div className="h-32 rounded-md border border-surface-line bg-surface-panel" />
+      <div className="h-72 rounded-md border border-surface-line bg-surface-panel" />
     </div>
   );
 }

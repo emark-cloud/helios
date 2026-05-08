@@ -167,6 +167,16 @@ export function explorerAddressUrl(chainId: number, address: string): string | n
   return `${base}/address/${address}`;
 }
 
+export function explorerHost(chainId: number): string | null {
+  const base = EXPLORERS[chainId];
+  if (!base) return null;
+  return new URL(base).host;
+}
+
+export function explorerHomeUrl(chainId: number): string | null {
+  return EXPLORERS[chainId] ?? null;
+}
+
 export function explorerTxUrl(chainId: number, txHash: string): string | null {
   const base = EXPLORERS[chainId];
   if (!base) return null;

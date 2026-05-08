@@ -28,7 +28,12 @@ import { CopyableEndpoint } from "@/components/judge/CopyableEndpoint";
 import { LandingStatsBand } from "@/components/landing/LandingStatsBand";
 import { JudgeRecentTrades } from "@/components/judge/JudgeRecentTrades";
 import { CHAIN_ADDRESSES, CHAIN_IDS, type HeliosAddresses } from "@/lib/addresses";
-import { explorerAddressUrl, formatAddress } from "@/lib/format";
+import {
+  explorerAddressUrl,
+  explorerHomeUrl,
+  explorerHost,
+  formatAddress,
+} from "@/lib/format";
 
 export const metadata = {
   title: "Helios — judge eval",
@@ -36,10 +41,12 @@ export const metadata = {
     "Hackathon judge eval surface. Live tx counts, deployed addresses, verify-yourself command, 5-step eval checklist.",
 };
 
-const KITE_RPC = "https://rpc-testnet.gokite.ai";
+const KITE_RPC = process.env.NEXT_PUBLIC_KITE_RPC_URL ?? "https://rpc-testnet.gokite.ai";
 const GOLDSKY_DEFAULT =
   process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT ??
-  "https://api.goldsky.com/api/public/<helios-subgraph>/gn";
+  "https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.2.0/gn";
+const DEMO_VIDEO_URL = process.env.NEXT_PUBLIC_DEMO_VIDEO_URL ?? null;
+const DEMO_BACKUP_VIDEO_URL = process.env.NEXT_PUBLIC_DEMO_BACKUP_VIDEO_URL ?? null;
 
 export default function JudgePage(): JSX.Element {
   return (
@@ -68,19 +75,19 @@ function Header(): JSX.Element {
         Verify Helios end-to-end.
       </h1>
       <p className="max-w-3xl text-sm leading-relaxed text-fg-secondary lg:text-base">
-        This page is self-sufficient — every claim links to Kitescan and Goldsky. You
-        don&apos;t need our VPS up to confirm the system is real. Live counts below refresh
-        every 30 seconds; the addresses come straight from
+        Every claim on this page resolves to Kitescan or Goldsky. Live counts refresh
+        every 30 seconds; addresses are read from
         <code className="ml-1 font-mono text-[12px] text-fg-primary">
           contracts/deployments/kite-testnet.json
         </code>
-        .
+        at build time.
       </p>
     </header>
   );
 }
 
 function DemoBlock(): JSX.Element {
+  const hasVideo = DEMO_VIDEO_URL !== null;
   return (
     <section
       aria-labelledby="judge-demo"
@@ -95,33 +102,45 @@ function DemoBlock(): JSX.Element {
             3-minute demo
           </h2>
           <p className="text-base text-fg-primary">
-            Walks through cascade → auto-defund → cross-chain reputation.
+            Cascade → auto-defund → cross-chain reputation.
           </p>
-          <p className="font-mono text-[12px] text-fg-muted">
-            90-second backup link below the player.
-          </p>
+          {hasVideo ? (
+            <p className="font-mono text-[12px] text-fg-muted">
+              90-second backup link to the right.
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
-          <a
-            href="https://vimeo.com/helios-demo-3min"
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-sm border border-amber bg-amber/10 px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-amber transition-none hover:bg-amber/20"
-          >
-            Watch demo →
-          </a>
-          <a
-            href="https://vimeo.com/helios-demo-90s"
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-[12px] uppercase tracking-[0.18em] text-fg-secondary hover:text-fg-primary"
-          >
-            90s backup
-          </a>
+          {hasVideo ? (
+            <>
+              <a
+                href={DEMO_VIDEO_URL ?? "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-sm border border-amber bg-amber/10 px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-amber transition-none hover:bg-amber/20"
+              >
+                Watch demo →
+              </a>
+              {DEMO_BACKUP_VIDEO_URL ? (
+                <a
+                  href={DEMO_BACKUP_VIDEO_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-[12px] uppercase tracking-[0.18em] text-fg-secondary hover:text-fg-primary"
+                >
+                  90s backup
+                </a>
+              ) : null}
+            </>
+          ) : (
+            <span className="rounded-sm border border-surface-line px-3 py-2 font-mono text-[12px] uppercase tracking-[0.18em] text-fg-muted">
+              Recording for submission
+            </span>
+          )}
         </div>
       </div>
       <p className="mt-4 text-[12px] leading-relaxed text-fg-muted">
-        Want to run the cascade locally? Clone the repo and run{" "}
+        Run the cascade locally: clone the repo, then{" "}
         <code className="font-mono text-fg-secondary">scripts/e2e-scenario.sh</code>{" "}
         against a fresh <code className="font-mono text-fg-secondary">pnpm dev</code> stack.
       </p>
@@ -265,14 +284,22 @@ function AddressTable(): JSX.Element {
         </li>
         <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
           <span className="text-fg-muted">Explorer </span>
-          <a
-            href="https://testnet.kitescan.ai"
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-amber hover:underline"
-          >
-            testnet.kitescan.ai
-          </a>
+          {(() => {
+            const home = explorerHomeUrl(kiteId);
+            const host = explorerHost(kiteId);
+            return home && host ? (
+              <a
+                href={home}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-amber hover:underline"
+              >
+                {host}
+              </a>
+            ) : (
+              <span className="font-mono text-fg-muted">—</span>
+            );
+          })()}
         </li>
         <li>
           <CopyableEndpoint
@@ -283,7 +310,9 @@ function AddressTable(): JSX.Element {
         </li>
       </ul>
       <p className="mt-2 font-mono text-[12px] text-fg-muted">
-        Mainnet (chain 2366) + Base/Arbitrum sepolia rows reserved for Phase 5/6.
+        Cross-chain executes on Base Sepolia (84532) + Arbitrum Sepolia (421614);
+        Kite testnet remains the canonical identity / reputation chain. Mainnet
+        (2366) is a stretch — see <code className="text-fg-secondary">docs/deployment-strategy.md</code>.
       </p>
     </section>
   );
@@ -311,10 +340,12 @@ function addressRows(addrs: HeliosAddresses): AddressRow[] {
 }
 
 function VerifyBlock(): JSX.Element {
-  // Same command block as `/audit/strategy/[id]`'s modal so the
-  // judge sees the canonical verify-yourself contract once on the
-  // judge page and can copy it without leaving.
-  const command = `node scripts/verify-trade.js \\\n  --tx <0x… txHash from /audit/strategy/[id]> \\\n  --rpc ${KITE_RPC}`;
+  // Same command block as `/audit/strategy/[id]`'s modal so the judge
+  // sees the canonical verify-yourself contract once on the judge page
+  // and can copy it without leaving. Argument shape matches
+  // `scripts/verify-trade.js` exactly: positional <tx-hash>, optional
+  // --rpc and --deployments overrides.
+  const command = `npm i ethers@^6\nnode scripts/verify-trade.js <tx-hash from /audit/strategy/[id]> \\\n  --rpc ${KITE_RPC}`;
   return (
     <section aria-labelledby="judge-verify" className="flex flex-col gap-3">
       <h2
@@ -324,15 +355,15 @@ function VerifyBlock(): JSX.Element {
         Verify a trade yourself
       </h2>
       <p className="text-sm text-fg-secondary">
-        Reads the on-chain Groth16 verifier directly. Returns the verifier&apos;s exact
-        boolean output for the trade&apos;s public-input vector — Helios cannot fake this.
+        Reads the on-chain Groth16 verifier directly. Returns the verifier&apos;s
+        boolean output for the trade&apos;s public-input vector.
       </p>
       <pre className="overflow-x-auto rounded-md border border-surface-line bg-surface-elev px-4 py-3 font-mono text-[12px] text-fg-primary">
         {command}
       </pre>
       <p className="font-mono text-[12px] text-fg-muted">
-        verify-trade.js full implementation lands Phase 6 (TODO.md line 473). The command
-        contract is fixed; the binary it invokes is stubbed until then.
+        Source: <code className="text-fg-secondary">scripts/verify-trade.js</code>. Single
+        file, single dep (<code className="text-fg-secondary">ethers@^6</code>). Exit 0 on PASS, 1 on FAIL.
       </p>
     </section>
   );

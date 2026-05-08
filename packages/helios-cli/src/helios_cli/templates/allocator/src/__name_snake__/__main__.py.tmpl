@@ -1,17 +1,32 @@
 """Run with: `python -m {{NAME_SNAKE}}`.
 
-Boots the SDK's `AllocatorRuntime` with this allocator subclass. All
-network/chain config is read from environment variables (see
-`.env.example` for the complete list); this keeps the scaffold one
-copy-paste away from a Docker container.
+Boots the SDK runtime with this allocator subclass. All network /
+chain config is read from environment variables (see `.env.example`);
+the runtime is composed from the SDK's `AllocatorStore`,
+`AllocatorGoldsky`, `AllocatorOnChain`, and `AllocatorLoop` directly so
+you can swap any of them in tests without forking the runtime.
+
+Mirrors `services/sentinel/src/sentinel/service.py` minus the FastAPI
+surface — this scaffold is the headless decision loop. Add a FastAPI
+app on top if you want a dashboard.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
+import signal
 import sys
 
-from helios_allocator.runtime import AllocatorLoop, LoopConfig
+import httpx
+from helios_allocator.runtime import (
+    AllocatorGoldsky,
+    AllocatorLoop,
+    AllocatorOnChain,
+    AllocatorStore,
+    LoopConfig,
+)
+
 from {{NAME_SNAKE}}.allocator import {{NAME_PASCAL}}Allocator
 
 
@@ -25,19 +40,59 @@ def _required(var: str) -> str:
     return val
 
 
-def main() -> None:
-    config = LoopConfig(
-        rpc_url=_required("KITE_RPC_URL"),
-        goldsky_endpoint=_required("GOLDSKY_ENDPOINT"),
-        allocator_pk=_required("ALLOCATOR_OPERATOR_PK"),
-        allocator_vault=_required("ALLOCATOR_VAULT"),
-        # 60s default — tighten if your strategy ranker prices in fast
-        # regime flips, loosen if a slow rebalance is enough.
-        tick_interval_sec=int(os.environ.get("TICK_INTERVAL_SEC", "60")),
+async def _amain() -> None:
+    rpc_url = _required("KITE_RPC_URL")
+    goldsky_endpoint = _required("GOLDSKY_ENDPOINT")
+    operator_pk = _required("ALLOCATOR_OPERATOR_PK")
+    allocator_vault = _required("ALLOCATOR_VAULT")
+    allocator_registry = _required("ALLOCATOR_REGISTRY")
+    chain_id = int(os.environ.get("KITE_CHAIN_ID", "2368"))
+
+    # Decision-loop cadences. `TICK_INTERVAL_SEC` is the master cadence
+    # (drawdown check); rank-update + fee-check default to 5×.
+    tick = int(os.environ.get("TICK_INTERVAL_SEC", "60"))
+
+    http_client = httpx.AsyncClient(
+        timeout=10.0, headers={"User-Agent": "{{NAME_KEBAB}}/0.1"}
     )
-    allocator = {{NAME_PASCAL}}Allocator()
-    loop = AllocatorLoop(allocator=allocator, config=config)
-    loop.run_forever()
+    store = AllocatorStore()
+    goldsky = AllocatorGoldsky(
+        endpoint=goldsky_endpoint, chain_id=chain_id, client=http_client
+    )
+    onchain = AllocatorOnChain(
+        rpc_url=rpc_url,
+        operator_pk=operator_pk,
+        allocator_vault_address=allocator_vault,
+        allocator_registry_address=allocator_registry,
+        chain_id=chain_id,
+    )
+    loop = AllocatorLoop(
+        store=store,
+        allocator={{NAME_PASCAL}}Allocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            drawdown_check_interval_sec=tick,
+            rank_update_interval_sec=tick * 5,
+            fee_check_interval_sec=tick * 5,
+        ),
+    )
+
+    stop = asyncio.Event()
+    running_loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        running_loop.add_signal_handler(sig, stop.set)
+
+    loop.start()
+    try:
+        await stop.wait()
+    finally:
+        await loop.stop()
+        await http_client.aclose()
+
+
+def main() -> None:
+    asyncio.run(_amain())
 
 
 if __name__ == "__main__":

@@ -299,3 +299,147 @@ test("yield_rotation_v1: strategy_vault rebinding without trade_hash refresh rej
   input.strategy_vault = asField("0xdeadbeef00000000000000000000000000000000");
   await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
 });
+
+// docs/circuit-specs.md §3.6 gap — Constraint 8b: the block-window
+// freshness gate `block_window_end − block_window_start ≤ 100` rejects
+// any proof minted with a wider window than the LessEqThan(64) bound.
+test("yield_rotation_v1: window > 100 blocks rejected", async () => {
+  const input = buildValidInput();
+  input.block_window_end = "300"; // 300 − 150 = 150 > 100
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
+});
+
+// docs/circuit-specs.md §3.6 gap — apy_to divergence mirrors the
+// existing apy_from case. Constraint 2 recomputes the leaf as
+// Poseidon(m_to, apy_to); a tampered apy_to no longer matches the
+// fixed Merkle path's terminal hash.
+test("yield_rotation_v1: apy_to claim diverges from yield-oracle leaf rejected", async () => {
+  const input = buildValidInput();
+  input.apy_to = "100";
+  input.trade_hash = tradeHashOf(input);
+  await assert.rejects(snarkjs.wtns.calculate(input, WASM, "/tmp/helios_yieldrot_witness.wtns"));
+});
+
+// docs/circuit-specs.md §3.6 gap — tree-depth boundary: place an
+// active market at slot 15 in the 16-slot allowlist tree (ALLOW_DEPTH
+// last index) AND at slot 63 in the 64-slot yield tree (YIELD_DEPTH
+// last index). Exercises path_indices = [1,1,1,1] / [1,1,1,1,1,1] —
+// the all-right-child Merkle inclusion edge.
+test("yield_rotation_v1: edge-slot inclusion (allowlist[15], yield[63]) accepted", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_yieldrot_witness.wtns";
+
+  // Allowlist: AAVE_USDC at slot 0, COMPOUND_USDC at slot 15.
+  const allowLeaves = [];
+  allowLeaves.push(poseidonHash([MARKETS.AAVE_USDC]));
+  const pad = poseidonHash([0]);
+  for (let i = 1; i < 15; i++) allowLeaves.push(pad);
+  allowLeaves.push(poseidonHash([MARKETS.COMPOUND_USDC]));
+  const allow = buildTree(allowLeaves, ALLOW_DEPTH);
+
+  // Yield tree: AAVE_USDC@420 at slot 0, COMPOUND_USDC@550 at slot 63.
+  const yieldLeaves = [];
+  yieldLeaves.push(poseidonHash([MARKETS.AAVE_USDC, 420n]));
+  const yPad = poseidonHash([0, 0]);
+  for (let i = 1; i < 63; i++) yieldLeaves.push(yPad);
+  yieldLeaves.push(poseidonHash([MARKETS.COMPOUND_USDC, 550n]));
+  const yieldTree = buildTree(yieldLeaves, YIELD_DEPTH);
+
+  const yp_from = proveInclusion(yieldTree, 0, YIELD_DEPTH);
+  const yp_to = proveInclusion(yieldTree, 63, YIELD_DEPTH);
+  const ap_from = proveInclusion(allow, 0, ALLOW_DEPTH);
+  const ap_to = proveInclusion(allow, 15, ALLOW_DEPTH);
+
+  const input = {
+    declared_class: asField("0x9abc"),
+    strategy_vault: asField("0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee"),
+    m_from: asField(MARKETS.AAVE_USDC),
+    m_to: asField(MARKETS.COMPOUND_USDC),
+    amount_rotating: "1000000000000000000",
+    yield_oracle_root: yieldTree.root,
+    allocator_address: asField("0xa11ca7"),
+    nonce: "7",
+    block_window_end: "200",
+    block_window_start: "150",
+    apy_from: "420",
+    apy_to: "550",
+    signal_threshold: "80",
+    bridging_cost: "30",
+    markets_allowlist_root: allow.root,
+    yield_path_indices_from: yp_from.path_indices,
+    yield_siblings_from: yp_from.siblings,
+    yield_path_indices_to: yp_to.path_indices,
+    yield_siblings_to: yp_to.siblings,
+    allow_path_indices_from: ap_from.path_indices,
+    allow_siblings_from: ap_from.siblings,
+    allow_path_indices_to: ap_to.path_indices,
+    allow_siblings_to: ap_to.siblings,
+  };
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
+
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
+
+// docs/circuit-specs.md §3.6 gap — bridging_cost at exactly 2^16 − 1
+// satisfies Num2Bits(16) (Constraint 6 width). Pin apy_from = 0,
+// apy_to = 2^16 − 1, signal_threshold = 0 so the differential check
+// `apy_to − apy_from ≥ signal_threshold + bridging_cost` collapses
+// to 0 ≥ 0 — boundary-feasible without wrapping the field.
+test("yield_rotation_v1: bridging_cost at 2^16 − 1 boundary accepted", async () => {
+  const fs = require("node:fs");
+  const out = "/tmp/helios_yieldrot_witness.wtns";
+  const max16 = ((1 << 16) - 1).toString();
+
+  const allow = buildAllowlistTree([
+    MARKETS.AAVE_USDC,
+    MARKETS.COMPOUND_USDC,
+    MARKETS.AAVE_USDT,
+    MARKETS.COMPOUND_USDT,
+  ]);
+  const snapshots = [
+    { id: MARKETS.AAVE_USDC, apy: 0n },
+    { id: MARKETS.COMPOUND_USDC, apy: BigInt(max16) },
+    { id: MARKETS.AAVE_USDT, apy: 380n },
+    { id: MARKETS.COMPOUND_USDT, apy: 500n },
+  ];
+  const yieldTree = buildYieldTree(snapshots);
+
+  const yp_from = proveInclusion(yieldTree, 0, YIELD_DEPTH);
+  const yp_to = proveInclusion(yieldTree, 1, YIELD_DEPTH);
+  const ap_from = proveInclusion(allow, 0, ALLOW_DEPTH);
+  const ap_to = proveInclusion(allow, 1, ALLOW_DEPTH);
+
+  const input = {
+    declared_class: asField("0x9abc"),
+    strategy_vault: asField("0xc0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffee"),
+    m_from: asField(MARKETS.AAVE_USDC),
+    m_to: asField(MARKETS.COMPOUND_USDC),
+    amount_rotating: "1000000000000000000",
+    yield_oracle_root: yieldTree.root,
+    allocator_address: asField("0xa11ca7"),
+    nonce: "7",
+    block_window_end: "200",
+    block_window_start: "150",
+    apy_from: "0",
+    apy_to: max16,
+    signal_threshold: "0",
+    bridging_cost: max16,
+    markets_allowlist_root: allow.root,
+    yield_path_indices_from: yp_from.path_indices,
+    yield_siblings_from: yp_from.siblings,
+    yield_path_indices_to: yp_to.path_indices,
+    yield_siblings_to: yp_to.siblings,
+    allow_path_indices_from: ap_from.path_indices,
+    allow_siblings_from: ap_from.siblings,
+    allow_path_indices_to: ap_to.path_indices,
+    allow_siblings_to: ap_to.siblings,
+  };
+  input.params_hash = paramsHashOf(input);
+  input.trade_hash = tradeHashOf(input);
+
+  await snarkjs.wtns.calculate(input, WASM, out);
+  assert.ok(fs.statSync(out).size > 0);
+});
