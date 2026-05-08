@@ -88,15 +88,15 @@ Mirrors `TODO.md` lines 497–502:
 | WS4 — Docs (allocator, circuit-specs, README) | ✅ allocator-guide 631L; circuit-specs 555L; README rewritten |
 | #11 — Circuit test coverage gaps | ✅ 7 new tests; 58/58 passing |
 | #12 — Allocator-init scaffold fix | ✅ template rewritten; verified end-to-end with real install + boot |
-| #13 — Circuit zero-amount reject (mom + MR) | 🟡 repo-side **complete**: circuits edited, artifacts regenerated (.r1cs/.wasm/.zkey/Solidity verifier), tests added (43/43 circuit + 390/391 forge + 10/10 prover pass), docs updated. Chain-side **pending broadcast**: `ProposeVerifierRotation.s.sol` + `CommitVerifierRotation.s.sol` written; runbook at `docs/phase6-circuit-rotation-runbook.md`. Awaiting deployer-key broadcast (Step 1). Commit at T0 + 48h. |
+| #13 — Circuit zero-amount reject (mom + MR) | ✅ **fully closed (repo + chain) 2026-05-08**. Circuits add Constraint 0 (`Num2Bits(128)` on `amount_in - 1`); artifacts regenerated (43/43 circuit + 394/395 forge + 10/10 prover); new TAV `0x3698F60a…` deployed with PR #70 timelock code (the legacy testnet TAV at `0x743e1bd7…` was the lax pre-PR-#70 version with no rotation path, so a heavy redeploy + UUPS upgrade was the only viable path); new mom + MR verifier+adapters; new `StrategyVault` impl `0x934f7639…` adds `migrateVerifier(reinitializer(2))`; all 9 vault proxies upgrade-and-call'd to the new TAV in one tx each. JSON + CLAUDE.md updated. |
 | WS5-prep — testnet attested trade | ⏳ blocked on user (needs operator/oracle keys + KITE for gas) |
 | WS5 — Demo materials | ⏳ blocked on WS5-prep |
 | WS6 — Acceptance + tag | ⏳ gated on all above |
 
 ## Newly-uncovered work (during Phase 6)
 
-- **#13 circuit zero-amount reject**: `momentum_v1` and `mean_reversion_v1` accept `amount_in = 0` at the circuit level — `yield_rotation_v1` has Constraint 7 (`amount_rotating > 0`) but the directional circuits don't have an analogue. Fix: `Num2Bits(128)` on `(amount_in - 1)` mirroring `yield_rotation_v1.circom:209-214`. Severity Medium — no-op trades pollute attestation stream + reputation calc, can't move capital. **TAV `CHANGE_DELAY = 2 days`** on `verifierByClassMap` rotation — propose today, commit T+48h.
+- **#13 circuit zero-amount reject**: `momentum_v1` and `mean_reversion_v1` accepted `amount_in = 0` at the circuit level — `yield_rotation_v1` had Constraint 7 (`amount_rotating > 0`) but the directional circuits didn't. Fixed via `Num2Bits(128)` on `(amount_in - 1)` mirroring `yield_rotation_v1.circom:209-214`. Severity Medium — no-op trades polluted the attestation stream + reputation calc, but couldn't move capital. **Chain-side closure required a heavy redeploy** (new TAV with PR #70 timelock code + UUPS-upgrade all 9 strategy-vault proxies through a one-shot `migrateVerifier`) because the deployed testnet TAV was the lax pre-PR-#70 version with no in-place rotation path. Both repo + chain landed in a single broadcast; no T+48h commit phase.
 
 ## Demo deadline
 
-**2026-05-18** (10 days from today). Comfortable runway for the 48h TAV timelock on #13.
+**2026-05-18** (10 days from today).
