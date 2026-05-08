@@ -48,6 +48,11 @@ contract HeliosOAppTest is Test {
 
         vm.prank(owner);
         baseOApp.setStrategyVault(strategyVault, true);
+        // `strategy` is also allowlisted as a vault so that single-update
+        // tests, where the vault is itself the actor, can exercise
+        // `sendReputationUpdate(actor=msg.sender)`. See C1 gate.
+        vm.prank(owner);
+        baseOApp.setStrategyVault(strategy, true);
     }
 
     // ── Codec round-trip ───────────────────────────────────────────
@@ -132,6 +137,7 @@ contract HeliosOAppTest is Test {
     function test_sendReputationUpdate_deliversToAnchor() public {
         IReputationAnchor.ReputationData memory data = _sampleData(500);
 
+        vm.prank(strategy);
         baseOApp.sendReputationUpdate{ value: 0 }(
             KITE_EID, strategy, IReputationAnchor.ActorType.STRATEGY, data, ""
         );
@@ -147,6 +153,7 @@ contract HeliosOAppTest is Test {
 
     function test_replay_secondDeliveryReverts() public {
         IReputationAnchor.ReputationData memory data = _sampleData(500);
+        vm.prank(strategy);
         baseOApp.sendReputationUpdate(
             KITE_EID, strategy, IReputationAnchor.ActorType.STRATEGY, data, ""
         );
@@ -165,9 +172,51 @@ contract HeliosOAppTest is Test {
         // baseOApp has KITE peer; sending to a stranger EID should revert.
         IReputationAnchor.ReputationData memory data = _sampleData(1);
         vm.expectRevert(abi.encodeWithSelector(IHeliosOApp.PeerNotSet.selector, uint32(99_999)));
+        vm.prank(strategy);
         baseOApp.sendReputationUpdate(
             99_999, strategy, IReputationAnchor.ActorType.STRATEGY, data, ""
         );
+    }
+
+    // ── Phase-5 review C1/C2: caller gates ─────────────────────────
+
+    function test_sendReputationUpdate_revertsForUnauthorizedCaller() public {
+        IReputationAnchor.ReputationData memory data = _sampleData(1);
+        address rogue = address(0xDEAD);
+        vm.expectRevert(abi.encodeWithSelector(IHeliosOApp.NotStrategyVault.selector, rogue));
+        vm.prank(rogue);
+        baseOApp.sendReputationUpdate(
+            KITE_EID, rogue, IReputationAnchor.ActorType.STRATEGY, data, ""
+        );
+    }
+
+    function test_sendReputationUpdate_revertsWhenActorMismatch() public {
+        IReputationAnchor.ReputationData memory data = _sampleData(1);
+        address victim = address(0xBADBAD);
+        // `strategyVault` is allowlisted but tries to attest a different actor.
+        vm.expectRevert(
+            abi.encodeWithSelector(IHeliosOApp.CallerActorMismatch.selector, strategyVault, victim)
+        );
+        vm.prank(strategyVault);
+        baseOApp.sendReputationUpdate(
+            KITE_EID, victim, IReputationAnchor.ActorType.STRATEGY, data, ""
+        );
+    }
+
+    function test_bridgeAndDeploy_revertsForUnauthorizedCaller() public {
+        address rogue = address(0xDEAD);
+        vm.expectRevert(abi.encodeWithSelector(IHeliosOApp.NotStrategyVault.selector, rogue));
+        vm.prank(rogue);
+        baseOApp.bridgeAndDeploy(KITE_EID, rogue, 1_000_000, "");
+    }
+
+    function test_bridgeAndDeploy_revertsWhenStrategyMismatch() public {
+        address victim = address(0xBADBAD);
+        vm.expectRevert(
+            abi.encodeWithSelector(IHeliosOApp.CallerActorMismatch.selector, strategyVault, victim)
+        );
+        vm.prank(strategyVault);
+        baseOApp.bridgeAndDeploy(KITE_EID, victim, 1_000_000, "");
     }
 
     // ── Queue / flush attestations ────────────────────────────────

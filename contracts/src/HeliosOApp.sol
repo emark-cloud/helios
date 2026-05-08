@@ -87,6 +87,13 @@ contract HeliosOApp is OApp, IHeliosOApp {
         IReputationAnchor.ReputationData calldata data,
         bytes calldata options
     ) external payable {
+        // Phase-5 review C1: a vault on Base/Arb may only attest its own
+        // reputation. Without this gate, any address on a remote chain could
+        // forge an arbitrary `actor` + `data` blob to overwrite reputation on
+        // Kite (the LZ peer is trusted, the OApp's caller is not).
+        if (!isStrategyVault[msg.sender]) revert NotStrategyVault(msg.sender);
+        if (actor != msg.sender) revert CallerActorMismatch(msg.sender, actor);
+
         if (peers[dstEid] == bytes32(0)) {
             revert PeerNotSet(dstEid);
         }
@@ -176,6 +183,14 @@ contract HeliosOApp is OApp, IHeliosOApp {
         uint256 amount,
         bytes calldata options
     ) external payable {
+        // Phase-5 review C2: only an allowlisted local vault can originate a
+        // bridge-and-deploy, and only to its own address on the destination
+        // chain. Today `bridgeReceiver` is unset so the on-chain effect is a
+        // no-op, but once wired this gate prevents any address from forging a
+        // capital credit for an arbitrary strategy.
+        if (!isStrategyVault[msg.sender]) revert NotStrategyVault(msg.sender);
+        if (strategyOnDst != msg.sender) revert CallerActorMismatch(msg.sender, strategyOnDst);
+
         if (peers[dstEid] == bytes32(0)) revert PeerNotSet(dstEid);
 
         uint64 nextSeq = lastSeqOut[strategyOnDst] + 1;

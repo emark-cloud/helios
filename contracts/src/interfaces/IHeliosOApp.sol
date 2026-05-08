@@ -49,6 +49,11 @@ interface IHeliosOApp {
     error NotStrategyVault(address caller);
     error UnknownPayloadKind(uint8 kind);
     error CrossChainOnly(uint64 chainId);
+    /// @dev `sendReputationUpdate` requires `actor == msg.sender` so a vault
+    ///      can only attest its own reputation. `bridgeAndDeploy` likewise
+    ///      requires `strategyOnDst == msg.sender` so a vault can only credit
+    ///      capital to itself on the destination chain.
+    error CallerActorMismatch(address caller, address actor);
 
     /// @notice Send a single reputation update from a non-canonical chain to Kite.
     ///         Used for the “strategy executes locally → reputation ticks on Kite” path
