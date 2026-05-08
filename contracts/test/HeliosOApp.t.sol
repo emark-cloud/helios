@@ -219,6 +219,92 @@ contract HeliosOAppTest is Test {
         baseOApp.bridgeAndDeploy(KITE_EID, victim, 1_000_000, "");
     }
 
+    // ── Phase-5 review H5: codec discriminator ─────────────────────
+
+    /// @dev H5 canary. A single-update payload with `seq == 64` (i.e. 0x40)
+    ///      previously collided with the batch heuristic in `_lzReceive` and
+    ///      reverted on shape mismatch in the batch decoder, DoSing the
+    ///      channel. With distinct PayloadKinds the receiver routes purely
+    ///      on the kind byte and the message reaches the anchor cleanly.
+    function test_receive_singleUpdateWithSeq64_doesNotMisrouteToBatch() public {
+        IReputationAnchor.ReputationData memory data = _sampleData(777);
+
+        bytes memory payload = CrossChainCodec.encodeReputationUpdate(
+            CrossChainCodec.ReputationUpdateV1({
+                seq: 64,
+                actor: strategy,
+                actorType: IReputationAnchor.ActorType.STRATEGY,
+                data: data
+            })
+        );
+
+        // Drive the inbound packet directly on the destination endpoint:
+        // the canary is purely about how the *receiver* discriminates single
+        // vs batch on a chosen seq. inboundDeliver lets us inject a chosen
+        // payload without round-tripping through the source send path.
+        kiteEndpoint.inboundDeliver(
+            BASE_EID, _addrToBytes32(address(baseOApp)), address(kiteOApp), payload
+        );
+
+        assertEq(anchor.callCount(), 1, "single-update with seq==64 must reach anchor");
+        assertEq(kiteOApp.lastSeqIn(BASE_EID, strategy), 64, "seq-not-advanced to 64");
+    }
+
+    function test_receive_batchUsesBatchKind() public {
+        IReputationAnchor.ReputationData memory d1 = _sampleData(11);
+        IReputationAnchor.ReputationData memory d2 = _sampleData(22);
+
+        vm.prank(strategyVault);
+        baseOApp.queueAttestation(strategy, d1);
+        vm.prank(strategyVault);
+        baseOApp.queueAttestation(strategy, d2);
+
+        // Pending count assertion ensures we hit the batch path on flush.
+        assertEq(baseOApp.pendingCount(strategy), 2);
+        baseOApp.flushAttestationsFor(strategy, KITE_EID, "");
+        baseEndpoint.deliverTo(address(kiteOApp), _addrToBytes32(address(baseOApp)));
+
+        assertEq(anchor.callCount(), 2, "batch must produce 2 anchor calls");
+        assertEq(kiteOApp.lastSeqIn(BASE_EID, strategy), 2, "batch seq advance");
+    }
+
+    function test_codec_oldBatchKindNoLongerDecodes() public {
+        // A batch payload encoded with the legacy ReputationUpdateV1 kind tag
+        // must now revert on decode (proves the wire-format bump took effect).
+        CrossChainCodec.ReputationBatchEntry[] memory entries =
+            new CrossChainCodec.ReputationBatchEntry[](1);
+        entries[0] = CrossChainCodec.ReputationBatchEntry({
+            seq: 1, strategy: strategy, data: _sampleData(1)
+        });
+        bytes memory legacy =
+            abi.encode(CrossChainCodec.PayloadKind.ReputationUpdateV1, entries);
+        vm.expectRevert();
+        this.decodeBatch(legacy);
+    }
+
+    // ── Phase-5 review H6: hard cap on maxPendingPerStrategy ───────
+
+    function test_setMaxPendingPerStrategy_revertsAboveHardCap() public {
+        uint256 hardCap = baseOApp.MAX_PENDING_HARD_CAP();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap
+            )
+        );
+        vm.prank(owner);
+        baseOApp.setMaxPendingPerStrategy(hardCap + 1);
+    }
+
+    function test_constructor_revertsWhenInitialCapAboveHardCap() public {
+        uint256 hardCap = 64;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IHeliosOApp.PendingCapTooHigh.selector, hardCap + 1, hardCap
+            )
+        );
+        new HeliosOApp(address(baseEndpoint), owner, KITE_EID, address(0), hardCap + 1);
+    }
+
     // ── Queue / flush attestations ────────────────────────────────
 
     function test_queueAndFlushBatch() public {

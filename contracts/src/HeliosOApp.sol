@@ -51,6 +51,12 @@ contract HeliosOApp is OApp, IHeliosOApp {
     ///         until flushAttestations clears it.
     uint256 public maxPendingPerStrategy;
 
+    /// @notice Hard upper bound on `maxPendingPerStrategy`. Receiver-side
+    ///         `_handleReputationBatch` does an external call per entry, so
+    ///         an over-large cap can push `_lzReceive` past the executor gas
+    ///         budget and brick the packet. Phase-5 review H6.
+    uint256 public constant MAX_PENDING_HARD_CAP = 64;
+
     constructor(
         address endpoint_,
         address delegate_,
@@ -60,7 +66,9 @@ contract HeliosOApp is OApp, IHeliosOApp {
     ) OApp(endpoint_, delegate_) Ownable(delegate_) {
         kiteEid = kiteEid_;
         reputationAnchor = IReputationAnchor(reputationAnchor_);
-        maxPendingPerStrategy = maxPendingPerStrategy_ == 0 ? 64 : maxPendingPerStrategy_;
+        uint256 cap = maxPendingPerStrategy_ == 0 ? MAX_PENDING_HARD_CAP : maxPendingPerStrategy_;
+        if (cap > MAX_PENDING_HARD_CAP) revert PendingCapTooHigh(cap, MAX_PENDING_HARD_CAP);
+        maxPendingPerStrategy = cap;
     }
 
     // ── Admin ───────────────────────────────────────────────────────
@@ -75,6 +83,7 @@ contract HeliosOApp is OApp, IHeliosOApp {
 
     function setMaxPendingPerStrategy(uint256 cap) external onlyOwner {
         require(cap > 0, "cap=0");
+        if (cap > MAX_PENDING_HARD_CAP) revert PendingCapTooHigh(cap, MAX_PENDING_HARD_CAP);
         maxPendingPerStrategy = cap;
     }
 
@@ -222,24 +231,15 @@ contract HeliosOApp is OApp, IHeliosOApp {
         address, /*executor*/
         bytes calldata /*extraData*/
     ) internal override {
+        // Phase-5 review H5: route purely on the kind byte. Single and batch
+        // payloads use distinct PayloadKind values so there is no calldata
+        // heuristic that can collide on a chosen `seq` value.
         CrossChainCodec.PayloadKind kind = CrossChainCodec.peekKind(message);
 
         if (kind == CrossChainCodec.PayloadKind.ReputationUpdateV1) {
-            // Could be either single-update or batched. Discriminate by trying
-            // batch decode first — abi.decode reverts on shape mismatch, so we
-            // fall through to single decode in a try/catch-style guard via the
-            // codec: encoders set a different shape for each.
-            // Cheaper: peek the second word — for the single shape it’s a uint64
-            // seq; for the batch shape it’s a 0x40 offset to the dynamic array.
-            uint256 second;
-            assembly ("memory-safe") {
-                second := calldataload(add(message.offset, 32))
-            }
-            if (second == 0x40) {
-                _handleReputationBatch(origin, guid, message);
-            } else {
-                _handleReputationSingle(origin, guid, message);
-            }
+            _handleReputationSingle(origin, guid, message);
+        } else if (kind == CrossChainCodec.PayloadKind.ReputationBatchV1) {
+            _handleReputationBatch(origin, guid, message);
         } else if (kind == CrossChainCodec.PayloadKind.BridgeDeployV1) {
             _handleBridgeDeploy(origin, guid, message);
         } else {

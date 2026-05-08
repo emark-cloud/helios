@@ -54,6 +54,10 @@ interface IHeliosOApp {
     ///      requires `strategyOnDst == msg.sender` so a vault can only credit
     ///      capital to itself on the destination chain.
     error CallerActorMismatch(address caller, address actor);
+    /// @dev `setMaxPendingPerStrategy` and the constructor enforce a hard
+    ///      upper bound on the queue cap to keep flush packets within the
+    ///      LZ executor's gas budget. Phase-5 review H6.
+    error PendingCapTooHigh(uint256 cap, uint256 hardCap);
 
     /// @notice Send a single reputation update from a non-canonical chain to Kite.
     ///         Used for the “strategy executes locally → reputation ticks on Kite” path

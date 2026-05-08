@@ -10,10 +10,16 @@ import { IReputationAnchor } from "../interfaces/IReputationAnchor.sol";
 ///         Helios.md §6.9, §12; phase5-plan.md §WS1.
 library CrossChainCodec {
     /// @dev Tag for the leading byte. Distinct values required.
+    ///      Phase-5 review H5: single and batch reputation payloads MUST use
+    ///      different kinds so the receiver routes purely on the kind byte.
+    ///      The previous shared `ReputationUpdateV1` tag forced a calldata
+    ///      heuristic in `_lzReceive` that collided with single-update
+    ///      payloads at `seq == 0x40` and DoSed the channel.
     enum PayloadKind {
         Invalid, // 0 reserved so an all-zero payload can never decode
         ReputationUpdateV1,
-        BridgeDeployV1
+        BridgeDeployV1,
+        ReputationBatchV1
     }
 
     /// @notice Reputation message body. `seq` is per-(srcEid, strategy) and is
@@ -93,7 +99,7 @@ library CrossChainCodec {
         returns (bytes memory)
     {
         if (entries.length == 0) revert EmptyBatch();
-        return abi.encode(PayloadKind.ReputationUpdateV1, entries);
+        return abi.encode(PayloadKind.ReputationBatchV1, entries);
     }
 
     function decodeReputationBatch(bytes calldata payload)
@@ -103,7 +109,7 @@ library CrossChainCodec {
     {
         (PayloadKind kind, ReputationBatchEntry[] memory decoded) =
             abi.decode(payload, (PayloadKind, ReputationBatchEntry[]));
-        if (kind != PayloadKind.ReputationUpdateV1) revert UnknownKind(uint8(kind));
+        if (kind != PayloadKind.ReputationBatchV1) revert UnknownKind(uint8(kind));
         entries = decoded;
     }
 
@@ -136,7 +142,7 @@ library CrossChainCodec {
         assembly ("memory-safe") {
             raw := byte(31, calldataload(payload.offset))
         }
-        if (raw == 0 || raw > uint8(PayloadKind.BridgeDeployV1)) revert UnknownKind(raw);
+        if (raw == 0 || raw > uint8(PayloadKind.ReputationBatchV1)) revert UnknownKind(raw);
         kind = PayloadKind(raw);
     }
 }
