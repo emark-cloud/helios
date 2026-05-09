@@ -10,7 +10,18 @@ interface IUUPS {
 }
 
 /// @title UpgradeStrategyVaultsOnly
-/// @notice Phase-3 review HIGH #6 / #8 / #10 changed StrategyVault behavior:
+/// @notice **DEPRECATED 2026-05-09** — Phase-3 follow-up tooling. The
+///         hardcoded `_DEFAULT_PROXIES` list below is the *legacy*
+///         nine, which were flipped `active=false` by the Phase-6
+///         real-price cutover (`script/DeactivateLegacyVaults.s.sol`).
+///         Running this against them now is harmless but pointless —
+///         allocators no longer route capital to those proxies.
+///         Future StrategyVault upgrades should target the
+///         `phase6Vault*` proxies via an explicit `PROXIES` env or a
+///         new defaults array. Kept on disk as the historical record
+///         of how the 2026-05-08 Phase-3 impl swap was performed.
+///
+///         Phase-3 review HIGH #6 / #8 / #10 changed StrategyVault behavior:
 ///         oracle freshness check, NAV-cap on `withdrawToAllocator`,
 ///         Pausable mixin. These ride on a UUPS upgrade. PR #65 made
 ///         priceAnchor / yieldAnchor constructor immutables on the impl,

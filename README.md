@@ -112,7 +112,7 @@ Copy `.env.example` → `.env` and fill in at least `KITE_RPC_URL`, `DATABASE_UR
 
 ## Status
 
-Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0` lands on `main` once the WS8 acceptance PR merges. Live progress in [`TODO.md`](./TODO.md); current Phase 6 plan in [`docs/phase6-plan.md`](./docs/phase6-plan.md).
+Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0` lands on `main` once the WS8 acceptance PR merges. Phase-6 real-price cutover landed 2026-05-09 — `v0.6.0-realprice` tag at commit `0034fb4`; nine multi-asset StrategyVaults active on Kite testnet against live BTC/ETH/SOL prices. Live progress in [`TODO.md`](./TODO.md); current Phase 6 plan in [`docs/phase6-plan.md`](./docs/phase6-plan.md); cutover details in [`docs/active-strategies.md`](./docs/active-strategies.md).
 
 ## License
 

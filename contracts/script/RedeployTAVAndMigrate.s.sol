@@ -19,7 +19,17 @@ interface IUUPS {
 }
 
 /// @title RedeployTAVAndMigrate
-/// @notice Phase 6 #13 chain-side fix. The deployed Kite testnet TAV
+/// @notice **DEPRECATED 2026-05-09** — Phase-6 #13 TAV migration tooling.
+///         The hardcoded `_DEFAULT_PROXIES` list below targets the
+///         legacy nine that were flipped `active=false` by
+///         `script/DeactivateLegacyVaults.s.sol`. The new Phase-6
+///         multi-asset proxies were created in
+///         `script/DeployPhase6MultiAssetVaults.s.sol` already bound to
+///         the redeployed TAV (`0x3698f60a…`), so a re-run of this
+///         script against the new active set isn't needed. Kept as the
+///         historical record of how the 2026-05-08 TAV swap landed.
+///
+///         Phase 6 #13 chain-side fix. The deployed Kite testnet TAV
 ///         pre-dates PR #70's `proposeVerifierChange` machinery and has
 ///         no in-place rotation path (`registerVerifier` is first-set-only).
 ///         We redeploy a fresh TAV with the timelock code, register the

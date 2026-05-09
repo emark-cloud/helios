@@ -1,22 +1,24 @@
-"""Read-only smoke check for the Phase-3 base-trio fresh redeploy
-(2026-05-08). Confirms, against the live Kite testnet state, that each
-new strategy proxy is on the Phase-3 impl, registered + active, paused()
-callable (proves the Pausable mixin is live), and that its manifest /
-constructor immutables match the redeploy convention.
+"""DEPRECATED — historical Phase-3 smoke check. Will fail post-cutover.
 
-Also probes UserVault + AllocatorVault for the same Phase-3 surface
-(`paused()`, `userTotalDeployed`) so a single run validates both Phase-3
-follow-up upgrades.
+This script asserts that `strategyVaultMomentum/MeanReversion/YieldRotation`
+(the Phase-3 base-trio fresh-redeploy proxies) are `active=true` in
+`StrategyRegistry`. The 2026-05-09 Phase-6 real-price cutover flipped
+those proxies to `active=false`; the canonical active set lives under
+`phase6Vault*` keys. Use `scripts/e2e_phase6_realprice.py` (via
+`./scripts/e2e-scenario.sh phase6-realprice`) for the current
+acceptance harness.
 
-Drives no transactions — safe to run repeatedly. Exits non-zero on any
-failed assertion with a clear marker.
+Kept on disk so the Phase-3 acceptance trail is reproducible against
+historical RPC state if anyone needs to forensically replay it; the
+new harness has different invariants and can't substitute.
 
-Run via the wrapper:
-    ./scripts/e2e-base-trio-smoke.sh
-
-Or directly:
-    uv run --project services/sentinel python scripts/e2e_base_trio_smoke.py \
-        [--rpc-url $KITE_RPC_URL] [--deployments contracts/deployments/kite-testnet.json]
+Original spec: read-only smoke check for the Phase-3 base-trio fresh
+redeploy (2026-05-08). Confirmed each new strategy proxy was on the
+Phase-3 impl, registered + active, `paused()` callable (proves the
+Pausable mixin is live), and that its manifest / constructor
+immutables matched the redeploy convention. Also probed UserVault +
+AllocatorVault for the same Phase-3 surface (`paused()`,
+`userTotalDeployed`). Drove no transactions.
 """
 
 from __future__ import annotations
