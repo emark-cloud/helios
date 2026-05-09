@@ -133,7 +133,7 @@ Secrets never go in the repo. Use `.env` for local, Vercel/VPS env for prod.
 
 Deployed contract addresses per chain live in `contracts/deployments/*.json`, auto-written by deploy scripts. Frontend and services read from these files — no hardcoded addresses elsewhere. Current snapshot:
 
-- **Kite testnet (2368)** — Phase 2 deployed; full set in `contracts/deployments/kite-testnet.json`. Pinned references:
+- **Kite testnet (2368)** — Phase-6 real-price cutover live (broadcast 2026-05-09, `docs/phase6-realprice-plan.md`); full set in `contracts/deployments/kite-testnet.json`. Pinned references:
   - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f` (impl `0x245a96310b228016d79f6b93d934eb26c1FcE209`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + setMeta tightening guard from HIGH #5/#10)
   - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (impl `0x770E3078a285651c11863Ec4D8Be87D0aDE29Cb7`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + `userTotalDeployed` view + capped `_unwindAndCredit` from HIGH #5/#8/#10)
   - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d`
@@ -147,11 +147,23 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
   - `reputationAnchorV2` (sidecar; not registry-bound until Phase-5 cutover — see `docs/reputation-v1-v2-cutover.md`) `0x735680a32a0e5d9d23d7e8e8302f434e7f30428e`
   - `oraclePriceAnchor` `0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4` (Phase-3 redeploy 2026-05-07; supersedes `0x90e7a456…` which lacked `freshness()` / `unrevokeRoot()` from HIGH #6/#9)
   - `oracleYieldAnchor` `0x345cd375ec42476eb95c5903fb3abb27f9400f9d` (Phase-3 redeploy 2026-05-07; supersedes `0x1e458d57…`)
-  - Strategy vaults per class — all nine proxies UUPS-upgraded 2026-05-08 to **Phase-6 impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`** (adds `migrateVerifier(address) reinitializer(2)`; verifier slot migrated to the new TAV in the same `upgradeToAndCall` tx). Base + Variant2 + Variant3 all share this impl:
-    - `strategyVaultMomentum` `0xf11D55a3057A3Da51c9ED63BdC6aE8F666Fa426A` (paramsHash `keccak256("helios.mom_v1.base.phase3-redeploy")`; supersedes legacy `0x818a782f…` which stays registered + active in StrategyRegistry but is unreferenced from JSON)
-    - `strategyVaultMeanReversion` `0xE85FC70edC752D3ff283F3FFFA17598d32b5FC07` (supersedes legacy `0x6c1f9466…`)
-    - `strategyVaultYieldRotation` `0xb7496bE712Ed62fB02c6b9665F74eE6ff136d0d7` (supersedes legacy `0xbfbf9fa8…`)
-    All bake the new oracle anchors as constructor immutables. The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
+  - Test universe (Phase-6 broadcast 2026-05-09 via `DeployTestUniverse.s.sol`):
+    - `usdc` (mUSDC, 18 dec, existing) `0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd`
+    - `mWbtc` `0x3f81a60c5d5c6bfcb415080b846da22903ff37a0` (8 dec; 1k seeded into MockSwapRouter)
+    - `mWeth` `0x789ff10eb109626b01816161be72c9df32be4a00` (18 dec; 50k seeded)
+    - `mSol` `0xcf1276516a625723e40ae13d598de837079ad532` (9 dec; 1M seeded)
+    - `swapRouter` (MockSwapRouter, owner = deployer) `0x55782e7019f4619a06a25bf66d2998c8fe2cc436` — fed by VPS `RouterPriceMirror` keeper (`oracle.router_mirror.posted` log) every bar with 5 bps spread per leg.
+  - Strategy vaults — **Phase-6 fresh redeploy 2026-05-09** (`DeployPhase6MultiAssetVaults.s.sol`); nine new ERC1967 proxies on impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`. Universe per class: mom/mr `[mUSDC, mWBTC, mWETH, mSOL]`; yr `[mUSDC]` (Helios.md §12.1 carve-out — yield venues live on Arbitrum). Distinct paramsHash per (class, variant) seeded as `keccak256("helios.<class>.phase6.multiasset.<variant>")`. All active in StrategyRegistry; the legacy nine are flipped `active=false` (`DeactivateLegacyVaults.s.sol`) and stay in the registry only so existing user capital can exit via the standard `defundStrategy` path.
+    - `phase6VaultMomentum` `0x29b5d20fe7005ab81b3b919385003399e6397622` (supersedes legacy `0xf11D55a3…` — now inactive)
+    - `phase6VaultMomentumVariant2` `0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e` (supersedes legacy `0xc1B19Df0…`)
+    - `phase6VaultMomentumVariant3` `0x24dc209dab31887f20ecf7eae626f4e8fa46d570` (supersedes legacy `0x4e19e5Ee…`)
+    - `phase6VaultMeanReversion` `0xf825727ea1d19066e6b06bcc928a658ee1e7516f` (supersedes legacy `0xE85FC70e…`)
+    - `phase6VaultMeanReversionVariant2` `0xa863b0372f28f368119cbf4ae2b46730e5d009f5` (supersedes legacy `0xD4898262…`)
+    - `phase6VaultMeanReversionVariant3` `0xf44051d85f1a2f31a249d5f4136176c083f09dd3` (supersedes legacy `0x50c1DCC2…`)
+    - `phase6VaultYieldRotation` `0x2c765493f3899d2236d172b5c9c7c9473bd71765` (supersedes legacy `0xb7496bE7…`)
+    - `phase6VaultYieldRotationVariant2` `0x6734ce8189eeb801f595e5c0a7b4239221f08d93` (supersedes legacy `0x5605B2E1…`)
+    - `phase6VaultYieldRotationVariant3` `0x92c15c4f20641191dd9b464ec446cc7d7ac616c5` (supersedes legacy `0x3863f44F…`)
+    Allocators auto-resolve through Goldsky's `where: { active: true }` filter (`AllocatorGoldsky.fetch_directory`) — no env-var change to switch the strategy set, the registry is canonical. Subgraph deployed at `helios/v0.6.0` (`https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.6.0/gn`). The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
 - **Kite mainnet**: *(Stretch — only if time permits; playbook in `docs/deployment-strategy.md`. Not in v1 scope.)*
 - **Base Sepolia (84532)**: *(Phase 5)*
 - **Arbitrum Sepolia (421614)**: *(Phase 5)*
