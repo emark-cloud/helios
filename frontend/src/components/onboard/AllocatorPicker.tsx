@@ -1,7 +1,9 @@
 /**
- * Allocator picker step. WS6.B: two cards, Sentinel (default) and
- * Helix. Each shows fee rate, ranking-function summary, current
- * reputation, and a link to the `/allocators/[name]` detail page.
+ * Allocator picker step. WS6.B originally shipped two cards
+ * (Sentinel + Helix); Helix is a Phase-3 scope cut (see
+ * project_phase3_scope_cuts memory) so the picker shows Sentinel
+ * only for the demo. AllocatorChoice keeps "helix" in the type for
+ * forward compatibility — the picker just never offers it.
  *
  * Live reputation reads from Goldsky alongside other allocator
  * fields. While the subgraph is loading the cards still render with
@@ -28,13 +30,11 @@ import type { AllocatorChoice } from "@/lib/sentinel";
 const CHOICE_BY_BRAND: Record<string, AllocatorChoice> = {
   "helios sentinel": "sentinel",
   "helios sentinel-shadow": "sentinel",
-  "helios helix": "helix",
-  "helios helix-shadow": "helix",
 };
 
-/// Static fallback rows so the picker renders even when the subgraph
-/// is unreachable or hasn't yet indexed the allocators. Default fees
-/// match the on-chain registrations: Sentinel 500 bps, Helix 600 bps.
+/// Static fallback row so the picker renders even when the subgraph
+/// is unreachable or hasn't yet indexed the allocator. Default fee
+/// matches the on-chain registration: Sentinel 500 bps.
 const FALLBACK_ROWS: ReadonlyArray<Pick<
   AllocatorDirectoryRow,
   "id" | "name" | "feeRateBps" | "currentReputation" | "totalUsers" | "isReferenceBrand"
@@ -43,14 +43,6 @@ const FALLBACK_ROWS: ReadonlyArray<Pick<
     id: "0xsentinel",
     name: "Helios Sentinel",
     feeRateBps: 500,
-    currentReputation: "0",
-    totalUsers: 0,
-    isReferenceBrand: true,
-  },
-  {
-    id: "0xhelix",
-    name: "Helios Helix",
-    feeRateBps: 600,
     currentReputation: "0",
     totalUsers: 0,
     isReferenceBrand: true,
@@ -72,11 +64,11 @@ export function AllocatorPicker({ value, onChange }: AllocatorPickerProps): JSX.
   const liveRows = pinReferenceBrandsFirst(data ?? []).filter(
     (r) => CHOICE_BY_BRAND[r.name.toLowerCase()] !== undefined,
   );
-  const rows = liveRows.length === 2 ? liveRows : FALLBACK_ROWS;
+  const rows = liveRows.length >= 1 ? liveRows : FALLBACK_ROWS;
 
   return (
     <div
-      className="grid grid-cols-1 gap-4 md:grid-cols-2"
+      className="grid grid-cols-1 gap-4"
       role="radiogroup"
       aria-label="Allocator"
     >

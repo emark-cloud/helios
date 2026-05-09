@@ -8,7 +8,11 @@ import type { AllocatorChoice } from "@/lib/sentinel";
 
 const STORAGE_KEY = "helios.onboard.allocator";
 
-const VALID_CHOICES: ReadonlySet<AllocatorChoice> = new Set(["sentinel", "helix"]);
+// Helix was Phase-1 plan but is a Phase-3 scope cut, so a stored
+// `"helix"` value from an old session would now POST to a non-
+// existent `/api/helix`. Drop it from VALID_CHOICES so reads coerce
+// the stale value back to the `"sentinel"` default.
+const VALID_CHOICES: ReadonlySet<AllocatorChoice> = new Set(["sentinel"]);
 
 /// Read the persisted choice, defaulting to `"sentinel"` (the Phase-1
 /// default). Returns the default during SSR (`window` undefined).
