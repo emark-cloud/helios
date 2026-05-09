@@ -39,12 +39,21 @@ export type PassportSession = {
   eoaAddress: `0x${string}`;
 };
 
+type PassportAuth = {
+  isLogin(): boolean;
+  login(_options?: object): Promise<unknown>;
+  logout(_hideLoading?: boolean): Promise<void>;
+  getUserInfo(): { wallets?: Array<{ public_address: string }> } | null;
+  sign(_method: string, _message: string): Promise<string>;
+};
+
 type PassportSdkBundle = {
   // Loose-typed handles to keep this provider free of build-time
   // dependencies on `@gokite-network/auth` types — tests run without
   // the package and any signature drift between minor releases would
   // otherwise break the build.
   network: unknown;
+  particleAuth: PassportAuth;
   smartAccount: { getAddress(): Promise<string> };
   aaSdk: {
     sendUserOperationAndWait(
@@ -145,7 +154,7 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
       // 4201 ("The Provider does not support the chain") mid-passkey.
       chainName: "Gokite",
     });
-    const particleAuth = particle.auth;
+    const particleAuth = particle.auth as PassportAuth;
 
     const SmartAccountCtor = (gokiteAuthMod as { SmartAccount: new (..._args: unknown[]) => unknown })
       .SmartAccount;
@@ -188,6 +197,7 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
 
     const bundle: PassportSdkBundle = {
       network,
+      particleAuth,
       smartAccount,
       aaSdk,
       signFn,
@@ -201,12 +211,20 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
       throw new Error("Passport is not enabled — set NEXT_PUBLIC_USE_PASSPORT=1.");
     }
     const bundle = await ensureBundle();
-    // GokiteNetwork.login() drives the Particle modal (passkey/email/social).
-    await (bundle.network as { login: (_opts?: object) => Promise<unknown> }).login({});
+    // Drive the Particle passkey modal directly. `GokiteNetwork.login()`
+    // in @gokite-network/auth@<=current has an inverted check
+    // (`if (!isLogin()) return getUserInfo()`) — for first-time users
+    // it short-circuits to a stale userInfo without ever opening the
+    // modal, which then trips `SmartAccount Error: EOA address is empty`
+    // on `getAddress()`. Calling `particleAuth.login()` ourselves
+    // bypasses that bug; we still keep `bundle.network` around for the
+    // logout / signin RPC paths.
+    if (!bundle.particleAuth.isLogin()) {
+      await bundle.particleAuth.login({});
+    }
     const aaAddress = (await bundle.smartAccount.getAddress()) as `0x${string}`;
-    const eoaAddress = ((
-      bundle.network as { user: { wallets?: Array<{ public_address: string }> } | null }
-    ).user?.wallets?.[0]?.public_address ?? aaAddress) as `0x${string}`;
+    const eoaAddress = (bundle.particleAuth.getUserInfo()?.wallets?.[0]?.public_address
+      ?? aaAddress) as `0x${string}`;
     const next: PassportSession = { aaAddress, eoaAddress };
     setSession(next);
     return next;
