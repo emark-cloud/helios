@@ -8,8 +8,13 @@
  * empty state rather than spinning forever.
  */
 
-const BASE = (process.env.NEXT_PUBLIC_SENTINEL_URL ?? "http://localhost:8001").replace(/\/$/, "");
-const HELIX_BASE = (process.env.NEXT_PUBLIC_HELIX_URL ?? "http://localhost:8006").replace(/\/$/, "");
+// Defaults to the Vercel-side proxy (`/api/sentinel/[...path]`) so a
+// production deploy works without an env var. The proxy forwards
+// server-side to the VPS Sentinel — the browser never sees the raw
+// `http://` upstream and avoids mixed-content / CORS. Local dev
+// overrides with `http://localhost:8001` via `.env.local`.
+const BASE = (process.env.NEXT_PUBLIC_SENTINEL_URL ?? "/api/sentinel").replace(/\/$/, "");
+const HELIX_BASE = (process.env.NEXT_PUBLIC_HELIX_URL ?? "/api/helix").replace(/\/$/, "");
 
 /// Two reference allocator base URLs. The onboard `AllocatorPicker`
 /// stores the user's pick in localStorage as `"sentinel" | "helix"`;
@@ -267,6 +272,19 @@ export async function subscribeUserEvents(
 
   const _connect = async (): Promise<void> => {
     if (cancelled) return;
+    // BASE may be relative (`/api/sentinel`) when the REST surface is
+    // served via the Vercel proxy. Vercel Route Handlers don't proxy
+    // WebSockets, so without a separate `NEXT_PUBLIC_SENTINEL_WS_URL`
+    // pointing at a TLS-fronted upstream we have to skip the
+    // subscription. The activity rail surfaces this via `onStatus`
+    // and renders an empty stream. Once the VPS gets an HTTPS/WSS
+    // domain, set `NEXT_PUBLIC_SENTINEL_WS_URL=wss://…` and this
+    // branch is bypassed.
+    const wsHttpBase = process.env.NEXT_PUBLIC_SENTINEL_WS_URL ?? BASE;
+    if (!/^https?:/i.test(wsHttpBase) && !/^wss?:/i.test(wsHttpBase)) {
+      onStatus?.("closed");
+      return;
+    }
     const validUntil = Math.floor(Date.now() / 1000) + 300;
     const digest = wsSubscribeDigest(user, validUntil);
     let signature: string;
@@ -278,7 +296,7 @@ export async function subscribeUserEvents(
       return;
     }
     if (cancelled) return;
-    const wsBase = BASE.replace(/^http/, "ws");
+    const wsBase = wsHttpBase.replace(/^http/, "ws");
     const params = new URLSearchParams({
       valid_until: String(validUntil),
       signature,

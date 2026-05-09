@@ -99,7 +99,13 @@ services:
     env_file: /srv/helios/.env
     environment:
       DATABASE_URL: postgres://helios:${POSTGRES_PASSWORD}@postgres:5432/helios
-    ports: ["127.0.0.1:8001:8001"]
+    # Public-bind 8001 so the Vercel-side `/api/sentinel/[...path]`
+    # proxy can reach this service over the public IP. Sentinel is
+    # write-once-per-(user,nonce); the on-chain UserVault is the
+    # authoritative trust anchor, so a public REST surface is OK
+    # for the testnet demo. Re-front with nginx + TLS once a domain
+    # is ready (deploy/nginx/sentinel.conf, deploy/setup-tls.sh).
+    ports: ["0.0.0.0:8001:8001"]
     depends_on: [postgres, redis, prover]
 
   reputation:
