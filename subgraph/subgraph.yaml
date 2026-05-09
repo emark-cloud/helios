@@ -587,3 +587,350 @@ dataSources:
         - event: AttestationQueued(indexed address,indexed uint64,uint256)
           handler: handleAttestationQueued
 
+  # ── Phase-6 real-price cutover datasources ────────────────────
+  #
+  # Phase 6 / WS4 wires the subgraph for the multi-asset real-price
+  # cutover (`docs/phase6-realprice-plan.md`). Two layers:
+  #
+  #   (a) `*Phase6` entries below mirror infrastructure contracts
+  #       that have already been redeployed on testnet but whose
+  #       addresses are stale on the legacy entries above:
+  #         - TAV redeploy 2026-05-08 (Phase-6 #13 — adds the
+  #           propose/commit timelock from PR #70)
+  #         - Oracle{Price,Yield}Anchor redeploys 2026-05-07
+  #           (Phase-3 — adds `freshness()` / `unrevokeRoot()`
+  #           from HIGH #6/#9)
+  #       Legacy entries retained so historical events stay
+  #       queryable (e.g. ParamsRotated rows from the old TAV).
+  #
+  #   (b) Nine placeholder StrategyVault datasources below — to be
+  #       populated at WS8 broadcast time from the
+  #       `DeployPhase6MultiAssetVaults.s.sol` run-latest. Address
+  #       `0x000…dEaD` and startBlock 0 mirror the pre-broadcast
+  #       Phase-5 HeliosOApp pattern earlier in this file. The
+  #       fresh redeploy is required (not an in-place upgrade) to
+  #       avoid breaking the paramsHash↔proof binding when the
+  #       new multi-asset universe ships.
+  #
+  # All `StrategyVault*P6*` entries reuse `./src/strategy-vault.ts`
+  # — graph-codegen produces per-datasource namespaces but the
+  # WASM handlers dispatch on `event.params.strategy`, so no
+  # mapping changes are required.
+  - kind: ethereum
+    name: TradeAttestationVerifierP6
+    network: kite-ai-testnet
+    source:
+      address: "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81"
+      abi: TradeAttestationVerifier
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/trade-attestation-verifier.ts
+      entities:
+        - VerifierRegistration
+      abis:
+        - name: TradeAttestationVerifier
+          file: ./abis/TradeAttestationVerifier.json
+      eventHandlers:
+        - event: VerifierRegistered(indexed bytes32,address)
+          handler: handleVerifierRegistered
+
+  - kind: ethereum
+    name: OraclePriceAnchorP3
+    network: kite-ai-testnet
+    source:
+      address: "0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4"
+      abi: OraclePriceAnchor
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/oracle-price-anchor.ts
+      entities:
+        - OraclePriceCommit
+      abis:
+        - name: OraclePriceAnchor
+          file: ./abis/OraclePriceAnchor.json
+      eventHandlers:
+        - event: Committed(indexed uint256,indexed bytes32,uint64,uint64,indexed address)
+          handler: handlePriceCommitted
+
+  - kind: ethereum
+    name: OracleYieldAnchorP3
+    network: kite-ai-testnet
+    source:
+      address: "0x345cd375ec42476eb95c5903fb3abb27f9400f9d"
+      abi: OracleYieldAnchor
+      startBlock: 21201220
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/oracle-yield-anchor.ts
+      entities:
+        - OracleYieldCommit
+      abis:
+        - name: OracleYieldAnchor
+          file: ./abis/OracleYieldAnchor.json
+      eventHandlers:
+        - event: Committed(indexed uint256,indexed bytes32,uint64,uint64,indexed address)
+          handler: handleYieldCommitted
+
+  # Phase-6 multi-asset StrategyVaults — base trio.
+  - kind: ethereum
+    name: StrategyVaultMomentumP6
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultMeanReversionP6
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultYieldRotationP6
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
+          handler: handleYieldRotationAttested
+
+  # Phase-6 multi-asset StrategyVaults — variant2.
+  - kind: ethereum
+    name: StrategyVaultMomentumP6V2
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultMeanReversionP6V2
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultYieldRotationP6V2
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
+          handler: handleYieldRotationAttested
+
+  # Phase-6 multi-asset StrategyVaults — variant3.
+  - kind: ethereum
+    name: StrategyVaultMomentumP6V3
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultMeanReversionP6V3
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultYieldRotationP6V3
+    network: kite-ai-testnet
+    source:
+      address: "0x000000000000000000000000000000000000dEaD"
+      abi: StrategyVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - YieldRotation
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+        - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
+          handler: handleYieldRotationAttested
+

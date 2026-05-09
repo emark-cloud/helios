@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Address + startBlock map per network. Used by graph-cli (0.83.0) ",
+    "with `graph build --network kite-ai-testnet --network-file networks.json` ",
+    "to override hardcoded values in subgraph.yaml.",
+    "",
+    "Phase-6 / WS4 scaffolding: legacy + already-redeployed entries are filled. ",
+    "The nine `StrategyVault*P6*` slots are placeholders to be populated at ",
+    "WS8 broadcast time from `contracts/broadcast/DeployPhase6MultiAssetVaults.s.sol/2368/run-latest.json`. ",
+    "Replacement protocol: copy `proxy` field of each broadcast 'CREATE'd ERC1967Proxy ",
+    "into `address`, copy the broadcast `blockNumber` into `startBlock`, then ",
+    "`pnpm --filter subgraph build && pnpm --filter subgraph deploy`."
+  ],
+  "kite-ai-testnet": {
+    "StrategyRegistry":               { "address": "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d", "startBlock": 21074384 },
+    "AllocatorRegistry":              { "address": "0xbfeba025ca32324a87c620a5c7c110c7666f417c", "startBlock": 21074384 },
+    "ReputationAnchor":               { "address": "0x51c07adf596b1e72697a9b8232d061ed006943dc", "startBlock": 21074384 },
+    "StrategyVault":                  { "address": "0x818a782f040f09389e7c34b1e2e33188d473a950", "startBlock": 21074384 },
+    "StrategyVaultMeanReversion":     { "address": "0x6c1f9466db7bc2364b0bac051e73421d5b75354b", "startBlock": 21074384 },
+    "StrategyVaultYieldRotation":     { "address": "0xbfbf9fa82b5df3b080be27f64d650101ee69c36f", "startBlock": 21074384 },
+    "AllocatorVault":                 { "address": "0xf3e4452fe17edbfa6833022b9c186aa14b98955d", "startBlock": 21074384 },
+    "UserVault":                      { "address": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f", "startBlock": 21074384 },
+    "TradeAttestationVerifier":       { "address": "0x743e1bd7e9795e78b10965eaeaa93bf215476c96", "startBlock": 21074384 },
+
+    "StrategyVaultMomentumV2":        { "address": "0xc1b19df0003eadf29313826dc874c769ebb09109", "startBlock": 21201220 },
+    "StrategyVaultMeanReversionV2":   { "address": "0xd4898262bb6ffbaf5f0c016663a2c59767ddb65f", "startBlock": 21201220 },
+    "StrategyVaultYieldRotationV2":   { "address": "0x5605b2e1883428680266fd25cb7429f2001c0c17", "startBlock": 21201220 },
+    "StrategyVaultMomentumV3":        { "address": "0x4e19e5eec25fc15fbc30a9446d283f4ebed6462c", "startBlock": 21201220 },
+    "StrategyVaultMeanReversionV3":   { "address": "0x50c1dcc21e571c106eee21f42f22fb6ea0d4a708", "startBlock": 21201220 },
+    "StrategyVaultYieldRotationV3":   { "address": "0x3863f44fe693764562c0d239e05c5f194544b0b4", "startBlock": 21201220 },
+    "ReputationAnchorV2":             { "address": "0x735680a32a0e5d9d23d7e8e8302f434e7f30428e", "startBlock": 21201220 },
+    "OraclePriceAnchor":              { "address": "0x90e7a456404e73466e71a190dbb5a5a3490776a8", "startBlock": 21201220 },
+    "OracleYieldAnchor":              { "address": "0x1e458d57f9fe0cf50f82366c258b05a254d8fa6f", "startBlock": 21201220 },
+
+    "HeliosOApp":                     { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+
+    "TradeAttestationVerifierP6":     { "address": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81", "startBlock": 21201220 },
+    "OraclePriceAnchorP3":            { "address": "0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4", "startBlock": 21201220 },
+    "OracleYieldAnchorP3":            { "address": "0x345cd375ec42476eb95c5903fb3abb27f9400f9d", "startBlock": 21201220 },
+
+    "StrategyVaultMomentumP6":        { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultMeanReversionP6":   { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultYieldRotationP6":   { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultMomentumP6V2":      { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultMeanReversionP6V2": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultYieldRotationP6V2": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultMomentumP6V3":      { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultMeanReversionP6V3": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
+    "StrategyVaultYieldRotationP6V3": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 }
+  }
+}
