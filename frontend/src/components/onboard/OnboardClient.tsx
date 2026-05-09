@@ -33,7 +33,7 @@ import {
   zeroAddress,
   type Hex,
 } from "viem";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useSignMessage, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 
 import { AllocatorPicker } from "@/components/onboard/AllocatorPicker";
 import { CommitmentSummary } from "@/components/onboard/CommitmentSummary";
@@ -232,7 +232,9 @@ export function OnboardClient(): JSX.Element {
       <Section step="4" title="Sign">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
           <CommitmentSummary form={form} />
-          <SignPanel
+          <div className="flex flex-col gap-3">
+            {!passport.enabled ? <MintDemoUsdcButton /> : null}
+            <SignPanel
             connected={connected}
             isSigning={isSigning || submitState.kind === "submitting"}
             stage={submitState.kind === "submitting" ? submitState.stage : null}
@@ -265,8 +267,92 @@ export function OnboardClient(): JSX.Element {
             aaAddress={passport.session?.aaAddress ?? null}
             eoaAddress={passport.session?.eoaAddress ?? null}
           />
+          </div>
         </div>
       </Section>
+    </div>
+  );
+}
+
+/**
+ * Self-mint demo mUSDC for the connected EOA (non-Passport flow).
+ *
+ * The deployed mUSDC on Kite testnet is the permissionless
+ * `MockERC20` (`contracts/test/mocks/MockERC20.sol`) — `mint` has
+ * no access control, so any user can self-fund. The Passport flow
+ * folds this mint into its userOp batch (see
+ * `executePassportUserOp`); the wagmi/MetaMask flow doesn't have
+ * a batch, so we surface a button. Mints 100k * 1e6 = 1e11 wei,
+ * matching the frontend's `USDC_DECIMALS = 6` parsing convention
+ * — enough headroom for the default 1k-USD form plus retries.
+ */
+function MintDemoUsdcButton(): JSX.Element | null {
+  const { address, isConnected } = useAccount();
+  const { writeContract, data: hash, error, isPending, reset } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash,
+  });
+  const addrs = addressesForChainId(KITE_CHAIN_ID);
+  if (!isConnected || !address || !addrs.usdc) return null;
+
+  const usdc = addrs.usdc;
+  const eoa = address;
+  const onClick = (): void => {
+    reset();
+    writeContract({
+      abi: [
+        {
+          type: "function",
+          name: "mint",
+          stateMutability: "nonpayable",
+          inputs: [
+            { name: "to", type: "address" },
+            { name: "amount", type: "uint256" },
+          ],
+          outputs: [],
+        },
+      ] as const,
+      address: usdc,
+      functionName: "mint",
+      args: [eoa, parseUnits("100000", USDC_DECIMALS)],
+    });
+  };
+
+  const status = isPending
+    ? "Confirm in your wallet…"
+    : isConfirming
+      ? "Mining…"
+      : isConfirmed
+        ? `Minted 100k mUSDC to ${eoa.slice(0, 6)}…${eoa.slice(-4)}`
+        : error
+          ? `Mint failed: ${error.message}`
+          : null;
+
+  return (
+    <div className="rounded-md border border-surface-line bg-surface-panel p-4">
+      <h3 className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">Demo capital</h3>
+      <p className="mt-2 text-xs text-fg-secondary">
+        On Kite testnet mUSDC is a permissionless mock token — mint as much as you need to deposit.
+      </p>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={isPending || isConfirming}
+        className="mt-3 rounded-sm border border-surface-line bg-surface-elev px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] text-fg-primary hover:border-amber hover:text-amber-bright disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Mint 100k demo mUSDC
+      </button>
+      {status ? (
+        <p
+          className={
+            error
+              ? "mt-2 font-mono text-[11px] text-signal-negative"
+              : "mt-2 font-mono text-[11px] text-fg-secondary"
+          }
+        >
+          {status}
+        </p>
+      ) : null}
     </div>
   );
 }
