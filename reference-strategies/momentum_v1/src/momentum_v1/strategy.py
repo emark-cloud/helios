@@ -26,7 +26,12 @@ from helios.sizing import nav_target_notional
 
 class MomentumStrategy(StrategyAgent):
     declared_class = "momentum_v1"
-    asset_universe = ("USDC", "WKITE", "WETH")
+    # Phase-6 multi-asset universe (Kite testnet real-P&L). USDC remains
+    # the base asset (the `if asset == "USDC"` guard in `on_bar` keeps
+    # it out of the signal subjects). WBTC/WETH/SOL gain real oracle
+    # prices via the BTC/ETH/SOL Binance/Coingecko sources, so the
+    # strategy actually moves NAV when those markets move.
+    asset_universe = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 

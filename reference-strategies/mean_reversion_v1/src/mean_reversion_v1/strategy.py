@@ -37,7 +37,10 @@ LOOKBACK_BARS = 16
 
 class MeanReversionStrategy(StrategyAgent):
     declared_class = "mean_reversion_v1"
-    asset_universe = ("USDC", "WKITE", "WETH")
+    # Phase-6 multi-asset universe (Kite testnet real-P&L). Same shape
+    # as momentum_v1; USDC stays as base, WBTC/WETH/SOL get real
+    # oracle prices.
+    asset_universe = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 

@@ -68,6 +68,7 @@ def build_momentum_witness(
     is_signal_flip: bool,
     is_stop_loss: bool,
     was_long: bool = True,
+    asset_decimals: dict[str, int] | None = None,
 ) -> WitnessRequest:
     """Pure helper — no I/O. Tests construct the same payload to assert
     on shape + invariants."""
@@ -101,8 +102,8 @@ def build_momentum_witness(
 
     asset_in_idx = asset_to_universe_idx[intent.asset_in]
     asset_out_idx = asset_to_universe_idx[intent.asset_out]
-    amount_in_e18 = _resolve_amount_in_e18(intent, padded[-1])
-    min_amount_out_e18 = _min_amount_out_e18(amount_in_e18, intent.max_slippage_bps)
+    amount_in_e18 = _resolve_amount_in(intent, padded[-1], asset_decimals)
+    min_amount_out_e18 = _min_amount_out(amount_in_e18, intent.max_slippage_bps)
 
     strategy_vault_field = address_to_field(strategy_vault_address)
     allocator_field = address_to_field(allocator_address)
@@ -172,20 +173,60 @@ def build_momentum_witness(
     )
 
 
-def _resolve_amount_in_e18(intent: TradeIntent, last_price_e18: int) -> int:
-    """Translate a TradeIntent's amount into a uint256 e18 value.
+def _resolve_amount_in(
+    intent: TradeIntent,
+    last_price_e18: int,
+    asset_decimals: dict[str, int] | None,
+) -> int:
+    """Translate a TradeIntent's amount into the integer the circuit
+    consumes as `amount_in` and the on-chain swap consumes as
+    `amountIn` (the two MUST agree — `StrategyVault` enforces
+    `publicInputs[PI_AMOUNT_IN] == swap.amountIn`).
 
-    Phase 1 simplifying assumption: USDC (the base asset) and the
-    on-circuit `amount_in` share a single 18-decimal scaling. Real
-    USDC has 6 decimals; the on-chain MockSwapRouter normalizes for
-    the demo. Hardening lands when we move to real Algebra in Phase 2.
+    Two modes:
+
+    * **Multi-decimal mode** (`asset_decimals` provided AND maps
+      `intent.asset_in`): produces *raw* `tokenIn` units using the
+      asset's actual decimals. Required when the universe has tokens
+      with different decimals (Phase-6 multi-asset: mUSDC=18,
+      mWBTC=8, mWETH=18, mSOL=9 on Kite testnet today; mUSDC=6 on
+      mainnet). Without this, the swap router would receive an
+      amount mismatched to `tokenIn`'s native decimals and the
+      on-chain check would revert.
+
+    * **Legacy mode** (`asset_decimals` is None / missing the asset):
+      the Phase-1 USDC-only encoding — `amount_in` is USD * 10^18.
+      Works only when the universe is uniformly 18-decimal AND the
+      base asset is mUSDC-as-18-dec (Phase-1 demo). Kept for
+      backward compatibility with the existing test corpus and any
+      scenario harness that hasn't been migrated yet.
+
+    The circuit doesn't interpret `amount_in` semantically beyond
+    `amount_in <= max_position_size`. In multi-decimal mode that
+    constraint becomes a loose upper bound (raw 8-dec WBTC amounts
+    are tiny vs `max_position_size_usd * 10^18`); the tight USD
+    cap is enforced off-chain by `StrategyAgent._size`.
     """
+    asset_in = intent.asset_in
+    dec = (asset_decimals or {}).get(asset_in)
+
     if intent.amount_in_usd is not None:
+        if dec is not None:
+            # USD-denominated leg in multi-decimal mode is always paired
+            # with the stable as `asset_in` (LONG entry: USDC → asset).
+            # Translate directly to the stable's raw decimals.
+            return int(intent.amount_in_usd * 10**dec)
         return int(intent.amount_in_usd * 10**18)
+
     if intent.amount_in_asset is not None:
+        if dec is not None:
+            # Asset-denominated leg (EXIT: asset → USDC) carries the raw
+            # asset quantity in human-readable units. Scale to raw.
+            return int(intent.amount_in_asset * 10**dec)
         return int(intent.amount_in_asset * last_price_e18)
+
     raise ValueError("intent must carry amount_in_usd or amount_in_asset")
 
 
-def _min_amount_out_e18(amount_in_e18: int, max_slippage_bps: int) -> int:
-    return amount_in_e18 * (10_000 - max_slippage_bps) // 10_000
+def _min_amount_out(amount_in: int, max_slippage_bps: int) -> int:
+    return amount_in * (10_000 - max_slippage_bps) // 10_000

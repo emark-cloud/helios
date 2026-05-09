@@ -67,6 +67,7 @@ def build_mean_reversion_witness(
     stop_loss_price_e18: int,
     is_signal_flip: bool,
     is_stop_loss: bool,
+    asset_decimals: dict[str, int] | None = None,
 ) -> WitnessRequest:
     """Pure helper — no I/O. Tests construct the same payload to assert
     on shape + invariants."""
@@ -101,8 +102,8 @@ def build_mean_reversion_witness(
 
     asset_in_idx = asset_to_universe_idx[intent.asset_in]
     asset_out_idx = asset_to_universe_idx[intent.asset_out]
-    amount_in_e18 = _resolve_amount_in_e18(intent, padded[-1])
-    min_amount_out_e18 = _min_amount_out_e18(amount_in_e18, intent.max_slippage_bps)
+    amount_in_e18 = _resolve_amount_in(intent, padded[-1], asset_decimals)
+    min_amount_out_e18 = _min_amount_out(amount_in_e18, intent.max_slippage_bps)
 
     strategy_vault_field = address_to_field(strategy_vault_address)
     allocator_field = address_to_field(allocator_address)
@@ -165,20 +166,31 @@ def build_mean_reversion_witness(
     )
 
 
-def _resolve_amount_in_e18(intent: TradeIntent, last_price_e18: int) -> int:
-    """Translate a TradeIntent's amount into a uint256 e18 value.
-
-    Phase 1/2 simplifying assumption: USDC (the base asset) and the
-    on-circuit `amount_in` share a single 18-decimal scaling. Real
-    USDC has 6 decimals; the on-chain MockSwapRouter normalizes for
-    the demo. Hardening lands when we move to real Algebra in Phase 5.
+def _resolve_amount_in(
+    intent: TradeIntent,
+    last_price_e18: int,
+    asset_decimals: dict[str, int] | None,
+) -> int:
+    """Translate a TradeIntent's amount into the integer the circuit
+    consumes as `amount_in` and the on-chain swap consumes as
+    `amountIn`. Identical semantics to `momentum_v1.witness._resolve_amount_in`
+    — see that docstring for the multi-decimal vs legacy modes.
     """
+    asset_in = intent.asset_in
+    dec = (asset_decimals or {}).get(asset_in)
+
     if intent.amount_in_usd is not None:
+        if dec is not None:
+            return int(intent.amount_in_usd * 10**dec)
         return int(intent.amount_in_usd * 10**18)
+
     if intent.amount_in_asset is not None:
+        if dec is not None:
+            return int(intent.amount_in_asset * 10**dec)
         return int(intent.amount_in_asset * last_price_e18)
+
     raise ValueError("intent must carry amount_in_usd or amount_in_asset")
 
 
-def _min_amount_out_e18(amount_in_e18: int, max_slippage_bps: int) -> int:
-    return amount_in_e18 * (10_000 - max_slippage_bps) // 10_000
+def _min_amount_out(amount_in: int, max_slippage_bps: int) -> int:
+    return amount_in * (10_000 - max_slippage_bps) // 10_000

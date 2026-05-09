@@ -225,3 +225,69 @@ def test_fixture_round_trip() -> None:
         int(req.inputs["trade_hash"])
         == 3003122794127521053123681721578845572260160476947025219414413002822614285464
     )
+
+
+# ── Multi-decimal mode (Phase-6 real-P&L) ────────────────────────────
+
+
+def test_multi_decimal_long_entry_uses_stable_decimals() -> None:
+    """LONG (USDC -> asset) with multi-decimal mode must scale
+    `amount_in_usd` by USDC's raw decimals, NOT 10**18. Phase-6
+    deploys mUSDC with 18-decimal MockERC20; mainnet-style USDC=6
+    is also covered."""
+    # mUSDC=18 case (current Kite testnet shape).
+    req = _build(asset_decimals={"USDC": 18, "WETH": 18})
+    assert int(req.inputs["amount_in"]) == 1000 * 10**18
+
+    # USDC=6 case (real USDC on mainnet, future-proof).
+    req6 = _build(asset_decimals={"USDC": 6, "WETH": 18})
+    assert int(req6.inputs["amount_in"]) == 1000 * 10**6
+
+
+def test_multi_decimal_exit_uses_asset_decimals() -> None:
+    """EXIT (asset -> USDC) with multi-decimal mode must scale
+    `amount_in_asset` by the asset's raw decimals, replacing the
+    legacy `amount_in_asset * last_price_e18` shortcut. The PI_AMOUNT_IN
+    that lands on chain MUST equal raw `tokenIn` units so the swap
+    router amount-in check passes."""
+    # Sell 0.001 WBTC (8 decimals) -> 100k raw satoshis.
+    req = _build(
+        intent=_intent(
+            asset_in="WBTC",
+            asset_out="USDC",
+            direction=Direction.EXIT,
+            amount_in_usd=None,
+            amount_in_asset=0.001,
+        ),
+        is_signal_flip=True,
+        asset_decimals={"USDC": 18, "WBTC": 8, "WETH": 18},
+        # last_price_e18 is irrelevant in multi-decimal mode but the
+        # builder still receives observations.
+        price_observations_e18=[50_000 * 10**18] * 16,
+    )
+    assert int(req.inputs["amount_in"]) == int(0.001 * 10**8)
+
+
+def test_multi_decimal_falls_back_to_legacy_for_unknown_asset() -> None:
+    """If `asset_decimals` is provided but doesn't list `intent.asset_in`,
+    the builder falls back to the legacy USD*10^18 encoding. Lets a
+    partially-migrated config keep working without silent decimal
+    mistakes for the assets it does cover."""
+    req = _build(
+        intent=_intent(amount_in_usd=42.0),
+        asset_decimals={"WETH": 18},  # USDC missing — falls back.
+    )
+    assert int(req.inputs["amount_in"]) == 42 * 10**18  # legacy USD*10^18
+
+
+def test_multi_decimal_min_amount_out_respects_slippage() -> None:
+    """`min_amount_out` is computed off the post-decimal `amount_in`,
+    so the slippage bps math holds in multi-decimal mode."""
+    req = _build(
+        intent=_intent(amount_in_usd=1000.0, max_slippage_bps=100),
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    expected_in = 1000 * 10**6
+    expected_min_out = expected_in * 9_900 // 10_000
+    assert int(req.inputs["amount_in"]) == expected_in
+    assert int(req.inputs["min_amount_out"]) == expected_min_out

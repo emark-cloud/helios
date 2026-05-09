@@ -263,3 +263,55 @@ def test_fixture_round_trip() -> None:
         int(req.inputs["trade_hash"])
         == 17790372904353956429098291626594131965871939508489099441957090224480872231583
     )
+
+
+# ── Multi-decimal mode (Phase-6 real-P&L) ────────────────────────────
+
+
+def test_multi_decimal_long_entry_uses_stable_decimals() -> None:
+    """LONG (USDC -> asset) scales `amount_in_usd` by USDC's raw
+    decimals. Same shape as momentum_v1's coverage."""
+    req = _build(asset_decimals={"USDC": 18, "WETH": 18})
+    assert int(req.inputs["amount_in"]) == 1000 * 10**18
+
+    req6 = _build(asset_decimals={"USDC": 6, "WETH": 18})
+    assert int(req6.inputs["amount_in"]) == 1000 * 10**6
+
+
+def test_multi_decimal_exit_uses_asset_decimals() -> None:
+    """EXIT (asset -> USDC) scales `amount_in_asset` by the asset's
+    raw decimals so the on-chain `tokenIn` swap amount matches."""
+    req = _build(
+        intent=_intent(
+            asset_in="WBTC",
+            asset_out="USDC",
+            direction=Direction.EXIT,
+            amount_in_usd=None,
+            amount_in_asset=0.001,
+        ),
+        is_signal_flip=True,
+        asset_decimals={"USDC": 18, "WBTC": 8, "WETH": 18},
+        price_observations_e18=[50_000 * 10**18] * 16,
+    )
+    assert int(req.inputs["amount_in"]) == int(0.001 * 10**8)
+
+
+def test_multi_decimal_falls_back_to_legacy_for_unknown_asset() -> None:
+    """Asset not listed in `asset_decimals` falls back to legacy
+    USD*10^18 encoding."""
+    req = _build(
+        intent=_intent(amount_in_usd=42.0),
+        asset_decimals={"WETH": 18},
+    )
+    assert int(req.inputs["amount_in"]) == 42 * 10**18
+
+
+def test_multi_decimal_min_amount_out_respects_slippage() -> None:
+    req = _build(
+        intent=_intent(amount_in_usd=1000.0, max_slippage_bps=100),
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    expected_in = 1000 * 10**6
+    expected_min_out = expected_in * 9_900 // 10_000
+    assert int(req.inputs["amount_in"]) == expected_in
+    assert int(req.inputs["min_amount_out"]) == expected_min_out
