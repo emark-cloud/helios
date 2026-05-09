@@ -641,6 +641,33 @@ async function sendOnboardingUserOp(
   // approve when the token branch is taken.
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
   const estimate = await bundle.aaSdk.estimateUserOperation(aa, request);
+  // Diagnostic dump — when the bundler silently drops a userOp, the
+  // SDK throws "UserOp polling timeout: 0x…" with no detail. Logging
+  // the request + estimate to console gives us the userOp JSON, the
+  // sponsorship status, the supportedTokens list, and the paymaster
+  // address so a copy-paste from DevTools is enough to root-cause.
+  // Costs nothing in the happy path; absent means we hit the throw
+  // above (paymaster exhausted) or the SDK threw inside estimate.
+  console.info(
+    "[onboard] userOp estimate",
+    JSON.stringify(
+      {
+        aa,
+        targets,
+        sponsorshipAvailable: estimate.sponsorshipAvailable,
+        remainingSponsorships: estimate.remainingSponsorships,
+        paymasterAddress: estimate.paymasterAddress,
+        supportedTokens: estimate.supportedTokens,
+        totalCostKITE: estimate.totalCostKITE,
+        totalCostKITEFormatted: estimate.totalCostKITEFormatted,
+        userOp: estimate.userOp,
+      },
+      // BigInt-safe replacer
+      (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v),
+      2,
+    ),
+  );
+
   let tokenAddress: string;
   if (estimate.sponsorshipAvailable) {
     tokenAddress = ZERO_ADDRESS;
@@ -657,13 +684,73 @@ async function sendOnboardingUserOp(
     tokenAddress = settlement.tokenAddress;
   }
 
-  const result = await bundle.aaSdk.sendUserOperationWithPayment(
-    aa,
-    request,
-    estimate.userOp,
-    tokenAddress,
-    bundle.signFn,
-  );
+  let result: Awaited<ReturnType<typeof bundle.aaSdk.sendUserOperationWithPayment>>;
+  try {
+    result = await bundle.aaSdk.sendUserOperationWithPayment(
+      aa,
+      request,
+      estimate.userOp,
+      tokenAddress,
+      bundle.signFn,
+    );
+  } catch (err) {
+    // The SDK throws "UserOp polling timeout: 0x<hash>" when
+    // `eth_getUserOperationReceipt` keeps returning null. Pull the
+    // hash out of the message and re-query the bundler ourselves —
+    // if `eth_getUserOperationByHash` is also null the bundler
+    // dropped the op (revert in actual execution). Surfaces the
+    // hash + drop status into the rethrown error so the UI's
+    // "technical detail" toggle exposes the diagnosis.
+    const msg = err instanceof Error ? err.message : String(err);
+    const hashMatch = msg.match(/0x[0-9a-fA-F]{64}/);
+    if (hashMatch !== null) {
+      const userOpHash = hashMatch[0];
+      const bundlerUrl =
+        process.env.NEXT_PUBLIC_AA_BUNDLER_URL
+        ?? "https://bundler-service.staging.gokite.ai/rpc/";
+      try {
+        const [receipt, byHash] = await Promise.all([
+          fetch(bundlerUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "eth_getUserOperationReceipt",
+              params: [userOpHash],
+              id: 1,
+            }),
+          }).then((r) => r.json() as Promise<{ result: unknown }>),
+          fetch(bundlerUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "eth_getUserOperationByHash",
+              params: [userOpHash],
+              id: 2,
+            }),
+          }).then((r) => r.json() as Promise<{ result: unknown }>),
+        ]);
+        console.error("[onboard] bundler post-mortem", {
+          userOpHash,
+          receipt: receipt.result,
+          byHash: byHash.result,
+        });
+        const dropped = receipt.result === null && byHash.result === null;
+        const detail = dropped
+          ? `Bundler dropped userOp ${userOpHash} (eth_getUserOperationByHash → null). Most likely cause: on-chain execution reverted post-simulation. Check console for the userOp JSON and try lowering max_capital_usd or removing one batch step.`
+          : `userOp ${userOpHash} status: receipt=${JSON.stringify(receipt.result)}, byHash=${JSON.stringify(byHash.result)}`;
+        throw new Error(`${msg}\n\n${detail}`);
+      } catch (postMortemErr) {
+        // Network failure querying bundler — re-throw original.
+        if (postMortemErr instanceof Error && postMortemErr.message.includes(userOpHash)) {
+          throw postMortemErr;
+        }
+        throw err;
+      }
+    }
+    throw err;
+  }
   if (result.status.status !== "success" && result.status.status !== "included") {
     throw new Error(
       result.status.reason
