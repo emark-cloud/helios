@@ -67,6 +67,18 @@ type PassportSdkBundle = {
       userOpHash: string;
       status: { status: string; transactionHash?: string; reason?: string };
     }>;
+    sendUserOperation(
+      _owner: string,
+      _request: { targets: string[]; values?: bigint[]; callDatas: string[] },
+      _signFn: SignFn,
+      _salt?: bigint,
+      _paymasterAddress?: string,
+      _tokenAddress?: string,
+    ): Promise<string>;
+    pollUserOperationStatus(
+      _userOpHash: string,
+      _options?: { interval?: number; timeout?: number; maxRetries?: number },
+    ): Promise<{ status: string; transactionHash?: string; reason?: string }>;
     estimateUserOperation(
       _owner: string,
       _request: { targets: string[]; values?: bigint[]; callDatas: string[] },

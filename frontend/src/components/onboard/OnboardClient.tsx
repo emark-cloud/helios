@@ -486,19 +486,35 @@ async function sendOnboardingUserOp(
   // before we burn a passkey prompt on a doomed userOp.
   await bundle.aaSdk.estimateUserOperation(aa, request);
 
-  const result = await bundle.aaSdk.sendUserOperationAndWait(
+  // Force the paymaster to bill (or sponsor) in native KITE rather
+  // than the SDK default of `supportedTokens[1]` (Test USD). The
+  // higher-level `sendUserOperationAndWait` doesn't expose the token
+  // arg, and the AA wallet doesn't hold Test USD or approve the
+  // paymaster for it in this batch, so the bundler silently drops
+  // userOps minted with the default fee token. Falling back to the
+  // raw `sendUserOperation` + manual `pollUserOperationStatus` lets
+  // us pass the zero-address (KITE) and bump the polling timeout
+  // past the staging bundler's slow path.
+  const NATIVE_KITE = "0x0000000000000000000000000000000000000000" as const;
+  const userOpHash = await bundle.aaSdk.sendUserOperation(
     aa,
     request,
     bundle.signFn,
+    undefined,
+    undefined,
+    NATIVE_KITE,
   );
-  if (result.status.status !== "success" && result.status.status !== "included") {
+  const status = await bundle.aaSdk.pollUserOperationStatus(userOpHash, {
+    interval: 3000,
+    timeout: 180000,
+    maxRetries: 60,
+  });
+  if (status.status !== "success" && status.status !== "included") {
     throw new Error(
-      result.status.reason
-        ? `userOp failed: ${result.status.reason}`
-        : `userOp failed: ${result.status.status}`,
+      status.reason ? `userOp failed: ${status.reason}` : `userOp failed: ${status.status}`,
     );
   }
-  return result.status.transactionHash ?? result.userOpHash;
+  return status.transactionHash ?? userOpHash;
 }
 
 /**
