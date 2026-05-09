@@ -103,12 +103,19 @@ class Settings(BaseServiceSettings):
 _BINANCE_SYMBOLS: dict[str, str] = {
     "ETH/USDT": "ETHUSDT",
     "BTC/USDT": "BTCUSDT",
-    # KITE intentionally omitted — Binance has no KITE/USDT pair as of
-    # 2026-04-25, so the Coingecko fallback handles it.
+    # WETH alias — the reference momentum_v1 strategy queries oracle by
+    # the same symbol it lists in its `asset_universe`. Binance reports
+    # ETH and WETH at the same price; treat the alias as ETH.
+    "WETH": "ETHUSDT",
+    # KITE intentionally omitted from Binance map — no KITE/USDT pair as
+    # of 2026-04-25, Coingecko fallback below handles both KITE/USDT and
+    # the WKITE alias the reference strategies use.
 }
 _COINGECKO_SLUGS: dict[str, tuple[str, str]] = {
     "KITE/USDT": ("kite-ai", "usd"),
+    "WKITE": ("kite-ai", "usd"),
     "ETH/USDT": ("ethereum", "usd"),
+    "WETH": ("ethereum", "usd"),
     "BTC/USDT": ("bitcoin", "usd"),
 }
 
