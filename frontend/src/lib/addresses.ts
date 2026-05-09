@@ -28,9 +28,28 @@ export type HeliosAddresses = {
   readonly yieldRotationVerifier?: Address;
   readonly userVault?: Address;
   readonly allocatorVault?: Address;
+  // Legacy (Phase-1/2/3) base proxies — `active=false` post 2026-05-09
+  // Phase-6 cutover. Retained on the type so historical defund queries
+  // and `Upgraded`-event archeology still resolve. New consumers should
+  // read the `phase6Vault*` fields below.
   readonly strategyVaultMomentum?: Address;
   readonly strategyVaultMeanReversion?: Address;
   readonly strategyVaultYieldRotation?: Address;
+  // Phase-6 multi-asset vaults — currently active in StrategyRegistry.
+  // Universe per class: mom/mr [USDC, WBTC, WETH, SOL]; yr [USDC] only.
+  readonly phase6VaultMomentum?: Address;
+  readonly phase6VaultMomentumVariant2?: Address;
+  readonly phase6VaultMomentumVariant3?: Address;
+  readonly phase6VaultMeanReversion?: Address;
+  readonly phase6VaultMeanReversionVariant2?: Address;
+  readonly phase6VaultMeanReversionVariant3?: Address;
+  readonly phase6VaultYieldRotation?: Address;
+  readonly phase6VaultYieldRotationVariant2?: Address;
+  readonly phase6VaultYieldRotationVariant3?: Address;
+  // Phase-6 multi-asset test universe (`DeployTestUniverse.s.sol`).
+  readonly mWbtc?: Address;
+  readonly mWeth?: Address;
+  readonly mSol?: Address;
 };
 
 type DeploymentFile = {
@@ -58,9 +77,16 @@ export function addressesForChainId(chainId: number): HeliosAddresses {
   return {};
 }
 
-/** The Phase 1 strategy vault addresses, ordered by class. */
+/**
+ * Active strategy-vault base proxies, keyed by declared class. As of
+ * the 2026-05-09 Phase-6 real-price cutover, the canonical addresses
+ * are the `phase6Vault*` keys; the legacy `strategyVault*` proxies
+ * have been deactivated in `StrategyRegistry`. Consumers that need
+ * variants (V2/V3) should read them off `addressesForChainId()`
+ * directly.
+ */
 export const STRATEGY_VAULTS_BY_CLASS = {
-  momentum_v1: KITE.addresses.strategyVaultMomentum,
-  mean_reversion_v1: KITE.addresses.strategyVaultMeanReversion,
-  yield_rotation_v1: KITE.addresses.strategyVaultYieldRotation,
+  momentum_v1: KITE.addresses.phase6VaultMomentum,
+  mean_reversion_v1: KITE.addresses.phase6VaultMeanReversion,
+  yield_rotation_v1: KITE.addresses.phase6VaultYieldRotation,
 } as const;

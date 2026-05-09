@@ -161,6 +161,11 @@ def load_chain_surface(
             f"{real_key if venue_mode == VenueMode.REAL else mock_key})"
         )
 
+    # Phase-6 cutover (2026-05-09): Kite testnet's `strategyVault*` base
+    # proxies were deactivated and superseded by `phase6Vault*` keys.
+    # Prefer the Phase-6 entries when present; fall back to the legacy
+    # keys so other chains' deployment JSONs (Base/Arbitrum, anvil)
+    # continue to resolve unchanged.
     return ChainSurface(
         chain_target=chain_target,
         chain_id=chain_id,
@@ -169,9 +174,17 @@ def load_chain_surface(
         venue_address=selected,
         venue_real=venue_real,
         venue_mock=venue_mock,
-        strategy_vault_momentum=str(addresses.get("strategyVaultMomentum", "")),
-        strategy_vault_mean_reversion=str(addresses.get("strategyVaultMeanReversion", "")),
-        strategy_vault_yield_rotation=str(addresses.get("strategyVaultYieldRotation", "")),
+        strategy_vault_momentum=str(
+            addresses.get("phase6VaultMomentum") or addresses.get("strategyVaultMomentum", "")
+        ),
+        strategy_vault_mean_reversion=str(
+            addresses.get("phase6VaultMeanReversion")
+            or addresses.get("strategyVaultMeanReversion", "")
+        ),
+        strategy_vault_yield_rotation=str(
+            addresses.get("phase6VaultYieldRotation")
+            or addresses.get("strategyVaultYieldRotation", "")
+        ),
         usdc=str(addresses.get("usdc", "")),
         lz_local_eid=int(raw.get("lzLocalEid", 0)),
     )
