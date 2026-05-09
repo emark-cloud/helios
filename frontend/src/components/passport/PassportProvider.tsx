@@ -25,6 +25,21 @@ import {
 
 import { isPassportEnabled, readPassportEnv, type AuthMode } from "@/lib/passport";
 
+// Webpack 5's browser shim for `process` exposes only `env`, but
+// Particle's bundled pino logger reads `process.stdout.isTTY` /
+// `process.stderr.isTTY` — that throws "Cannot read properties of
+// undefined (reading 'isTTY')" exactly when `particleAuth.sign(...)`
+// fires the passkey prompt. Patch the shim once at module load so
+// the SDK's logger short-circuits to non-TTY output instead of
+// crashing the userOp signing flow. Browser-only; SSR has real
+// process.stdout already.
+if (typeof window !== "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proc = (globalThis as any).process ?? ((globalThis as any).process = { env: {} });
+  if (!proc.stdout) proc.stdout = { isTTY: false };
+  if (!proc.stderr) proc.stderr = { isTTY: false };
+}
+
 type SignFn = (_userOpHash: string) => Promise<string>;
 
 export type PassportSession = {
