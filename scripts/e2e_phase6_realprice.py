@@ -149,9 +149,7 @@ def _load(deployments: Path) -> Ctx:
     phase6: dict[str, str] = {
         k: v for k, v in addrs.items() if isinstance(k, str) and k.startswith("phase6Vault")
     }
-    test_assets: dict[str, str] = {
-        k: addrs[k] for k in ("mWbtc", "mWeth", "mSol") if k in addrs
-    }
+    test_assets: dict[str, str] = {k: addrs[k] for k in ("mWbtc", "mWeth", "mSol") if k in addrs}
 
     skip_pre_ws8 = os.environ.get("SKIP_ON_PRE_WS8", "1") != "0"
     if not phase6 or not test_assets:

@@ -55,9 +55,7 @@ def test_dry_run_records_both_directions() -> None:
     assert not rec.submitted  # dry-run path doesn't submit
     assert rec.error == ""
     # The recorded (num, denom) pairs must match the converter output.
-    s2a, a2s = compute_price_pair(
-        price_e18=3_000 * 10**18, decimals_stable=6, decimals_asset=18
-    )
+    s2a, a2s = compute_price_pair(price_e18=3_000 * 10**18, decimals_stable=6, decimals_asset=18)
     assert (rec.s2a_num, rec.s2a_denom) == s2a
     assert (rec.a2s_num, rec.a2s_denom) == a2s
     # Audit ring sees one entry.

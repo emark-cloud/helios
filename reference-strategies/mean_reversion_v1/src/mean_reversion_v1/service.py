@@ -45,9 +45,7 @@ class Settings(BaseServiceSettings):
     # Empty string keeps the Phase-1 USD*10^18 legacy witness encoding;
     # set to e.g. '{"USDC":18,"WBTC":8,"WETH":18,"WSOL":9}' to switch
     # the runtime into raw-tokenIn mode.
-    asset_decimals_json: str = Field(
-        default="", validation_alias="MEAN_REV_ASSET_DECIMALS_JSON"
-    )
+    asset_decimals_json: str = Field(default="", validation_alias="MEAN_REV_ASSET_DECIMALS_JSON")
 
 
 def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
@@ -64,9 +62,7 @@ def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
     out: dict[str, int] = {}
     for k, v in parsed.items():
         if not isinstance(k, str) or not isinstance(v, int) or v < 0:
-            raise ValueError(
-                "MEAN_REV_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}"
-            )
+            raise ValueError("MEAN_REV_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}")
         out[k] = v
     return out
 

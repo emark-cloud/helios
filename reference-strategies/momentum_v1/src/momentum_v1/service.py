@@ -52,9 +52,7 @@ class Settings(BaseServiceSettings):
     # Set to e.g. '{"USDC":18,"WBTC":8,"WETH":18,"WSOL":9}' on Kite testnet
     # to switch the runtime into raw-tokenIn mode so on-chain `amountIn`
     # matches `publicInputs[PI_AMOUNT_IN]`.
-    asset_decimals_json: str = Field(
-        default="", validation_alias="MOMENTUM_ASSET_DECIMALS_JSON"
-    )
+    asset_decimals_json: str = Field(default="", validation_alias="MOMENTUM_ASSET_DECIMALS_JSON")
 
 
 def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
@@ -73,9 +71,7 @@ def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
     out: dict[str, int] = {}
     for k, v in parsed.items():
         if not isinstance(k, str) or not isinstance(v, int) or v < 0:
-            raise ValueError(
-                "MOMENTUM_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}"
-            )
+            raise ValueError("MOMENTUM_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}")
         out[k] = v
     return out
 

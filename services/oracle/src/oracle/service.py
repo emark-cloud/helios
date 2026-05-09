@@ -106,30 +106,14 @@ class Settings(BaseServiceSettings):
     # so on-chain swaps execute at live mid (with bps spread). All optional
     # — leave any field blank to keep the keeper in dry-run mode (records
     # pending updates without submitting), same gating as AnchorPoster.
-    router_mirror_enabled: bool = Field(
-        default=False, validation_alias="ROUTER_MIRROR_ENABLED"
-    )
-    router_mirror_address: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_ADDRESS"
-    )
-    router_mirror_signer_pk: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_SIGNER_PK"
-    )
-    router_mirror_spread_bps: int = Field(
-        default=5, validation_alias="ROUTER_MIRROR_SPREAD_BPS"
-    )
-    router_mirror_token_usdc: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_TOKEN_USDC"
-    )
-    router_mirror_token_wbtc: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_TOKEN_WBTC"
-    )
-    router_mirror_token_weth: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_TOKEN_WETH"
-    )
-    router_mirror_token_wsol: str = Field(
-        default="", validation_alias="ROUTER_MIRROR_TOKEN_WSOL"
-    )
+    router_mirror_enabled: bool = Field(default=False, validation_alias="ROUTER_MIRROR_ENABLED")
+    router_mirror_address: str = Field(default="", validation_alias="ROUTER_MIRROR_ADDRESS")
+    router_mirror_signer_pk: str = Field(default="", validation_alias="ROUTER_MIRROR_SIGNER_PK")
+    router_mirror_spread_bps: int = Field(default=5, validation_alias="ROUTER_MIRROR_SPREAD_BPS")
+    router_mirror_token_usdc: str = Field(default="", validation_alias="ROUTER_MIRROR_TOKEN_USDC")
+    router_mirror_token_wbtc: str = Field(default="", validation_alias="ROUTER_MIRROR_TOKEN_WBTC")
+    router_mirror_token_weth: str = Field(default="", validation_alias="ROUTER_MIRROR_TOKEN_WETH")
+    router_mirror_token_wsol: str = Field(default="", validation_alias="ROUTER_MIRROR_TOKEN_WSOL")
     # USDC has 6 decimals on Kite testnet (mUSDC); the new universe assets
     # use realistic decimals (WBTC=8, WETH=18, SOL=9). Override per-asset
     # if a redeploy ever changes a token's decimals.
@@ -492,9 +476,7 @@ def _build_router_mirror(cfg: Settings, store: SnapshotStore) -> RouterPriceMirr
     )
 
 
-def _compose_on_snapshot(
-    scheduler: PriceAnchorScheduler, mirror: RouterPriceMirror | None
-):
+def _compose_on_snapshot(scheduler: PriceAnchorScheduler, mirror: RouterPriceMirror | None):
     """Fan out a single Poller `on_snapshot` to (a) the price-anchor
     scheduler and (b) the router mirror. Both run sequentially per bar
     so failures in one don't poison the other (Poller already wraps the

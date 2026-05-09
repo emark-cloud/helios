@@ -134,9 +134,7 @@ class RouterPriceMirror:
     pairs: list[PairSpec]
     spread_bps: int = DEFAULT_SPREAD_BPS
 
-    pending: deque[MirrorRecord] = field(
-        default_factory=lambda: deque(maxlen=_PENDING_RING_CAP)
-    )
+    pending: deque[MirrorRecord] = field(default_factory=lambda: deque(maxlen=_PENDING_RING_CAP))
     _w3: Any = field(default=None, init=False, repr=False)
     _account: Any = field(default=None, init=False, repr=False)
     _contract: Any = field(default=None, init=False, repr=False)
@@ -161,9 +159,7 @@ class RouterPriceMirror:
         try:
             self._account = Account.from_key(pk)
         except Exception as exc:  # pragma: no cover — defensive
-            raise RuntimeError(
-                f"invalid ROUTER_MIRROR_SIGNER_PK: {type(exc).__name__}"
-            ) from None
+            raise RuntimeError(f"invalid ROUTER_MIRROR_SIGNER_PK: {type(exc).__name__}") from None
         self._contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self.router_address),
             abi=MOCK_SWAP_ROUTER_ABI,
@@ -188,9 +184,7 @@ class RouterPriceMirror:
         spec, snap, s2a, a2s = prepped
         return await asyncio.to_thread(self._submit_sync, spec, snap, s2a, a2s)
 
-    def _prepare(
-        self, asset: str
-    ) -> tuple[PairSpec, Any, tuple[int, int], tuple[int, int]] | None:
+    def _prepare(self, asset: str) -> tuple[PairSpec, Any, tuple[int, int], tuple[int, int]] | None:
         spec = self._by_asset.get(asset)
         if spec is None:
             return None
@@ -264,9 +258,7 @@ class RouterPriceMirror:
         self.pending.append(record)
         return record
 
-    def _set_price(
-        self, token_in: str, token_out: str, num: int, denom: int
-    ) -> str:
+    def _set_price(self, token_in: str, token_out: str, num: int, denom: int) -> str:
         assert self._w3 is not None
         assert self._account is not None
         assert self._contract is not None
@@ -280,9 +272,7 @@ class RouterPriceMirror:
         tx = fn.build_transaction(
             {
                 "from": self._account.address,
-                "nonce": self._w3.eth.get_transaction_count(
-                    self._account.address, "pending"
-                ),
+                "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
                 "chainId": self.chain_id,
                 "gasPrice": self._w3.eth.gas_price,
             }

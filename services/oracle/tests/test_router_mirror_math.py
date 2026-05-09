@@ -152,9 +152,7 @@ def test_rejects_non_positive_price(price: int) -> None:
 @pytest.mark.parametrize("d_stable,d_asset", [(-1, 18), (6, -1)])
 def test_rejects_negative_decimals(d_stable: int, d_asset: int) -> None:
     with pytest.raises(ValueError):
-        compute_price_pair(
-            price_e18=10**18, decimals_stable=d_stable, decimals_asset=d_asset
-        )
+        compute_price_pair(price_e18=10**18, decimals_stable=d_stable, decimals_asset=d_asset)
 
 
 @pytest.mark.parametrize("bps", [-1, 10_000, 99_999])
