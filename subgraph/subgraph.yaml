@@ -684,9 +684,9 @@ dataSources:
     name: StrategyVaultMomentumP6
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x29b5d20fe7005ab81b3b919385003399e6397622"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -711,9 +711,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0xf825727ea1d19066e6b06bcc928a658ee1e7516f"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -738,9 +738,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x2c765493f3899d2236d172b5c9c7c9473bd71765"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -769,9 +769,9 @@ dataSources:
     name: StrategyVaultMomentumP6V2
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -796,9 +796,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6V2
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0xa863b0372f28f368119cbf4ae2b46730e5d009f5"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -823,9 +823,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6V2
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x6734ce8189eeb801f595e5c0a7b4239221f08d93"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -854,9 +854,9 @@ dataSources:
     name: StrategyVaultMomentumP6V3
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x24dc209dab31887f20ecf7eae626f4e8fa46d570"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -881,9 +881,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6V3
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0xf44051d85f1a2f31a249d5f4136176c083f09dd3"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -908,9 +908,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6V3
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x92c15c4f20641191dd9b464ec446cc7d7ac616c5"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 21262307
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7

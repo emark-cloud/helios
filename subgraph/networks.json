@@ -38,14 +38,14 @@
     "OraclePriceAnchorP3":            { "address": "0x566e1f1b5bd7109f2c86805e2c092502d1b2f9f4", "startBlock": 21201220 },
     "OracleYieldAnchorP3":            { "address": "0x345cd375ec42476eb95c5903fb3abb27f9400f9d", "startBlock": 21201220 },
 
-    "StrategyVaultMomentumP6":        { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultMeanReversionP6":   { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultYieldRotationP6":   { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultMomentumP6V2":      { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultMeanReversionP6V2": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultYieldRotationP6V2": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultMomentumP6V3":      { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultMeanReversionP6V3": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 },
-    "StrategyVaultYieldRotationP6V3": { "address": "0x000000000000000000000000000000000000dEaD", "startBlock": 0 }
+    "StrategyVaultMomentumP6":        { "address": "0x29b5d20fe7005ab81b3b919385003399e6397622", "startBlock": 21262307 },
+    "StrategyVaultMeanReversionP6":   { "address": "0xf825727ea1d19066e6b06bcc928a658ee1e7516f", "startBlock": 21262307 },
+    "StrategyVaultYieldRotationP6":   { "address": "0x2c765493f3899d2236d172b5c9c7c9473bd71765", "startBlock": 21262307 },
+    "StrategyVaultMomentumP6V2":      { "address": "0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e", "startBlock": 21262307 },
+    "StrategyVaultMeanReversionP6V2": { "address": "0xa863b0372f28f368119cbf4ae2b46730e5d009f5", "startBlock": 21262307 },
+    "StrategyVaultYieldRotationP6V2": { "address": "0x6734ce8189eeb801f595e5c0a7b4239221f08d93", "startBlock": 21262307 },
+    "StrategyVaultMomentumP6V3":      { "address": "0x24dc209dab31887f20ecf7eae626f4e8fa46d570", "startBlock": 21262307 },
+    "StrategyVaultMeanReversionP6V3": { "address": "0xf44051d85f1a2f31a249d5f4136176c083f09dd3", "startBlock": 21262307 },
+    "StrategyVaultYieldRotationP6V3": { "address": "0x92c15c4f20641191dd9b464ec446cc7d7ac616c5", "startBlock": 21262307 }
   }
 }

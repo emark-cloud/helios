@@ -1,8 +1,8 @@
 {
   "chainId": 2368,
   "deployedAt": 1777277331,
-  "phase": "3",
-  "phase3BaseTrioRedeployedAt": 1778239548,
+  "phase": "6",
+  "phase6MultiAssetVaultsDeployedAt": 1778340249,
   "addresses": {
     "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
     "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
@@ -29,6 +29,18 @@
     "strategyVaultYieldRotationVariant3": "0x3863f44fe693764562c0d239e05c5f194544b0b4",
     "strategyVaultMomentum": "0xf11d55a3057a3da51c9ed63bdc6ae8f666fa426a",
     "strategyVaultMeanReversion": "0xe85fc70edc752d3ff283f3fffa17598d32b5fc07",
-    "strategyVaultYieldRotation": "0xb7496be712ed62fb02c6b9665f74ee6ff136d0d7"
+    "strategyVaultYieldRotation": "0xb7496be712ed62fb02c6b9665f74ee6ff136d0d7",
+    "mWbtc": "0x3f81a60c5d5c6bfcb415080b846da22903ff37a0",
+    "mWeth": "0x789ff10eb109626b01816161be72c9df32be4a00",
+    "mSol": "0xcf1276516a625723e40ae13d598de837079ad532",
+    "phase6VaultMomentum": "0x29b5d20fe7005ab81b3b919385003399e6397622",
+    "phase6VaultMomentumVariant2": "0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e",
+    "phase6VaultMomentumVariant3": "0x24dc209dab31887f20ecf7eae626f4e8fa46d570",
+    "phase6VaultMeanReversion": "0xf825727ea1d19066e6b06bcc928a658ee1e7516f",
+    "phase6VaultMeanReversionVariant2": "0xa863b0372f28f368119cbf4ae2b46730e5d009f5",
+    "phase6VaultMeanReversionVariant3": "0xf44051d85f1a2f31a249d5f4136176c083f09dd3",
+    "phase6VaultYieldRotation": "0x2c765493f3899d2236d172b5c9c7c9473bd71765",
+    "phase6VaultYieldRotationVariant2": "0x6734ce8189eeb801f595e5c0a7b4239221f08d93",
+    "phase6VaultYieldRotationVariant3": "0x92c15c4f20641191dd9b464ec446cc7d7ac616c5"
   }
 }

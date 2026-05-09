@@ -139,16 +139,27 @@ def _load(deployments: Path) -> Ctx:
         _exit_fail(f"deployments file not found: {deployments}")
     raw = json.loads(deployments.read_text())
     addrs = raw.get("addresses") or {}
-    phase6 = raw.get("phase6Vaults") or {}
-    test_assets = raw.get("testAssets") or {}
     swap_router = addrs.get("swapRouter") or ""
+
+    # The Phase-6 deploy scripts write flat keys under `addresses`:
+    #   phase6Vault{Class}[Variant{2,3}] for each of the nine vaults
+    #   mWbtc / mWeth / mSol           for the universe asset trio
+    # Lift them back into convenient sub-dicts so the rest of the
+    # harness can reason about them as logical blocks.
+    phase6: dict[str, str] = {
+        k: v for k, v in addrs.items() if isinstance(k, str) and k.startswith("phase6Vault")
+    }
+    test_assets: dict[str, str] = {
+        k: addrs[k] for k in ("mWbtc", "mWeth", "mSol") if k in addrs
+    }
 
     skip_pre_ws8 = os.environ.get("SKIP_ON_PRE_WS8", "1") != "0"
     if not phase6 or not test_assets:
         msg = (
-            "phase6Vaults and/or testAssets missing from deployments — "
-            "run DeployTestUniverse + DeployPhase6MultiAssetVaults first "
-            "(see docs/phase6-realprice-plan.md §Sequence)."
+            "phase6Vault* and/or mWbtc/mWeth/mSol missing from "
+            "deployments.addresses — run DeployTestUniverse + "
+            "DeployPhase6MultiAssetVaults first (see "
+            "docs/phase6-realprice-plan.md §Sequence)."
         )
         if skip_pre_ws8:
             _exit_skip(msg)
@@ -205,9 +216,9 @@ def _check_router_prices(ctx: Ctx) -> None:
     if not usdc:
         _exit_fail("usdc address missing from deployments.addresses")
     legs = [
-        ("WBTC", ctx.test_assets.get("wbtc")),
-        ("WETH", ctx.test_assets.get("weth")),
-        ("WSOL", ctx.test_assets.get("wsol")),
+        ("WBTC", ctx.test_assets.get("mWbtc")),
+        ("WETH", ctx.test_assets.get("mWeth")),
+        ("WSOL", ctx.test_assets.get("mSol")),
     ]
     priced: list[str] = []
     for name, addr in legs:
