@@ -9,7 +9,6 @@ The 5 bps spread direction is verified independently from the mid math.
 from __future__ import annotations
 
 import pytest
-
 from oracle.router_mirror_math import (
     DEFAULT_SPREAD_BPS,
     amount_out,

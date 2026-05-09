@@ -43,8 +43,10 @@ contract DeployPhase6MultiAssetVaults is Script {
     bytes32 internal constant PH_MR_V2 = keccak256("helios.mean_rev_v1.phase6.multiasset.variant2");
     bytes32 internal constant PH_MR_V3 = keccak256("helios.mean_rev_v1.phase6.multiasset.variant3");
     bytes32 internal constant PH_YR_BASE = keccak256("helios.yield_rot_v1.phase6.multiasset.base");
-    bytes32 internal constant PH_YR_V2 = keccak256("helios.yield_rot_v1.phase6.multiasset.variant2");
-    bytes32 internal constant PH_YR_V3 = keccak256("helios.yield_rot_v1.phase6.multiasset.variant3");
+    bytes32 internal constant PH_YR_V2 =
+        keccak256("helios.yield_rot_v1.phase6.multiasset.variant2");
+    bytes32 internal constant PH_YR_V3 =
+        keccak256("helios.yield_rot_v1.phase6.multiasset.variant3");
 
     /// @dev Bundle of inputs read from env / deployment JSON so the deploy
     ///      function signatures stay shallow (forge --via-ir keeps stack
@@ -136,8 +138,7 @@ contract DeployPhase6MultiAssetVaults is Script {
             _deployVault(i, deployer, CLASS_MR, spotUniverse, PH_MR_V2, "mr.variant2");
         v.meanReversionVariant3 =
             _deployVault(i, deployer, CLASS_MR, spotUniverse, PH_MR_V3, "mr.variant3");
-        v.yieldRotationBase =
-            _deployVault(i, deployer, CLASS_YR, yrUniverse, PH_YR_BASE, "yr.base");
+        v.yieldRotationBase = _deployVault(i, deployer, CLASS_YR, yrUniverse, PH_YR_BASE, "yr.base");
         v.yieldRotationVariant2 =
             _deployVault(i, deployer, CLASS_YR, yrUniverse, PH_YR_V2, "yr.variant2");
         v.yieldRotationVariant3 =
@@ -224,20 +225,16 @@ contract DeployPhase6MultiAssetVaults is Script {
 
         string memory addrsBody = _existingAddresses(raw);
         addrsBody = string.concat(addrsBody, _kv("phase6VaultMomentum", v.momentumBase));
-        addrsBody =
-            string.concat(addrsBody, _kv("phase6VaultMomentumVariant2", v.momentumVariant2));
-        addrsBody =
-            string.concat(addrsBody, _kv("phase6VaultMomentumVariant3", v.momentumVariant3));
-        addrsBody =
-            string.concat(addrsBody, _kv("phase6VaultMeanReversion", v.meanReversionBase));
+        addrsBody = string.concat(addrsBody, _kv("phase6VaultMomentumVariant2", v.momentumVariant2));
+        addrsBody = string.concat(addrsBody, _kv("phase6VaultMomentumVariant3", v.momentumVariant3));
+        addrsBody = string.concat(addrsBody, _kv("phase6VaultMeanReversion", v.meanReversionBase));
         addrsBody = string.concat(
             addrsBody, _kv("phase6VaultMeanReversionVariant2", v.meanReversionVariant2)
         );
         addrsBody = string.concat(
             addrsBody, _kv("phase6VaultMeanReversionVariant3", v.meanReversionVariant3)
         );
-        addrsBody =
-            string.concat(addrsBody, _kv("phase6VaultYieldRotation", v.yieldRotationBase));
+        addrsBody = string.concat(addrsBody, _kv("phase6VaultYieldRotation", v.yieldRotationBase));
         addrsBody = string.concat(
             addrsBody, _kv("phase6VaultYieldRotationVariant2", v.yieldRotationVariant2)
         );
@@ -274,7 +271,8 @@ contract DeployPhase6MultiAssetVaults is Script {
 
     function _isPhase6VaultKey(string memory k) internal pure returns (bool) {
         bytes32 h = keccak256(bytes(k));
-        return h == keccak256("phase6VaultMomentum") || h == keccak256("phase6VaultMomentumVariant2")
+        return h == keccak256("phase6VaultMomentum")
+            || h == keccak256("phase6VaultMomentumVariant2")
             || h == keccak256("phase6VaultMomentumVariant3")
             || h == keccak256("phase6VaultMeanReversion")
             || h == keccak256("phase6VaultMeanReversionVariant2")

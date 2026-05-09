@@ -12,6 +12,7 @@ import asyncio
 import pytest
 from oracle.router_mirror import PairSpec, RouterPriceMirror
 from oracle.router_mirror_math import compute_price_pair
+from oracle.service import _compose_on_snapshot
 from oracle.signer import LocalSigner
 from oracle.state import SnapshotStore
 
@@ -162,8 +163,6 @@ def test_live_property_gates_correctly() -> None:
 def test_compose_on_snapshot_calls_both() -> None:
     """Sanity check the service-level fan-out: when both consumers are
     wired, both run per snapshot."""
-    from oracle.service import _compose_on_snapshot
-
     calls: list[str] = []
 
     class FakeScheduler:

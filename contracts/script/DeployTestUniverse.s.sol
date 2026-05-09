@@ -20,7 +20,7 @@ import { MockTestToken } from "../test/mocks/MockTestToken.sol";
 ///         keys (the JSON merge mirrors RegisterFreshStrategy.s.sol).
 contract DeployTestUniverse is Script {
     /// @dev Inventory amounts in raw (decimals-aware) units.
-    uint256 internal constant SEED_WBTC = 1_000 * 10 ** 8; // 1k BTC
+    uint256 internal constant SEED_WBTC = 1000 * 10 ** 8; // 1k BTC
     uint256 internal constant SEED_WETH = 50_000 * 10 ** 18; // 50k ETH
     uint256 internal constant SEED_SOL = 1_000_000 * 10 ** 9; // 1M SOL
 

@@ -171,7 +171,13 @@ def _load(deployments: Path) -> Ctx:
     w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 15}))
     if not w3.is_connected():
         _exit_fail(f"RPC not reachable: {rpc}")
-    return Ctx(w3=w3, addrs=addrs, phase6_vaults=phase6, test_assets=test_assets, swap_router=swap_router)
+    return Ctx(
+        w3=w3,
+        addrs=addrs,
+        phase6_vaults=phase6,
+        test_assets=test_assets,
+        swap_router=swap_router,
+    )
 
 
 def _check_registry(ctx: Ctx) -> None:
@@ -253,7 +259,10 @@ def _drive_deposit_and_observe(ctx: Ctx) -> None:
     deposit_amount_e18 = int(os.environ.get("PHASE6_DEPOSIT_AMOUNT", str(1_000 * 10**18)))
 
     depositor = Account.from_key(pk if pk.startswith("0x") else "0x" + pk)
-    print(f"[phase6-realprice] driving deposit from {depositor.address} for {deposit_amount_e18 / 10**18:.2f} USDC")
+    print(
+        f"[phase6-realprice] driving deposit from {depositor.address} "
+        f"for {deposit_amount_e18 / 10**18:.2f} USDC"
+    )
 
     # Snapshot pre-deposit NAV per Phase-6 vault.
     pre_nav = _read_phase6_nav(ctx)
