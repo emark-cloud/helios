@@ -107,8 +107,7 @@ contract RedeployTAVAndMigrate is Script {
         a.newStrategyVaultImpl = address(new StrategyVault(priceAnchor, yieldAnchor));
 
         // 5. UUPS-upgrade each proxy and migrate verifier in a single tx.
-        bytes memory migrateData =
-            abi.encodeCall(StrategyVault.migrateVerifier, (a.newTAV));
+        bytes memory migrateData = abi.encodeCall(StrategyVault.migrateVerifier, (a.newTAV));
         for (uint256 i = 0; i < proxies.length; i++) {
             IUUPS(proxies[i]).upgradeToAndCall(a.newStrategyVaultImpl, migrateData);
         }
