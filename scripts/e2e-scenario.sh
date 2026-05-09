@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # WS3 — Phase 1 e2e scenario (Track A canonical, Track B opt-in).
 # WS8 — Phase 5 multi-chain mode (`./scripts/e2e-scenario.sh phase5`).
+# Phase 6 — real-price cutover mode (`./scripts/e2e-scenario.sh phase6-realprice`).
+#           Runs against a live Kite-testnet stack — no local anvil,
+#           no DeployPhase1 broadcast. See docs/phase6-realprice-plan.md.
 #
 # Track A (default): boots a local anvil-kite, runs DeployPhase1, drives
 # the full vertical slice via scripts/e2e_scenario.py, asserts the
@@ -41,6 +44,18 @@ RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 DEPLOYER_PK="${DEPLOYER_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 OUT_LABEL="${OUT_LABEL:-anvil-kite}"
 DEPLOYMENTS_FILE="contracts/deployments/${OUT_LABEL}.json"
+
+# `phase6-realprice` runs against an already-deployed testnet stack
+# (no anvil boot, no DeployPhase1 broadcast). Hand off directly to
+# the Python assertion harness so the read-only checks land first.
+if [[ "$MODE" == "phase6-realprice" ]]; then
+  echo "[e2e] phase6-realprice — running real-price cutover acceptance harness"
+  KITE_RPC_URL="${KITE_RPC_URL:-${RPC_URL:-https://rpc-testnet.gokite.ai/}}" \
+  DEPLOYMENTS_FILE="${DEPLOYMENTS_FILE:-contracts/deployments/kite-testnet.json}" \
+    uv run --package helios-sentinel python scripts/e2e_phase6_realprice.py
+  echo "[e2e] phase6-realprice acceptance: GREEN"
+  exit 0
+fi
 
 ANVIL_PID=""
 cleanup() {
@@ -111,3 +126,4 @@ if [[ "$MODE" == "phase5" ]]; then
       pytest -q services/sentinel/tests/test_phase5_xchain.py
   echo "[e2e] phase5 acceptance: GREEN"
 fi
+
