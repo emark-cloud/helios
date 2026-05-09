@@ -145,7 +145,49 @@ services:
     environment:
       ORACLE_ENDPOINT: http://oracle:8003
       PROVER_ENDPOINT: http://prover:8004
+      # Phase-6: each strategy runs its own vault. The shared .env carries
+      # the per-class proxies under MOMENTUM_/MEAN_REV_/YIELD_ROTATION_
+      # prefixes; the per-service STRATEGY_VAULT_ADDRESS read by the
+      # runtime executor is explicitly mapped here so all three runtimes
+      # share one .env file without colliding on the same key.
+      STRATEGY_VAULT_ADDRESS: ${MOMENTUM_STRATEGY_VAULT_ADDRESS}
     ports: ["127.0.0.1:8005:8005"]
+    depends_on: [oracle, prover]
+
+  mean_reversion_v1:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args:
+        SERVICE_PACKAGE: helios-reference-mean-reversion-v1
+        SERVICE_MODULE: mean_reversion_v1
+        SERVICE_EXTRA: service
+    image: helios/mean_reversion_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+      STRATEGY_VAULT_ADDRESS: ${MEAN_REV_STRATEGY_VAULT_ADDRESS}
+    ports: ["127.0.0.1:8006:8006"]
+    depends_on: [oracle, prover]
+
+  yield_rotation_v1:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args:
+        SERVICE_PACKAGE: helios-reference-yield-rotation-v1
+        SERVICE_MODULE: yield_rotation_v1
+        SERVICE_EXTRA: service
+    image: helios/yield_rotation_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+      STRATEGY_VAULT_ADDRESS: ${YIELD_ROTATION_STRATEGY_VAULT_ADDRESS}
+    ports: ["127.0.0.1:8007:8007"]
     depends_on: [oracle, prover]
 
   # helix:    # deferred post-hackathon (regime/correlation scope cut)
