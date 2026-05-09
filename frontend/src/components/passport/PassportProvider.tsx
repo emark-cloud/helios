@@ -138,7 +138,12 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
       clientKey: env.particleClientKey,
       appId: env.particleAppId,
       chainId: env.chainId,
-      chainName: "Kite",
+      // Must match the key `@gokite-network/auth` registers on
+      // `ParticleChains`: `gokiteTestnet.name.split(" ")[0].toLowerCase()`
+      // = "gokite". Passing "Kite" makes Particle look up "kite-2368"
+      // which is unregistered, so the userOp signer throws EIP-1193
+      // 4201 ("The Provider does not support the chain") mid-passkey.
+      chainName: "Gokite",
     });
     const particleAuth = particle.auth;
 
