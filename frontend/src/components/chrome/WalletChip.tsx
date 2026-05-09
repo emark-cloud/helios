@@ -9,20 +9,33 @@
 
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 
+import { usePassport } from "@/components/passport/PassportProvider";
 import { formatAddress } from "@/lib/format";
 
 export function WalletChip(): JSX.Element {
-  const { address, isConnected } = useAccount();
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+  const passport = usePassport();
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const injected = connectors.find((c) => c.id === "injected") ?? connectors[0];
+
+  // Passport AA wins so the chip always shows the address that
+  // /onboard signs and /dashboard reads. Otherwise the user sees their
+  // injected EOA here but the rest of the app talks to the AA.
+  const address = passport.session?.aaAddress ?? wagmiAddress;
+  const isConnected = Boolean(passport.session) || wagmiConnected;
 
   if (isConnected && address) {
     return (
       <button
         type="button"
         className="rounded-sm border border-surface-line px-2 py-1 font-mono text-xs text-fg-primary hover:border-amber/40"
-        onClick={() => disconnect()}
+        onClick={() => {
+          // Passport disconnect goes through the provider's logout;
+          // wagmi disconnect is a no-op when nothing is connected.
+          if (passport.session) void passport.logout();
+          else disconnect();
+        }}
         title="Disconnect"
       >
         {formatAddress(address)}

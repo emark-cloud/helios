@@ -18,10 +18,22 @@ import { DashboardTopStrip } from "@/components/dashboard/DashboardTopStrip";
 import { WithdrawControl } from "@/components/dashboard/WithdrawControl";
 import { DashboardCascade } from "@/components/motion/DashboardCascade";
 import { SentinelStreamProvider } from "@/components/motion/SentinelStream";
+import { usePassport } from "@/components/passport/PassportProvider";
 import { fetchDashboard, type DashboardPayload } from "@/lib/sentinel";
 
 export function DashboardClient(): JSX.Element {
-  const { address, isConnected } = useAccount();
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+  const passport = usePassport();
+
+  // Effective wallet must mirror OnboardClient: when Passport is
+  // signed-in the on-chain user is the AA, not whatever wagmi has
+  // connected (which may be empty, or a separate dev wallet). Reading
+  // wagmi-only here meant the dashboard fetched a different address
+  // than the one the meta-strategy was POSTed under and rendered
+  // "No meta-strategy yet" on a freshly-onboarded user.
+  const address: `0x${string}` | undefined = passport.session?.aaAddress
+    ?? (wagmiAddress as `0x${string}` | undefined);
+  const isConnected = Boolean(passport.session) || wagmiConnected;
 
   const enabled = isConnected && Boolean(address);
   const query = useQuery<DashboardPayload, Error>({
