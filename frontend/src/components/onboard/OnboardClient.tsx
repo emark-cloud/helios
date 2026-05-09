@@ -767,8 +767,28 @@ async function sendOnboardingUserOp(
           return `call#${p.idx} → ${p.target}: ${r.error?.message ?? "?"} ${r.error?.data ?? ""}`;
         })
         .join("\n") || "no per-call reverts (batch-state-dependent failure)";
+    // Per-call probes simulate each step in isolation, which gives
+    // false positives for any call that depends on a prior step's
+    // state change (e.g. deposit fails because the preceding approve
+    // hasn't applied). Surface the *bundler* error too — that one runs
+    // the full batch and is the authoritative revert reason. Chain the
+    // probe summary as supplemental detail.
+    const bundlerErr = err as {
+      message?: string;
+      shortMessage?: string;
+      details?: string;
+      cause?: { message?: string; data?: string };
+      data?: string;
+    };
+    const bundlerSummary =
+      bundlerErr.shortMessage
+      ?? bundlerErr.message
+      ?? bundlerErr.details
+      ?? bundlerErr.cause?.message
+      ?? "(no bundler message)";
+    const bundlerData = bundlerErr.cause?.data ?? bundlerErr.data ?? "";
     throw new Error(
-      `estimateUserOperation reverted. Per-call probes:\n${detail}`,
+      `estimateUserOperation reverted.\nBundler: ${bundlerSummary}${bundlerData ? ` ${bundlerData}` : ""}\n\nPer-call probes (NOTE: each runs in isolation — a deposit failing here just means the prior approve hasn't applied; look at the bundler reason above first):\n${detail}`,
     );
   }
   // Diagnostic dump — when the bundler silently drops a userOp, the
