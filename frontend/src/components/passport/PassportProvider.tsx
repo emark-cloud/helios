@@ -33,9 +33,11 @@ import { isPassportEnabled, readPassportEnv, type AuthMode } from "@/lib/passpor
 // the SDK's logger short-circuits to non-TTY output instead of
 // crashing the userOp signing flow. Browser-only; SSR has real
 // process.stdout already.
+type StdShim = { isTTY: boolean };
+type ProcessShim = { env: Record<string, string>; stdout?: StdShim; stderr?: StdShim };
 if (typeof window !== "undefined") {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const proc = (globalThis as any).process ?? ((globalThis as any).process = { env: {} });
+  const root = globalThis as { process?: ProcessShim };
+  const proc: ProcessShim = root.process ?? (root.process = { env: {} });
   if (!proc.stdout) proc.stdout = { isTTY: false };
   if (!proc.stderr) proc.stderr = { isTTY: false };
 }
