@@ -10,13 +10,14 @@
  * Vercel server talks plain HTTP to the VPS.
  *
  * Routes:
- *   /api/sentinel/users/{addr}/meta-strategy → POST  /v1/users/{addr}/meta-strategy
- *   /api/sentinel/users/{addr}/dashboard     → GET   /v1/users/{addr}/dashboard
- *   /api/sentinel/strategies                 → GET   /v1/strategies
+ *   /api/sentinel/v1/users/{addr}/meta-strategy → POST  /v1/users/{addr}/meta-strategy
+ *   /api/sentinel/v1/users/{addr}/dashboard     → GET   /v1/users/{addr}/dashboard
+ *   /api/sentinel/v1/strategies                 → GET   /v1/strategies
  *
  * The `[...path]` segment captures everything after `/api/sentinel/`
- * and prepends `/v1/` when forwarding so the upstream URL matches
- * Sentinel's existing API.
+ * and forwards it verbatim. The client (`lib/sentinel.ts`) already
+ * includes `/v1` in the path it passes — the proxy must NOT add a
+ * second one (`/v1/v1/...` → 404 on upstream FastAPI).
  *
  * Configure with `SENTINEL_PROXY_TARGET` (server-side env, no
  * NEXT_PUBLIC_ prefix — must not leak to the bundle). Defaults to
@@ -33,7 +34,7 @@ const TARGET = (process.env.SENTINEL_PROXY_TARGET ?? "http://38.49.216.27:8001")
 async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   const tail = path.join("/");
   const search = req.nextUrl.search; // includes leading "?" if any
-  const upstream = `${TARGET}/v1/${tail}${search}`;
+  const upstream = `${TARGET}/${tail}${search}`;
 
   // Forward method + body verbatim. Strip headers that would confuse
   // the upstream FastAPI server (`host`, `connection`, etc.) and only
