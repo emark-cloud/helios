@@ -25,22 +25,12 @@ import {
 
 import { isPassportEnabled, readPassportEnv, type AuthMode } from "@/lib/passport";
 
-// Webpack 5's browser shim for `process` exposes only `env`, but
-// Particle's bundled pino logger reads `process.stdout.isTTY` /
-// `process.stderr.isTTY` — that throws "Cannot read properties of
-// undefined (reading 'isTTY')" exactly when `particleAuth.sign(...)`
-// fires the passkey prompt. Patch the shim once at module load so
-// the SDK's logger short-circuits to non-TTY output instead of
-// crashing the userOp signing flow. Browser-only; SSR has real
-// process.stdout already.
-type StdShim = { isTTY: boolean };
-type ProcessShim = { env: Record<string, string>; stdout?: StdShim; stderr?: StdShim };
-if (typeof window !== "undefined") {
-  const root = globalThis as { process?: ProcessShim };
-  const proc: ProcessShim = root.process ?? (root.process = { env: {} });
-  if (!proc.stdout) proc.stdout = { isTTY: false };
-  if (!proc.stderr) proc.stderr = { isTTY: false };
-}
+// Note: the `process.stdout/stderr.isTTY` shim that Particle's pino
+// logger needs during passkey signing is installed by the synchronous
+// `<script src="/process-tty-polyfill.js" />` in `app/layout.tsx`.
+// Doing it from `<head>` instead of from this module guarantees the
+// global exists before webpack's lazy chunk for `@particle-network/auth`
+// starts initializing — an in-module polyfill races that import.
 
 type SignFn = (_userOpHash: string) => Promise<string>;
 
