@@ -23,7 +23,7 @@ except ImportError as exc:  # pragma: no cover - install-time path
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]
     uvicorn.run(
-        build_app,
+        "mean_reversion_v1.service:build_app",
         host=settings.http_host,
         port=settings.http_port,
         factory=True,

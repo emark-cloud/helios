@@ -21,8 +21,11 @@ except ImportError as exc:  # pragma: no cover - install-time path
 
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]
+    # Pass the factory as an import string so uvicorn's reload mode can
+    # re-import on change. Passing the callable directly is incompatible
+    # with `reload=True` and silently exits after a warning.
     uvicorn.run(
-        build_app,
+        "momentum_v1.service:build_app",
         host=settings.http_host,
         port=settings.http_port,
         factory=True,
