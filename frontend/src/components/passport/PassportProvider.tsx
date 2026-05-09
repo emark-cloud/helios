@@ -161,8 +161,12 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     const network = new NetworkCtor(smartAccount, particleAuth);
 
     const AaSdkCtor = (aaSdkMod as { GokiteAASDK: new (..._args: unknown[]) => unknown }).GokiteAASDK;
+    // gokite-aa-sdk's NETWORKS map keys are `kite_testnet` /
+    // `kite_mainnet` (underscore). Passing "kite-testnet" hits the
+    // `throw new Error("Unsupported network: …")` branch in
+    // gokite-aa-sdk@1.0.15/dist/gokite-aa-sdk.js:183.
     const aaSdk = new AaSdkCtor(
-      "kite-testnet",
+      "kite_testnet",
       env.rpcUrl,
     ) as PassportSdkBundle["aaSdk"];
 
