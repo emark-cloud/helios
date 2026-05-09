@@ -42,6 +42,19 @@ RUN test -n "${SERVICE_PACKAGE}" || (echo "SERVICE_PACKAGE build arg required" &
  && test -n "${SERVICE_MODULE}"  || (echo "SERVICE_MODULE build arg required"  && exit 1) \
  && uv sync --frozen --package "${SERVICE_PACKAGE}" --no-dev
 
+# Oracle-only: install node + the Poseidon helper's circomlibjs dep.
+# `oracle.poseidon.PoseidonHelper` keeps a long-lived `node` subprocess
+# warm (circomlibjs's wasm bootstrap is ~300ms), so the runtime image
+# needs a node binary AND a populated `services/oracle/scripts/node_modules`.
+# Skipped for sentinel/reputation since those services don't poseidon.
+RUN if [ "${SERVICE_PACKAGE}" = "helios-oracle" ]; then \
+      apt-get update \
+   && apt-get install -y --no-install-recommends nodejs npm ca-certificates \
+   && rm -rf /var/lib/apt/lists/* \
+   && cd services/oracle/scripts \
+   && npm install --omit=dev --no-audit --no-fund ; \
+    fi
+
 # ── Runtime ───────────────────────────────────────────────────────
 # Slim image with no uv, no pip cache, no docs/test source — only what
 # the running service needs to import + execute.
@@ -52,6 +65,16 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
+
+# Oracle-only: install node at runtime so `oracle.poseidon` can spawn
+# the helper subprocess. `services/oracle/scripts/node_modules` is
+# populated by the builder stage and copied below.
+ARG SERVICE_PACKAGE
+RUN if [ "${SERVICE_PACKAGE}" = "helios-oracle" ]; then \
+      apt-get update \
+   && apt-get install -y --no-install-recommends nodejs ca-certificates \
+   && rm -rf /var/lib/apt/lists/* ; \
+    fi
 
 # Copy the resolved virtualenv from the builder. uv writes it to
 # `/app/.venv/` next to the workspace root.
