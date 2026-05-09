@@ -4,7 +4,7 @@ Mirrors the build plan at `/home/emark/.claude/plans/i-want-to-start-jiggly-hare
 
 Tracks: **CX** (contracts/circuits), **SX** (services/SDKs), **FE** (frontend/bot), **OP** (infra/ops).
 
-Current phase: **Phase 6 — Polish + submission** (Phases 0–5 complete as of 2026-05-08; `v0.5.0` tag pending acceptance PR merge).
+Current phase: **Phase 6 — Polish + submission** (Phases 0–5 complete as of 2026-05-08; `v0.5.0` tag pending acceptance PR merge). Phase-6 real-price cutover landed 2026-05-09 — `v0.6.0-realprice` tag at commit `0034fb4`; nine multi-asset StrategyVaults active on Kite testnet, RouterPriceMirror keeper feeding live BTC/ETH/SOL prices. Polish + judging surfaces still outstanding (see Phase 6 below).
 
 ---
 
@@ -457,6 +457,26 @@ Implementation plan: `docs/phase5-plan.md` (8 workstreams). All eight workstream
 ## Phase 6 — Polish + submission
 
 **Goal.** Judge-ready, defensible under scrutiny on the testnet stack. Mainnet promotion is **not** in scope for v1 — it lives in the **Stretch** section below and is exercised only if time permits after Phase 6 acceptance.
+
+### CX/SX — Real-P&L cutover ✅ (`v0.6.0-realprice` tag at `0034fb4`, broadcast 2026-05-09)
+
+Pre-cutover the testnet stack used `MockSwapRouter` with admin-set prices, so deposited capital traded against synthetic liquidity at flat prices and NAV never moved with the market. The cutover wires live BTC/ETH/SOL oracle snapshots into the router each bar and switches all nine StrategyVaults onto a multi-asset universe. Source-of-truth: `docs/phase6-realprice-plan.md`; cutover summary: `docs/active-strategies.md`; broadcast addresses: `contracts/deployments/kite-testnet.json`.
+
+- [x] **WS1 — Contracts** (`52c7645`). `DeployTestUniverse.s.sol` + `DeployPhase6MultiAssetVaults.s.sol` + `DeactivateLegacyVaults.s.sol`. New `MockTestToken` with configurable decimals (mWBTC=8, mWETH=18, mSOL=9). Fresh-redeploy chosen over in-place upgrade to preserve the `paramsHash` ↔ proof binding.
+- [x] **WS2 — Oracle keeper** (`e75b02b`). `RouterPriceMirror` task in `services/oracle/` mirrors signed snapshots into `MockSwapRouter.setPrice` each bar with a 5 bps spread per direction. Pure decimal converter (`router_mirror_math.py`) covered by 17 unit tests; e2e wiring covered by 8 more.
+- [x] **WS3 — Reference strategies** (`7a0bf07`, `c53e2c8`). Multi-decimal witness encoding via opt-in `asset_decimals` parameter, threaded `RuntimeConfig` → service env (`MOMENTUM_/MEAN_REV_ASSET_DECIMALS_JSON`). Asset universe shifted to `(USDC, WBTC, WETH, WSOL)` for momentum + mean-rev; yield-rotation kept at `(USDC,)` per `Helios.md §12.1` carve-out.
+- [x] **WS4 — Subgraph** (`3719354`). Nine new Phase-6 vault datasources + three redeployed-infrastructure entries (TAV, oracle anchors); `subgraph/networks.json` scaffold for graph-cli's `--network-file`.
+- [x] **WS5 — Deploy config** (`06f4a2f`). `ROUTER_MIRROR_*` / `*_ASSET_DECIMALS_JSON` / Phase-6 vault addresses added to `deploy/env.prod.example`; `mean_reversion_v1` (port 8006) and `yield_rotation_v1` (port 8007) services added to `docker-compose.prod.yml`. Allocator code unchanged — `AllocatorGoldsky.fetch_directory`'s `where: { active: true }` filter auto-resolves the new vault set.
+- [x] **WS6 — Docs** (`cf5a988`). `docs/active-strategies.md` — post-cutover active set table, fresh-redeploy rationale, YR single-asset carve-out justification, operator runbook delta.
+- [x] **WS7 — Harness** (`e7f8094`). `scripts/e2e_phase6_realprice.py` + new mode `./scripts/e2e-scenario.sh phase6-realprice`. Static checks (`phase6Vaults` active in registry, `MockSwapRouter` priced for ≥1 leg) GREEN.
+- [x] **WS8 — Broadcast** (`6ae3089`). Three Track-B broadcasts on Kite testnet:
+  - `DeployTestUniverse` → blocks 21262277-21262285 (mWBTC `0x3f81…37a0`, mWETH `0x789f…4a00`, mSOL `0xcf12…d532`)
+  - `DeployPhase6MultiAssetVaults` → blocks 21262307-21262329 (nine new ERC1967 proxies, registered + staked)
+  - `DeactivateLegacyVaults` → legacy nine flipped `active=false`
+  - VPS rebuild + `pm2 restart`; Goldsky deploy at `helios/v0.6.0`.
+- [x] **CI green** at HEAD (`0034fb4`) — `style(p6): apply ruff format` + `test(p6/strategies): set NAV=2000 in mean-rev decimals threading test` chased the formatter and a real test bug uncovered by CI; `forge fmt` + `ruff check` + `ruff format --check` + pytest all green.
+
+**Driving phase deferred** — `_send_deposit()` raises `NotImplementedError` (Passport session signing not plumbed into Python). Manual deposit flow via the frontend or `kpass` CLI works today; the auto-deposit-and-observe loop is post-hackathon polish.
 
 ### FE — Judge + audit surfaces
 - [ ] `/judge` complete per `DESIGN.md §9.8` — press-kit styling, no marketing copy
