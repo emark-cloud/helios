@@ -112,8 +112,11 @@ _BINANCE_SYMBOLS: dict[str, str] = {
     # the WKITE alias the reference strategies use.
 }
 _COINGECKO_SLUGS: dict[str, tuple[str, str]] = {
-    "KITE/USDT": ("kite-ai", "usd"),
-    "WKITE": ("kite-ai", "usd"),
+    # `kite-ai` was the early-2026 placeholder; Kite mainnet launched
+    # 2026-04-28 and Coingecko relisted the token under `kite-2` (rank
+    # 128 as of 2026-05-09). The old slug now 404s ("coin not found").
+    "KITE/USDT": ("kite-2", "usd"),
+    "WKITE": ("kite-2", "usd"),
     "ETH/USDT": ("ethereum", "usd"),
     "WETH": ("ethereum", "usd"),
     "BTC/USDT": ("bitcoin", "usd"),
