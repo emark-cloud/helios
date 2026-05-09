@@ -67,18 +67,18 @@ type PassportSdkBundle = {
       userOpHash: string;
       status: { status: string; transactionHash?: string; reason?: string };
     }>;
-    sendUserOperation(
+    sendUserOperationWithPayment(
       _owner: string,
       _request: { targets: string[]; values?: bigint[]; callDatas: string[] },
+      _baseUserOp: object,
+      _tokenAddress: string,
       _signFn: SignFn,
       _salt?: bigint,
-      _paymasterAddress?: string,
-      _tokenAddress?: string,
-    ): Promise<string>;
-    pollUserOperationStatus(
-      _userOpHash: string,
-      _options?: { interval?: number; timeout?: number; maxRetries?: number },
-    ): Promise<{ status: string; transactionHash?: string; reason?: string }>;
+      _pollingOptions?: { interval?: number; timeout?: number; maxRetries?: number },
+    ): Promise<{
+      userOpHash: string;
+      status: { status: string; transactionHash?: string; reason?: string };
+    }>;
     estimateUserOperation(
       _owner: string,
       _request: { targets: string[]; values?: bigint[]; callDatas: string[] },
@@ -86,7 +86,17 @@ type PassportSdkBundle = {
       sponsorshipAvailable: boolean;
       remainingSponsorships: number;
       paymasterAddress?: string;
-      supportedTokens: Array<{ tokenAddress: string; tokenSymbol?: string; estimatedCost: string }>;
+      supportedTokens: Array<{
+        tokenAddress: string;
+        tokenSymbol?: string;
+        tokenDecimals?: number;
+        estimatedCost: string;
+        formattedCost?: string;
+      }>;
+      userOp: object;
+      gasEstimate?: object;
+      totalCostKITE?: string;
+      totalCostKITEFormatted?: string;
     }>;
   };
   signFn: SignFn;

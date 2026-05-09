@@ -500,40 +500,58 @@ async function sendOnboardingUserOp(
   }
 
   const request = { targets, callDatas };
-  // Estimate first so the UI knows whether the paymaster sponsors gas;
-  // even if we ignore the result here, the call surfaces a clear error
-  // before we burn a passkey prompt on a doomed userOp.
-  await bundle.aaSdk.estimateUserOperation(aa, request);
 
-  // Force the paymaster to bill (or sponsor) in native KITE rather
-  // than the SDK default of `supportedTokens[1]` (Test USD). The
-  // higher-level `sendUserOperationAndWait` doesn't expose the token
-  // arg, and the AA wallet doesn't hold Test USD or approve the
-  // paymaster for it in this batch, so the bundler silently drops
-  // userOps minted with the default fee token. Falling back to the
-  // raw `sendUserOperation` + manual `pollUserOperationStatus` lets
-  // us pass the zero-address (KITE) and bump the polling timeout
-  // past the staging bundler's slow path.
-  const NATIVE_KITE = "0x0000000000000000000000000000000000000000" as const;
-  const userOpHash = await bundle.aaSdk.sendUserOperation(
+  // Canonical Kite AA-SDK flow (see
+  // node_modules/gokite-aa-sdk/dist/example-token-paymaster.js):
+  //
+  //   const estimate = await sdk.estimateUserOperation(owner, request);
+  //   const tokenAddress = estimate.sponsorshipAvailable
+  //     ? ZERO_ADDRESS                       // free sponsorship branch
+  //     : settlementToken;                   // billed-in-token branch
+  //   const result = await sdk.sendUserOperationWithPayment(
+  //     owner, request, estimate.userOp, tokenAddress, signFn);
+  //
+  // The high-level `sendUserOperationAndWait` doesn't expose the
+  // fee-token arg and falls back to `supportedTokens[1]` (Test USD on
+  // testnet) — the AA wallet never holds it and there's no
+  // `approve(paymaster, …)` in our batch, so the bundler accepts
+  // `eth_sendUserOperation`, returns a hash, and silently drops the
+  // op. Bypassing through `sendUserOperationWithPayment` is what the
+  // SDK's own example does, and it auto-prepends the paymaster
+  // approve when the token branch is taken.
+  const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+  const estimate = await bundle.aaSdk.estimateUserOperation(aa, request);
+  let tokenAddress: string;
+  if (estimate.sponsorshipAvailable) {
+    tokenAddress = ZERO_ADDRESS;
+  } else {
+    const settlement = estimate.supportedTokens.find(
+      (t) => t.tokenAddress.toLowerCase() !== ZERO_ADDRESS,
+    );
+    if (!settlement) {
+      throw new Error(
+        "Paymaster sponsorship exhausted and no fallback token configured. "
+          + "Top up the AA wallet's settlement token or wait for sponsorship to refresh.",
+      );
+    }
+    tokenAddress = settlement.tokenAddress;
+  }
+
+  const result = await bundle.aaSdk.sendUserOperationWithPayment(
     aa,
     request,
+    estimate.userOp,
+    tokenAddress,
     bundle.signFn,
-    undefined,
-    undefined,
-    NATIVE_KITE,
   );
-  const status = await bundle.aaSdk.pollUserOperationStatus(userOpHash, {
-    interval: 3000,
-    timeout: 180000,
-    maxRetries: 60,
-  });
-  if (status.status !== "success" && status.status !== "included") {
+  if (result.status.status !== "success" && result.status.status !== "included") {
     throw new Error(
-      status.reason ? `userOp failed: ${status.reason}` : `userOp failed: ${status.status}`,
+      result.status.reason
+        ? `userOp failed: ${result.status.reason}`
+        : `userOp failed: ${result.status.status}`,
     );
   }
-  return status.transactionHash ?? userOpHash;
+  return result.status.transactionHash ?? result.userOpHash;
 }
 
 /**
