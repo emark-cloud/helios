@@ -75,6 +75,10 @@ class RuntimeConfig:
     block_window_size: int = 50  # circuit ceiling 100; leaves headroom
     nonce_seed: int = 0
     declared_class_field: int = 0  # filled at startup from manifest
+    # Phase-6 multi-asset: per-symbol raw decimals so the witness builder
+    # encodes `amount_in` in `tokenIn`'s native decimals. None or empty
+    # keeps the Phase-1 USD*10^18 legacy mode (see witness._resolve_amount_in).
+    asset_decimals: dict[str, int] | None = None
 
 
 @dataclass
@@ -229,6 +233,12 @@ class MomentumRuntime:
                 # current position keeps the value honest for any
                 # subclass that emits short entries.
                 was_long=self._strategy.position_for(asset) > 0,
+                # Phase-6 multi-asset: when the runtime config supplies
+                # per-asset decimals, the witness builder switches to
+                # raw-tokenIn encoding so `amount_in` matches the
+                # on-chain swap amount across mixed-decimal universes
+                # (mUSDC=18, mWBTC=8, mWETH=18, mSOL=9).
+                asset_decimals=self._cfg.asset_decimals,
             )
         except ValueError as exc:
             _log.warning("momentum.witness.invalid", asset=asset, err=str(exc))

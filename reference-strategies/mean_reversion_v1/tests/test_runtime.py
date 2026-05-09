@@ -241,3 +241,39 @@ def test_nav_signing_round_trip() -> None:
         expected.message_hash
     )
     assert recovered_pubkey.to_checksum_address() == nav_addr
+
+
+# ── Phase-6 multi-asset wiring ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_runtime_threads_asset_decimals_into_witness() -> None:
+    """RuntimeConfig.asset_decimals must reach the witness builder.
+    A z-score dip on WETH fires LONG (USDC -> WETH) — with USDC=6
+    raw decimals, $1000 of mUSDC becomes 10^9 raw, not 10^21."""
+    rt, prover = _runtime({"WETH": _dip_prices()})
+    rt._cfg = RuntimeConfig(  # type: ignore[attr-defined]
+        bar_interval_sec=60,
+        nav_interval_sec=300,
+        block_window_size=50,
+        declared_class_field=0xABC,
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    await rt.tick_bar()
+    assert prover.calls, "expected a prover request"
+    inputs = prover.calls[0]["inputs"]
+    assert int(inputs["amount_in"]) == 1_000 * 10**6
+
+
+def test_parse_asset_decimals_helper() -> None:
+    from mean_reversion_v1.service import _parse_asset_decimals
+
+    assert _parse_asset_decimals("") is None
+    assert _parse_asset_decimals('{"USDC":6,"WETH":18}') == {"USDC": 6, "WETH": 18}
+
+    import pytest as _pt
+
+    with _pt.raises(ValueError):
+        _parse_asset_decimals("[1,2,3]")
+    with _pt.raises(ValueError):
+        _parse_asset_decimals('{"USDC":-1}')

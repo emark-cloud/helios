@@ -70,6 +70,10 @@ class RuntimeConfig:
     block_window_size: int = 50  # circuit ceiling 100; leaves headroom
     nonce_seed: int = 0
     declared_class_field: int = 0  # filled at startup from manifest
+    # Phase-6 multi-asset: per-symbol raw decimals so the witness builder
+    # encodes `amount_in` in `tokenIn`'s native decimals. None or empty
+    # keeps the Phase-1 USD*10^18 legacy mode (see witness._resolve_amount_in).
+    asset_decimals: dict[str, int] | None = None
 
 
 @dataclass
@@ -207,6 +211,10 @@ class MeanReversionRuntime:
                 stop_loss_price_e18=int(self._strategy.stop_loss_price * 10**18),
                 is_signal_flip=intent.is_signal_flip,
                 is_stop_loss=intent.is_stop_loss,
+                # Phase-6 multi-asset: switches the witness builder to
+                # raw-tokenIn encoding so `amount_in` matches the on-chain
+                # swap amount across mixed-decimal universes.
+                asset_decimals=self._cfg.asset_decimals,
             )
         except ValueError as exc:
             _log.warning("mean_reversion.witness.invalid", asset=asset, err=str(exc))

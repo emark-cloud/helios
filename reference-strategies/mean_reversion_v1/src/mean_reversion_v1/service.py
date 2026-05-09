@@ -8,6 +8,7 @@ the Phase 1/2 services).
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -40,6 +41,34 @@ class Settings(BaseServiceSettings):
     n_sigma_x100: int = 200
     stop_loss_price_usd: float = 0.0
     http_port: int = 8006
+    # Phase-6 multi-asset: see momentum_v1/service.py for the same field.
+    # Empty string keeps the Phase-1 USD*10^18 legacy witness encoding;
+    # set to e.g. '{"USDC":18,"WBTC":8,"WETH":18,"WSOL":9}' to switch
+    # the runtime into raw-tokenIn mode.
+    asset_decimals_json: str = Field(
+        default="", validation_alias="MEAN_REV_ASSET_DECIMALS_JSON"
+    )
+
+
+def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
+    """Same shape as `momentum_v1/service.py:_parse_asset_decimals` —
+    parse `MEAN_REV_ASSET_DECIMALS_JSON` into the runtime's
+    `asset_decimals` mapping. Empty input → None (legacy mode).
+    Bad JSON / wrong types raise so misconfiguration fails loudly.
+    """
+    if not raw or not raw.strip():
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("MEAN_REV_ASSET_DECIMALS_JSON must be a JSON object")
+    out: dict[str, int] = {}
+    for k, v in parsed.items():
+        if not isinstance(k, str) or not isinstance(v, int) or v < 0:
+            raise ValueError(
+                "MEAN_REV_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}"
+            )
+        out[k] = v
+    return out
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -71,6 +100,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 bar_interval_sec=cfg.bar_interval_sec,
                 nav_interval_sec=cfg.nav_interval_sec,
                 declared_class_field=cfg.declared_class_field,
+                asset_decimals=_parse_asset_decimals(cfg.asset_decimals_json),
             ),
             nav_oracle_pk=cfg.nav_oracle_pk,
             allocator_address=cfg.allocator_address,

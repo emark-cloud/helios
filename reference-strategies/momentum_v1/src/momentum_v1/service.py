@@ -9,6 +9,7 @@ runtime.
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -46,6 +47,37 @@ class Settings(BaseServiceSettings):
     signal_threshold: float = 0.015
     lookback_bars: int = 10
     http_port: int = 8005
+    # Phase-6 multi-asset: JSON dict mapping asset symbol -> raw decimals.
+    # Empty string keeps the Phase-1 USD*10^18 legacy witness encoding.
+    # Set to e.g. '{"USDC":18,"WBTC":8,"WETH":18,"WSOL":9}' on Kite testnet
+    # to switch the runtime into raw-tokenIn mode so on-chain `amountIn`
+    # matches `publicInputs[PI_AMOUNT_IN]`.
+    asset_decimals_json: str = Field(
+        default="", validation_alias="MOMENTUM_ASSET_DECIMALS_JSON"
+    )
+
+
+def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
+    """Parse `MOMENTUM_ASSET_DECIMALS_JSON` into the runtime's
+    `asset_decimals` mapping. Empty / whitespace input → None
+    (preserves the Phase-1 legacy USD*10^18 witness encoding).
+    Bad JSON or non-int values raise so a misconfigured deploy
+    fails loudly at startup rather than silently using legacy
+    semantics on a multi-decimal universe.
+    """
+    if not raw or not raw.strip():
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("MOMENTUM_ASSET_DECIMALS_JSON must be a JSON object")
+    out: dict[str, int] = {}
+    for k, v in parsed.items():
+        if not isinstance(k, str) or not isinstance(v, int) or v < 0:
+            raise ValueError(
+                "MOMENTUM_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}"
+            )
+        out[k] = v
+    return out
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -76,6 +108,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 bar_interval_sec=cfg.bar_interval_sec,
                 nav_interval_sec=cfg.nav_interval_sec,
                 declared_class_field=cfg.declared_class_field,
+                asset_decimals=_parse_asset_decimals(cfg.asset_decimals_json),
             ),
             nav_oracle_pk=cfg.nav_oracle_pk,
             allocator_address=cfg.allocator_address,

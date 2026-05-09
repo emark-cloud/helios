@@ -244,3 +244,46 @@ def test_nav_signing_round_trip() -> None:
         expected.message_hash
     )
     assert recovered_pubkey.to_checksum_address() == nav_addr
+
+
+# ── Phase-6 multi-asset wiring ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_runtime_threads_asset_decimals_into_witness() -> None:
+    """When `RuntimeConfig.asset_decimals` is set, the witness builder
+    receives it and switches to raw-tokenIn encoding. Verify by inspecting
+    the prover request: $1000 of USDC at 6 decimals must hit the prover
+    as 10^9 raw, not 10^21 (the legacy USD*10^18 value)."""
+    prices = [int((2000 + i * 5) * 10**18) for i in range(16)]
+    rt, prover = _runtime({"WETH": prices})
+    rt._cfg = RuntimeConfig(  # type: ignore[attr-defined]
+        bar_interval_sec=60,
+        nav_interval_sec=300,
+        block_window_size=50,
+        declared_class_field=0xABC,
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    rt._strategy.set_capital(2_000)
+    await rt.tick_bar()
+    assert prover.calls, "expected a prover request"
+    inputs = prover.calls[0]["inputs"]
+    # _size() returns NAV * 0.5 = $1000 by default; raw mUSDC@6dec → 10^9.
+    assert int(inputs["amount_in"]) == 1_000 * 10**6
+
+
+def test_parse_asset_decimals_helper() -> None:
+    from momentum_v1.service import _parse_asset_decimals
+
+    assert _parse_asset_decimals("") is None
+    assert _parse_asset_decimals("   ") is None
+    assert _parse_asset_decimals('{"USDC":6,"WETH":18}') == {"USDC": 6, "WETH": 18}
+
+    import pytest as _pt
+
+    with _pt.raises(ValueError):
+        _parse_asset_decimals("[1,2,3]")
+    with _pt.raises(ValueError):
+        _parse_asset_decimals('{"USDC":-1}')
+    with _pt.raises(ValueError):
+        _parse_asset_decimals('{"USDC":"6"}')
