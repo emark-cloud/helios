@@ -259,6 +259,10 @@ async def test_runtime_threads_asset_decimals_into_witness() -> None:
         declared_class_field=0xABC,
         asset_decimals={"USDC": 6, "WETH": 18},
     )
+    # Drop NAV so _size() returns a deterministic $1000 (default fraction
+    # is 0.5 — at NAV=2000 that yields 1000 USDC, which under USDC=6 dec
+    # is exactly 10^9 raw).
+    rt._strategy.set_capital(2_000)
     await rt.tick_bar()
     assert prover.calls, "expected a prover request"
     inputs = prover.calls[0]["inputs"]
