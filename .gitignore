@@ -74,3 +74,4 @@ pg-data/
 
 # ── Claude Code session ─────────────────────────────────────
 .claude/
+.vercel
