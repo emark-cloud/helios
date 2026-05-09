@@ -578,8 +578,25 @@ function shorten(hash: string): string {
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return "Onboarding failed.";
+  // Surface the stack trace alongside the message so the
+  // "Show technical detail" toggle becomes a real diagnostic — the
+  // SDKs throw bare strings like "Cannot read properties of undefined
+  // (reading 'isTTY')" with no clue which chunk produced them. Also
+  // emit to the console so the failure leaves a copyable trace in
+  // DevTools regardless of UI state.
+  if (typeof console !== "undefined") {
+    console.error("[onboard] signing error", err);
+  }
+  if (err instanceof Error) {
+    const head = err.message || err.name || "Error";
+    return err.stack && err.stack !== head ? `${head}\n\n${err.stack}` : head;
+  }
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err, null, 2);
+  } catch {
+    return "Onboarding failed.";
+  }
 }
 
 /**
