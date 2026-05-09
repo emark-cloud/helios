@@ -34,13 +34,18 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages ./packages
 COPY services ./services
+COPY reference-strategies ./reference-strategies
 
 ARG SERVICE_PACKAGE
 ARG SERVICE_MODULE
+# Optional: extras to enable on the workspace package (e.g. `service`
+# for reference strategies that ship a FastAPI runner gated behind
+# `[service]`). Empty by default.
+ARG SERVICE_EXTRA=""
 
 RUN test -n "${SERVICE_PACKAGE}" || (echo "SERVICE_PACKAGE build arg required" && exit 1) \
  && test -n "${SERVICE_MODULE}"  || (echo "SERVICE_MODULE build arg required"  && exit 1) \
- && uv sync --frozen --package "${SERVICE_PACKAGE}" --no-dev
+ && uv sync --frozen --package "${SERVICE_PACKAGE}" --no-dev ${SERVICE_EXTRA:+--extra ${SERVICE_EXTRA}}
 
 # Oracle-only: install node + the Poseidon helper's circomlibjs dep.
 # `oracle.poseidon.PoseidonHelper` keeps a long-lived `node` subprocess
@@ -87,6 +92,7 @@ COPY --from=builder /app/.venv /app/.venv
 # pip cache, and `~/.cache/uv` work dirs.
 COPY --from=builder /app/packages /app/packages
 COPY --from=builder /app/services /app/services
+COPY --from=builder /app/reference-strategies /app/reference-strategies
 COPY --from=builder /app/pyproject.toml /app/uv.lock /app/
 
 # Drop privileges

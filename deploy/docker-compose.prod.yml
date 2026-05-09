@@ -125,5 +125,28 @@ services:
     env_file: /srv/helios/.env
     ports: ["127.0.0.1:8003:8003"]
 
+  # ── Reference strategy runtimes ──────────────────────────
+  # Each runtime polls the oracle, builds a Poseidon witness, asks the
+  # prover for a Groth16 proof, and submits `executeWithProof` against
+  # its strategy vault. The `[service]` extra pulls in the FastAPI
+  # runner (helios-service-template, workspace-only).
+
+  momentum_v1:
+    build:
+      context: ..
+      dockerfile: deploy/services/python.Dockerfile
+      args:
+        SERVICE_PACKAGE: helios-reference-momentum-v1
+        SERVICE_MODULE: momentum_v1
+        SERVICE_EXTRA: service
+    image: helios/momentum_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+    ports: ["127.0.0.1:8005:8005"]
+    depends_on: [oracle, prover]
+
   # helix:    # deferred post-hackathon (regime/correlation scope cut)
   # bot:      # deferred post-hackathon (Telegram bot scope cut)
