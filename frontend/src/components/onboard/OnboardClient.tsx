@@ -467,6 +467,31 @@ async function sendOnboardingUserOp(
   const metaStruct = formToContractStruct(payload, addrs.usdc, defundForm);
 
   const callDatas: Hex[] = [
+    // Mock-USDC self-mint. The deployed mUSDC on Kite testnet is the
+    // permissionless `MockERC20` from `contracts/test/mocks/MockERC20.sol`
+    // — `mint(address,uint256)` has no access control. Folding it into
+    // the batch means a brand-new Passport AA wallet can self-fund the
+    // exact amount it's about to deposit, with the Kite paymaster
+    // sponsoring gas. No backend faucet, no operator key, no
+    // pre-funding. v1 mUSDC is the demo capital float (Helios.md §6.1);
+    // a mainnet stretch would replace this with a real-USDC funding
+    // path (bridge / on-ramp).
+    encodeFunctionData({
+      abi: [
+        {
+          type: "function",
+          name: "mint",
+          stateMutability: "nonpayable",
+          inputs: [
+            { name: "to", type: "address" },
+            { name: "amount", type: "uint256" },
+          ],
+          outputs: [],
+        },
+      ] as const,
+      functionName: "mint",
+      args: [aa, depositAmount],
+    }),
     encodeFunctionData({
       abi: erc20Abi,
       functionName: "approve",
@@ -492,7 +517,13 @@ async function sendOnboardingUserOp(
       args: [SENTINEL_ALLOCATOR_ADDRESS, BigInt(ALLOCATOR_SESSION_TTL_SEC)],
     }),
   ];
-  const targets: string[] = [addrs.usdc, addrs.userVault, addrs.userVault, addrs.userVault];
+  const targets: string[] = [
+    addrs.usdc,
+    addrs.usdc,
+    addrs.userVault,
+    addrs.userVault,
+    addrs.userVault,
+  ];
 
   const bundle = passport.bundle;
   if (bundle === null) {
