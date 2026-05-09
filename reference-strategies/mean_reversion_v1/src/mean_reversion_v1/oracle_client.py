@@ -102,7 +102,11 @@ class OracleClient:
         )
         resp.raise_for_status()
         body: dict[str, Any] = resp.json()
-        return _unhex(body["root"])
+        # Oracle returns `root` as a decimal BN254 field element string
+        # (variable / often odd length) and `root_bytes32` as the
+        # canonical 0x hex form. Hex form is what _unhex consumes.
+        raw = body.get("root_bytes32") or body["root"]
+        return _unhex(raw)
 
 
 class OracleEmptyError(RuntimeError):
