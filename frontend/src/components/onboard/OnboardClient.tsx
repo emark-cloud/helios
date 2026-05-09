@@ -67,8 +67,6 @@ const ALLOCATOR_SESSION_TTL_SEC = 30 * 86_400;
 const USDC_DECIMALS = 6;
 
 const KITE_CHAIN_ID = Number(process.env.NEXT_PUBLIC_KITE_CHAIN_ID ?? "2368");
-const SENTINEL_ALLOCATOR_ADDRESS = (process.env.NEXT_PUBLIC_SENTINEL_ALLOCATOR_ADDRESS
-  ?? "") as `0x${string}`;
 
 export function OnboardClient(): JSX.Element {
   const router = useRouter();
@@ -539,15 +537,10 @@ async function sendOnboardingUserOp(
   if (!passport.enabled || passport.session === null) {
     throw new Error("Passport not signed in.");
   }
-  if (!SENTINEL_ALLOCATOR_ADDRESS) {
-    throw new Error(
-      "NEXT_PUBLIC_SENTINEL_ALLOCATOR_ADDRESS is unset — set the Sentinel EOA before onboarding.",
-    );
-  }
   const addrs = addressesForChainId(KITE_CHAIN_ID);
-  if (!addrs.userVault || !addrs.usdc) {
+  if (!addrs.userVault || !addrs.usdc || !addrs.allocatorVault) {
     throw new Error(
-      "kite-testnet deployment is missing userVault / usdc — redeploy + regenerate addresses.",
+      "kite-testnet deployment is missing userVault / usdc / allocatorVault — redeploy + regenerate addresses.",
     );
   }
 
@@ -561,6 +554,74 @@ async function sendOnboardingUserOp(
   const eoa = passport.session.eoaAddress;
   const depositAmount = parseUnits(payload.max_capital_usd.toString(), USDC_DECIMALS);
   const metaStruct = formToContractStruct(payload, addrs.usdc, defundForm);
+
+  // Read the AA's current `allocatorOf` so we can decide the batch
+  // ordering. UserVault's HIGH-#5 tightening guard calls
+  // `IAllocatorVaultForUser(allocator).userTotalDeployed(user)` from
+  // setMetaStrategy if the user has metaSet=true and a non-zero
+  // allocator. If the stored allocator is an EOA (no contract code)
+  // the call reverts and every subsequent setMetaStrategy reverts.
+  // For users in that bad state we MUST `delegateToAllocator(correct
+  // contract)` before `setMetaStrategy` so the tightening check
+  // resolves against a real contract. First-time users still need
+  // setMetaStrategy first because delegateToAllocator requires
+  // `metaSet=true`.
+  let currentAllocator = "0x0000000000000000000000000000000000000000";
+  const allocatorOfData = encodeFunctionData({
+    abi: IUserVaultAbi,
+    functionName: "allocatorOf",
+    args: [aa],
+  });
+  try {
+    const rpcUrl =
+      process.env.NEXT_PUBLIC_KITE_RPC_URL ?? "https://rpc-testnet.gokite.ai";
+    const resp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_call",
+        params: [{ to: addrs.userVault, data: allocatorOfData }, "latest"],
+        id: 1,
+      }),
+    });
+    const json = (await resp.json()) as { result?: string };
+    if (json.result && json.result.length === 66) {
+      currentAllocator = "0x" + json.result.slice(26);
+    }
+  } catch {
+    /* fall through */
+  }
+  const hasExistingDelegation =
+    currentAllocator.toLowerCase() !== "0x0000000000000000000000000000000000000000";
+  console.info("[onboard] pre-batch state", { aa, currentAllocator, hasExistingDelegation });
+
+  const setMetaCall = encodeFunctionData({
+    abi: IUserVaultAbi,
+    functionName: "setMetaStrategy",
+    // The userOp is the user's authorization — the on-chain signature
+    // arg becomes empty bytes. UserVault accepts 0x in Phase 1/2/3
+    // (no on-chain verify); Phase 5 swaps for an EIP-1271 check
+    // against the AA wallet.
+    args: [metaStruct, "0x"],
+  });
+  const delegateCall = encodeFunctionData({
+    abi: IUserVaultAbi,
+    functionName: "delegateToAllocator",
+    // Delegate to the AllocatorVault CONTRACT (not the operator
+    // EOA). UserVault.setMetaStrategy's HIGH-#5 tightening guard
+    // calls IAllocatorVaultForUser(allocator).userTotalDeployed —
+    // an EOA address has no contract code, so the call reverts and
+    // every subsequent setMetaStrategy reverts. The AllocatorVault
+    // implements the view; the operator EOA stays the off-chain
+    // signer that calls AllocatorVault.allocate.
+    args: [addrs.allocatorVault, BigInt(ALLOCATOR_SESSION_TTL_SEC)],
+  });
+  // Returning user with an existing delegation: delegate FIRST so
+  // the tightening guard in setMetaStrategy resolves against a real
+  // contract. First-time user (no existing delegation): setMetaStrategy
+  // FIRST because delegateToAllocator requires metaSet=true.
+  const metaThenDelegate = !hasExistingDelegation;
 
   const callDatas: Hex[] = [
     // Mock-USDC self-mint. The deployed mUSDC on Kite testnet is the
@@ -598,20 +659,8 @@ async function sendOnboardingUserOp(
       functionName: "deposit",
       args: [addrs.usdc, depositAmount],
     }),
-    encodeFunctionData({
-      abi: IUserVaultAbi,
-      functionName: "setMetaStrategy",
-      // The userOp is the user's authorization — the on-chain signature
-      // arg becomes empty bytes. UserVault accepts 0x in Phase 1/2/3
-      // (no on-chain verify); Phase 5 swaps for an EIP-1271 check
-      // against the AA wallet.
-      args: [metaStruct, "0x"],
-    }),
-    encodeFunctionData({
-      abi: IUserVaultAbi,
-      functionName: "delegateToAllocator",
-      args: [SENTINEL_ALLOCATOR_ADDRESS, BigInt(ALLOCATOR_SESSION_TTL_SEC)],
-    }),
+    metaThenDelegate ? setMetaCall : delegateCall,
+    metaThenDelegate ? delegateCall : setMetaCall,
   ];
   const targets: string[] = [
     addrs.usdc,
@@ -910,9 +959,12 @@ function classSlugToBytes32(slug: string): Hex {
 }
 
 function isPassportConfigComplete(): boolean {
-  return Boolean(
-    SENTINEL_ALLOCATOR_ADDRESS && SENTINEL_ALLOCATOR_ADDRESS !== zeroAddress,
-  );
+  // The on-chain delegate target now reads from
+  // `addressesForChainId(...).allocatorVault` (the deployed contract).
+  // No env var to validate — onboarding is gated on the contract
+  // being present in the deployments file, which the throw above
+  // already enforces.
+  return true;
 }
 
 function shorten(hash: string): string {
