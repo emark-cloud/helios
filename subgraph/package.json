@@ -1,6 +1,6 @@
 {
   "name": "@helios/subgraph",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Goldsky subgraph indexing Helios contract events across Kite, Base, and Arbitrum.",
   "scripts": {
@@ -14,7 +14,7 @@
     "build:all": "pnpm build && pnpm build:base && pnpm build:arbitrum",
     "typecheck": "pnpm codegen:all && pnpm build:all",
     "test": "graph test",
-    "deploy": "goldsky subgraph deploy helios/v0.2.0 --path .",
+    "deploy": "goldsky subgraph deploy helios/v0.6.0 --path .",
     "deploy:base": "goldsky subgraph deploy helios-base/v0.5.0 --path . --subgraph-yaml subgraph.base-sepolia.yaml",
     "deploy:arbitrum": "goldsky subgraph deploy helios-arbitrum/v0.5.0 --path . --subgraph-yaml subgraph.arbitrum-sepolia.yaml",
     "create-local": "graph create --node http://localhost:8020/ helios",
