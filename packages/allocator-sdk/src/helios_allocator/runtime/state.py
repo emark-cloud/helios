@@ -169,19 +169,31 @@ class AllocatorStore:
         self._dedup_set: set[tuple[str, str, str | None]] = set()
 
     # ── Users ─────────────────────────────────────────────────
+    # Addresses arrive in two casings: checksummed (frontend / wagmi
+    # `signMessage` callers) and lowercase (chain logs decoded by the
+    # chain watcher, websocket subscribers normalising before the
+    # signature recovery). Storing under both casings would mean a POST
+    # from the dashboard never matches the chain-watcher's later mirror
+    # write. Normalise to lowercase at every key boundary so reads and
+    # writes hash to the same slot regardless of source.
+    @staticmethod
+    def _k(address: str) -> str:
+        return address.lower()
+
     def upsert_user(self, meta: MetaStrategy) -> UserState:
         with self._lock:
-            existing = self._users.get(meta.user_address)
+            key = self._k(meta.user_address)
+            existing = self._users.get(key)
             if existing is None:
                 state = UserState(meta=meta)
-                self._users[meta.user_address] = state
+                self._users[key] = state
                 return state
             existing.meta = meta
             return existing
 
     def get_user(self, address: str) -> UserState | None:
         with self._lock:
-            return self._users.get(address)
+            return self._users.get(self._k(address))
 
     def all_users(self) -> list[UserState]:
         with self._lock:
@@ -189,7 +201,7 @@ class AllocatorStore:
 
     def replace_allocations(self, address: str, allocs: Iterable[AllocationState]) -> None:
         with self._lock:
-            user = self._users.get(address)
+            user = self._users.get(self._k(address))
             if user is None:
                 return
             ts = int(time.time())
@@ -207,7 +219,7 @@ class AllocatorStore:
         self, address: str, alloc: AllocationState, ts: int | None = None
     ) -> None:
         with self._lock:
-            user = self._users.get(address)
+            user = self._users.get(self._k(address))
             if user is None:
                 return
             existing = user.allocations.get(alloc.strategy_id)
@@ -232,7 +244,8 @@ class AllocatorStore:
                 self._dedup.append(key)
                 self._dedup_set.add(key)
             self._events.append(event)
-            queues = list(self._subscribers.get(event.user_address, set()))
+            ev_key = self._k(event.user_address)
+            queues = list(self._subscribers.get(ev_key, set()))
         for q in queues:
             try:
                 q.put_nowait(event)
@@ -240,24 +253,25 @@ class AllocatorStore:
                 dead.append(q)
         if dead:
             with self._lock:
-                subs = self._subscribers.get(event.user_address)
+                subs = self._subscribers.get(ev_key)
                 if subs is not None:
                     for q in dead:
                         subs.discard(q)
 
     def recent_events(self, address: str, n: int = 50) -> list[AllocatorEvent]:
+        key = self._k(address)
         with self._lock:
-            return [e for e in self._events if e.user_address == address][-n:]
+            return [e for e in self._events if self._k(e.user_address) == key][-n:]
 
     def subscribe(self, address: str) -> asyncio.Queue[AllocatorEvent]:
         q: asyncio.Queue[AllocatorEvent] = asyncio.Queue(maxsize=128)
         with self._lock:
-            self._subscribers.setdefault(address, set()).add(q)
+            self._subscribers.setdefault(self._k(address), set()).add(q)
         return q
 
     def unsubscribe(self, address: str, q: asyncio.Queue[AllocatorEvent]) -> None:
         with self._lock:
-            subs = self._subscribers.get(address)
+            subs = self._subscribers.get(self._k(address))
             if subs is not None:
                 subs.discard(q)
 
