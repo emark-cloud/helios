@@ -30,7 +30,6 @@ import {
   encodeFunctionData,
   erc20Abi,
   parseUnits,
-  zeroAddress,
   type Hex,
 } from "viem";
 import { useAccount, useSignMessage, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
