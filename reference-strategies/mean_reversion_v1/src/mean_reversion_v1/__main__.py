@@ -8,7 +8,10 @@ ImportError instead of a confusing Pyright/runtime traceback.
 import uvicorn
 
 try:
-    from mean_reversion_v1.service import Settings, build_app
+    # Importing Settings is enough to surface the missing-extra ImportError
+    # at module load. `build_app` is referenced via uvicorn's import-string
+    # in main(), so we don't pull it into the local namespace here.
+    from mean_reversion_v1.service import Settings
 except ImportError as exc:  # pragma: no cover - install-time path
     raise SystemExit(
         "mean_reversion_v1.__main__ requires the FastAPI service template "
