@@ -29,6 +29,7 @@ from oracle.anchor import (
     YieldAnchorScheduler,
 )
 from oracle.poller import Poller, YieldPoller
+from oracle.router_mirror import PairSpec, RouterPriceMirror
 from oracle.signer import LocalSigner
 from oracle.sources.base import PriceSource
 from oracle.sources.binance import BinanceSource
@@ -46,8 +47,12 @@ class Settings(BaseServiceSettings):
 
     bar_interval_sec: int = 60
     signer_pk: str = Field(default="", validation_alias="ORACLE_SIGNER_PK")
-    # Comma-separated, e.g. "KITE/USDT,ETH/USDT".
-    assets: str = Field(default="KITE/USDT,ETH/USDT", validation_alias="ORACLE_ASSETS")
+    # Comma-separated, e.g. "KITE/USDT,ETH/USDT". Phase-6 real-P&L bumps
+    # the default to cover the new test universe (mWBTC, mWETH, mSOL).
+    assets: str = Field(
+        default="KITE/USDT,BTC/USDT,ETH/USDT,SOL/USDT",
+        validation_alias="ORACLE_ASSETS",
+    )
     snapshot_capacity: int = 1024
     http_port: int = 8003
 
@@ -97,6 +102,50 @@ class Settings(BaseServiceSettings):
         default="", validation_alias="ORACLE_ARBITRUM_SEPOLIA_YIELD_ANCHOR"
     )
 
+    # Phase-6 real-P&L: mirror oracle prices into MockSwapRouter.setPrice
+    # so on-chain swaps execute at live mid (with bps spread). All optional
+    # — leave any field blank to keep the keeper in dry-run mode (records
+    # pending updates without submitting), same gating as AnchorPoster.
+    router_mirror_enabled: bool = Field(
+        default=False, validation_alias="ROUTER_MIRROR_ENABLED"
+    )
+    router_mirror_address: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_ADDRESS"
+    )
+    router_mirror_signer_pk: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_SIGNER_PK"
+    )
+    router_mirror_spread_bps: int = Field(
+        default=5, validation_alias="ROUTER_MIRROR_SPREAD_BPS"
+    )
+    router_mirror_token_usdc: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_TOKEN_USDC"
+    )
+    router_mirror_token_wbtc: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_TOKEN_WBTC"
+    )
+    router_mirror_token_weth: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_TOKEN_WETH"
+    )
+    router_mirror_token_wsol: str = Field(
+        default="", validation_alias="ROUTER_MIRROR_TOKEN_WSOL"
+    )
+    # USDC has 6 decimals on Kite testnet (mUSDC); the new universe assets
+    # use realistic decimals (WBTC=8, WETH=18, SOL=9). Override per-asset
+    # if a redeploy ever changes a token's decimals.
+    router_mirror_usdc_decimals: int = Field(
+        default=6, validation_alias="ROUTER_MIRROR_USDC_DECIMALS"
+    )
+    router_mirror_wbtc_decimals: int = Field(
+        default=8, validation_alias="ROUTER_MIRROR_WBTC_DECIMALS"
+    )
+    router_mirror_weth_decimals: int = Field(
+        default=18, validation_alias="ROUTER_MIRROR_WETH_DECIMALS"
+    )
+    router_mirror_wsol_decimals: int = Field(
+        default=9, validation_alias="ROUTER_MIRROR_WSOL_DECIMALS"
+    )
+
 
 # Default symbol mappings. Override at process boundary if Binance / Coingecko
 # add or rename listings.
@@ -120,6 +169,9 @@ _COINGECKO_SLUGS: dict[str, tuple[str, str]] = {
     "ETH/USDT": ("ethereum", "usd"),
     "WETH": ("ethereum", "usd"),
     "BTC/USDT": ("bitcoin", "usd"),
+    # Phase-6 real-P&L: SOL/USDT added so the new mSOL leg of the test
+    # universe gets a Coingecko fallback when Binance throttles.
+    "SOL/USDT": ("solana", "usd"),
 }
 
 
@@ -220,16 +272,23 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
     )
+    # Phase-6 real-P&L: build the optional MockSwapRouter price mirror.
+    # The mirror is gated on `router_mirror_enabled`; tokens with empty
+    # addresses are skipped so a half-configured deploy can't half-update
+    # router prices.
+    router_mirror = _build_router_mirror(cfg, store)
+
     # Use the async hook variants in production: the underlying Web3
     # `wait_for_transaction_receipt` blocks up to `_RECEIPT_TIMEOUT_SEC`,
     # so a sync hook would freeze the event loop (Poller, FastAPI WS
     # clients) every commit window.
+    on_snapshot = _compose_on_snapshot(price_scheduler, router_mirror)
     poller = Poller(
         store=store,
         sources=sources,
         assets=assets,
         interval_sec=cfg.bar_interval_sec,
-        on_snapshot=price_scheduler.on_bar_async,
+        on_snapshot=on_snapshot,
     )
     yield_poller = YieldPoller(
         store=yield_store,
@@ -376,7 +435,78 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.price_anchor_scheduler = price_scheduler  # type: ignore[attr-defined]
     app.state.yield_anchor_poster = yield_poster  # type: ignore[attr-defined]
     app.state.yield_anchor_scheduler = yield_scheduler  # type: ignore[attr-defined]
+    app.state.router_mirror = router_mirror  # type: ignore[attr-defined]
     return app
+
+
+def _build_router_mirror(cfg: Settings, store: SnapshotStore) -> RouterPriceMirror | None:
+    """Construct the optional `RouterPriceMirror` from settings.
+
+    Returns None when the keeper is disabled, USDC isn't configured, or
+    no asset legs are configured — any of those means there's nothing
+    sensible to mirror, and we should leave the Poller's on_snapshot
+    callback alone.
+    """
+    if not cfg.router_mirror_enabled or not cfg.router_mirror_token_usdc:
+        return None
+
+    asset_legs: list[tuple[str, str, str, int]] = []
+    if cfg.router_mirror_token_wbtc:
+        asset_legs.append(
+            ("BTC/USDT", "WBTC", cfg.router_mirror_token_wbtc, cfg.router_mirror_wbtc_decimals)
+        )
+    if cfg.router_mirror_token_weth:
+        asset_legs.append(
+            ("ETH/USDT", "WETH", cfg.router_mirror_token_weth, cfg.router_mirror_weth_decimals)
+        )
+    if cfg.router_mirror_token_wsol:
+        asset_legs.append(
+            ("SOL/USDT", "SOL", cfg.router_mirror_token_wsol, cfg.router_mirror_wsol_decimals)
+        )
+    if not asset_legs:
+        return None
+
+    pairs = [
+        PairSpec(
+            oracle_asset=oracle_asset,
+            stable_address=cfg.router_mirror_token_usdc,
+            stable_decimals=cfg.router_mirror_usdc_decimals,
+            asset_address=asset_addr,
+            asset_decimals=asset_dec,
+        )
+        for oracle_asset, _label, asset_addr, asset_dec in asset_legs
+    ]
+    # Reuse KITE_RPC_URL / chain_id from the canonical anchor config so
+    # the keeper submits to the same chain the price snapshots originate
+    # from. ROUTER_MIRROR_SIGNER_PK is independent of ORACLE_SIGNER_PK so
+    # the router-owner key (deployer) and the oracle attestation key can
+    # be rotated separately.
+    return RouterPriceMirror(
+        store=store,
+        rpc_url=cfg.rpc_url,
+        signer_pk=cfg.router_mirror_signer_pk,
+        router_address=cfg.router_mirror_address,
+        chain_id=cfg.chain_id,
+        pairs=pairs,
+        spread_bps=cfg.router_mirror_spread_bps,
+    )
+
+
+def _compose_on_snapshot(
+    scheduler: PriceAnchorScheduler, mirror: RouterPriceMirror | None
+):
+    """Fan out a single Poller `on_snapshot` to (a) the price-anchor
+    scheduler and (b) the router mirror. Both run sequentially per bar
+    so failures in one don't poison the other (Poller already wraps the
+    callback in a try/except)."""
+    if mirror is None:
+        return scheduler.on_bar_async
+
+    async def composed(asset: str) -> None:
+        await scheduler.on_bar_async(asset)
+        await mirror.on_snapshot_async(asset)
+
+    return composed
 
 
 def _compose_lifespans(outer, inner):
