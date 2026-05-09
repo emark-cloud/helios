@@ -262,6 +262,8 @@ export function OnboardClient(): JSX.Element {
             authMode={passport.enabled ? "passport" : "eip191"}
             txHash={submitState.kind === "ok" ? submitState.txHash : null}
             isRetry={submitState.kind === "allocator-unreachable"}
+            aaAddress={passport.session?.aaAddress ?? null}
+            eoaAddress={passport.session?.eoaAddress ?? null}
           />
         </div>
       </Section>
@@ -307,6 +309,8 @@ function SignPanel({
   authMode,
   txHash,
   isRetry,
+  aaAddress,
+  eoaAddress,
 }: {
   connected: boolean;
   isSigning: boolean;
@@ -323,6 +327,8 @@ function SignPanel({
   authMode: AuthMode;
   txHash: string | null;
   isRetry: boolean;
+  aaAddress: string | null;
+  eoaAddress: string | null;
 }): JSX.Element {
   const passport = authMode === "passport";
   return (
@@ -352,6 +358,19 @@ function SignPanel({
             Connect a wallet to sign.
           </p>
         )
+      ) : passport && aaAddress ? (
+        <div className="rounded-sm border border-surface-line bg-surface-elev px-3 py-2 text-[11px] text-fg-secondary">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-mono uppercase tracking-[0.16em] text-fg-muted">AA wallet</span>
+            <span className="break-all font-mono text-fg-primary">{aaAddress}</span>
+          </div>
+          {eoaAddress && eoaAddress !== aaAddress ? (
+            <div className="mt-1 flex items-baseline justify-between gap-2">
+              <span className="font-mono uppercase tracking-[0.16em] text-fg-muted">Owner EOA</span>
+              <span className="break-all font-mono text-fg-secondary">{eoaAddress}</span>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {stage ? (
