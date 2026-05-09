@@ -614,6 +614,20 @@ async function sendOnboardingUserOp(
     addrs.userVault,
   ];
 
+  // Bisect helper. URL `?probe=N` truncates the batch to the first N
+  // calls — first userOp 1=mint, 2=mint+approve, 3=…+deposit,
+  // 4=…+setMeta, 5=full (default). When the bundler silently drops
+  // the op, walking probe up from 1 finds the reverting step.
+  if (typeof window !== "undefined") {
+    const probe = new URLSearchParams(window.location.search).get("probe");
+    const n = probe ? Number(probe) : NaN;
+    if (Number.isInteger(n) && n >= 1 && n < callDatas.length) {
+      callDatas.length = n;
+      targets.length = n;
+      console.warn(`[onboard] PROBE MODE: truncated batch to first ${n} calls`);
+    }
+  }
+
   const bundle = passport.bundle;
   if (bundle === null) {
     throw new Error("Passport SDK did not initialise.");
