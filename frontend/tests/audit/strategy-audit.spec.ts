@@ -118,7 +118,9 @@ test.describe("/audit/strategy/[id]", () => {
     await verifyButton.click();
     const dialog = page.getByRole("dialog", { name: /verify this proof yourself/i });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(`--tx ${TX_HASH}`)).toBeVisible();
+    await expect(
+      dialog.getByText(`node scripts/verify-trade.js ${TX_HASH}`),
+    ).toBeVisible();
     await expect(dialog.getByRole("button", { name: /copy/i })).toBeVisible();
   });
 
