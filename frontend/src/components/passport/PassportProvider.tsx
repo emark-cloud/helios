@@ -165,9 +165,14 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     // `kite_mainnet` (underscore). Passing "kite-testnet" hits the
     // `throw new Error("Unsupported network: …")` branch in
     // gokite-aa-sdk@1.0.15/dist/gokite-aa-sdk.js:183.
+    //
+    // Third arg is the bundler URL — the constructor throws "Bundler
+    // URL is required" when it's omitted. Default points at the
+    // canonical staging bundler from the SDK's own example.js.
     const aaSdk = new AaSdkCtor(
       "kite_testnet",
       env.rpcUrl,
+      env.bundlerUrl,
     ) as PassportSdkBundle["aaSdk"];
 
     // The userOp signer surfaces the userOp hash to Particle for the
