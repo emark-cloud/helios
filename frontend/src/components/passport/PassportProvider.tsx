@@ -79,6 +79,7 @@ type PassportSdkBundle = {
       userOpHash: string;
       status: { status: string; transactionHash?: string; reason?: string };
     }>;
+    getAccountAddress(_owner: string, _salt?: bigint): string;
     estimateUserOperation(
       _owner: string,
       _request: { targets: string[]; values?: bigint[]; callDatas: string[] },
@@ -244,9 +245,21 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     if (!bundle.particleAuth.isLogin()) {
       await bundle.particleAuth.login({});
     }
-    const aaAddress = (await bundle.smartAccount.getAddress()) as `0x${string}`;
-    const eoaAddress = (bundle.particleAuth.getUserInfo()?.wallets?.[0]?.public_address
-      ?? aaAddress) as `0x${string}`;
+    // Derive the AA via gokite-aa-sdk's getAccountAddress(owner=eoa,
+    // salt=2). MUST match what `aaSdk.estimateUserOperation` /
+    // `sendUserOperationWithPayment` compute for the userOp `sender`,
+    // since the SDK hardcodes salt=2 and treats the first arg as the
+    // owner EOA. The earlier path used `bundle.smartAccount.getAddress()`
+    // from `@gokite-network/auth`, which derives a different address
+    // (salt = keccak256(particleClientKey)) — the userOp would deploy
+    // an account at the SDK address while we displayed/funded the
+    // gokite-auth address, and validateUserOp failed on-chain.
+    const eoaInfo = bundle.particleAuth.getUserInfo();
+    const eoaAddress = (eoaInfo?.wallets?.[0]?.public_address ?? "") as `0x${string}`;
+    if (!eoaAddress) {
+      throw new Error("Particle login returned no EOA wallet — cannot derive AA address.");
+    }
+    const aaAddress = bundle.aaSdk.getAccountAddress(eoaAddress) as `0x${string}`;
     const next: PassportSession = { aaAddress, eoaAddress };
     setSession(next);
     return next;

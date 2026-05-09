@@ -552,6 +552,13 @@ async function sendOnboardingUserOp(
   }
 
   const aa = passport.session.aaAddress;
+  // gokite-aa-sdk takes the **EOA** as the owner arg — it computes
+  // the AA sender internally via getAccountAddress(owner, salt=2).
+  // Passing `aa` here would treat our AA as the owner and deploy a
+  // brand-new wallet at a different address whose `validateUserOp`
+  // expects signatures from `aa`, not from the Particle EOA — the
+  // userOp passes simulation but reverts during real execution.
+  const eoa = passport.session.eoaAddress;
   const depositAmount = parseUnits(payload.max_capital_usd.toString(), USDC_DECIMALS);
   const metaStruct = formToContractStruct(payload, addrs.usdc, defundForm);
 
@@ -654,7 +661,7 @@ async function sendOnboardingUserOp(
   // SDK's own example does, and it auto-prepends the paymaster
   // approve when the token branch is taken.
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-  const estimate = await bundle.aaSdk.estimateUserOperation(aa, request);
+  const estimate = await bundle.aaSdk.estimateUserOperation(eoa, request);
   // Diagnostic dump — when the bundler silently drops a userOp, the
   // SDK throws "UserOp polling timeout: 0x…" with no detail. Logging
   // the request + estimate to console gives us the userOp JSON, the
@@ -667,6 +674,7 @@ async function sendOnboardingUserOp(
     JSON.stringify(
       {
         aa,
+        eoa,
         targets,
         sponsorshipAvailable: estimate.sponsorshipAvailable,
         remainingSponsorships: estimate.remainingSponsorships,
@@ -701,7 +709,7 @@ async function sendOnboardingUserOp(
   let result: Awaited<ReturnType<typeof bundle.aaSdk.sendUserOperationWithPayment>>;
   try {
     result = await bundle.aaSdk.sendUserOperationWithPayment(
-      aa,
+      eoa,
       request,
       estimate.userOp,
       tokenAddress,
