@@ -661,7 +661,68 @@ async function sendOnboardingUserOp(
   // SDK's own example does, and it auto-prepends the paymaster
   // approve when the token branch is taken.
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-  const estimate = await bundle.aaSdk.estimateUserOperation(eoa, request);
+  // estimateUserOperation calls eth_estimateUserOperationGas on the
+  // bundler, which runs full simulation including our batch. A revert
+  // anywhere in the batch surfaces here as a generic "execution
+  // reverted" with no per-call detail. Wrap so we log the request +
+  // bundler response and per-call eth_call simulation against each
+  // target, which lets us bisect which call is the culprit.
+  let estimate: Awaited<ReturnType<typeof bundle.aaSdk.estimateUserOperation>>;
+  try {
+    estimate = await bundle.aaSdk.estimateUserOperation(eoa, request);
+  } catch (err) {
+    console.error("[onboard] estimateUserOperation reverted", {
+      aa,
+      eoa,
+      request,
+      error: err,
+    });
+    // Per-call bisection: simulate each (target, callData) standalone
+    // from the AA address using eth_call. Standalone results don't
+    // perfectly mirror the batched flow (state from prior calls
+    // doesn't apply), but a revert that's INDEPENDENT of prior state
+    // (e.g., paymaster precondition, token-not-deployed) will surface
+    // here with the actual error data.
+    const rpcUrl =
+      process.env.NEXT_PUBLIC_KITE_RPC_URL ?? "https://rpc-testnet.gokite.ai";
+    const probes: Array<{ idx: number; target: string; result: unknown }> = [];
+    for (let i = 0; i < callDatas.length; i++) {
+      try {
+        const resp = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [
+              { from: aa, to: targets[i], data: callDatas[i] },
+              "latest",
+            ],
+            id: i,
+          }),
+        });
+        const json = (await resp.json()) as { result?: string; error?: unknown };
+        probes.push({ idx: i, target: targets[i]!, result: json });
+      } catch (probeErr) {
+        probes.push({ idx: i, target: targets[i]!, result: probeErr });
+      }
+    }
+    console.error("[onboard] per-call eth_call probes", probes);
+    const detail =
+      probes
+        .filter((p) => {
+          const r = p.result as { error?: unknown };
+          return r?.error !== undefined;
+        })
+        .map((p) => {
+          const r = p.result as { error?: { message?: string; data?: string } };
+          return `call#${p.idx} → ${p.target}: ${r.error?.message ?? "?"} ${r.error?.data ?? ""}`;
+        })
+        .join("\n") || "no per-call reverts (batch-state-dependent failure)";
+    throw new Error(
+      `estimateUserOperation reverted. Per-call probes:\n${detail}`,
+    );
+  }
   // Diagnostic dump — when the bundler silently drops a userOp, the
   // SDK throws "UserOp polling timeout: 0x…" with no detail. Logging
   // the request + estimate to console gives us the userOp JSON, the
