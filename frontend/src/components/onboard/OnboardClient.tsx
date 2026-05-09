@@ -54,10 +54,13 @@ import {
 import { IUserVaultAbi } from "@helios/contracts-abi";
 
 const VALID_FOR_DAYS = 90;
-// Allocator session TTL passed to delegateToAllocator. Matches the
-// meta-strategy validity window above so the user revokes both
-// surfaces in one motion if they let onboarding lapse.
-const ALLOCATOR_SESSION_TTL_SEC = VALID_FOR_DAYS * 86_400;
+// Allocator session TTL passed to delegateToAllocator. Capped at 30
+// days to match `UserVault.maxSessionTTL` — the on-chain ceiling is
+// 30d (2_592_000 s), so a 90d session would revert with
+// `SessionTTLTooLong()` and silently drop the whole onboarding userOp
+// at the bundler. Meta-strategy validity stays at 90d; the user
+// re-delegates if the session lapses before the meta expires.
+const ALLOCATOR_SESSION_TTL_SEC = 30 * 86_400;
 // USDC has 6 decimals on every Helios chain (testnet test token,
 // mainnet bridged USDC.e). Hardcoded rather than read from chain
 // because the userOp builder runs synchronously off the form value.
