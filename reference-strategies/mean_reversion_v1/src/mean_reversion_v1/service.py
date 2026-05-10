@@ -213,6 +213,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "proof_failures": s.proof_failures,
             "execs_submitted": s.execs_submitted,
             "nav_reports": s.nav_reports,
+            "last_seeded_nav_usd": s.last_seeded_nav_usd,
             "last_signal": s.last_signal,
             "last_error": s.last_error,
         }
