@@ -89,6 +89,26 @@ def test_capacity_factor_proportional() -> None:
     assert abs(score - 0.25) < 1e-9
 
 
+def test_capacity_factor_zero_means_uncapped() -> None:
+    """`StrategyVault.maxCapacity == 0` is the on-chain default for an
+    uncapped vault. Treating it as exhausted (the prior <= 0 branch)
+    collapsed every freshly-registered strategy's score to 0 in the
+    cold-start window — the allocator decision loop sat silent on Kite
+    testnet through Phase-6 cutover until this was tightened. Mirror
+    on-chain semantics: 0 = uncapped → factor 1.0 regardless of how
+    much is currently deployed."""
+    a = SentinelAllocator()
+    user = _meta()
+    c = _candidate(rep=1.0, capacity=0, deployed=0)
+    [score] = a.rank_strategies(user, [c])
+    assert score == 1.0
+    # Even with prior allocations, an uncapped vault stays at full
+    # weight — only an explicit cap drops the factor.
+    c_loaded = _candidate(rep=1.0, capacity=0, deployed=999_999)
+    [loaded_score] = a.rank_strategies(user, [c_loaded])
+    assert loaded_score == 1.0
+
+
 def test_allocate_filters_zero_scored() -> None:
     a = SentinelAllocator()
     user = _meta(max_strategies_count=3)

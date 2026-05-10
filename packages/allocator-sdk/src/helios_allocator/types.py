@@ -59,8 +59,17 @@ class StrategyCandidate(BaseModel):
     trades_attested: int = 0
 
     def capacity_factor(self) -> float:
+        # On-chain semantics: `StrategyVault.maxCapacity == 0` means
+        # uncapped, not "fully booked". The deploy script and the
+        # default StrategyVault initializer both leave it at 0 unless
+        # the operator explicitly sets a cap, so treating 0 as
+        # exhausted collapses every fresh strategy's score to 0 —
+        # masquerading as a silent "no allocation" loop. Mirror the
+        # uncapped semantics here so freshly-registered strategies
+        # earn full capacity weight; explicit caps still scale linearly
+        # to 0 as `current_allocations_usd` approaches the cap.
         if self.max_capacity_usd <= 0:
-            return 0.0
+            return 1.0
         return max(0.0, 1.0 - (self.current_allocations_usd / self.max_capacity_usd))
 
     def fee_fit(self, max_fee_rate_bps: int) -> float:
