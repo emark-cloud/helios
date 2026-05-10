@@ -186,6 +186,42 @@ def test_dashboard_returns_allocations(app_client: tuple[object, TestClient]) ->
         assert body["allocations"][0]["drawdown_bps"] == 200  # (5000-4900)/5000 = 2%
 
 
+def test_dashboard_scales_18dec_wei_to_usd(app_client: tuple[object, TestClient]) -> None:
+    """Sentinel keeps every USD-named field as raw 18-dec base-asset units
+    so the on-chain `allocateToStrategy(amount)` round-trip stays
+    integer-clean. The dashboard surface is presentation-layer USD; the
+    response payload divides by 10^18 so the frontend formatter can render
+    `$33` instead of `$33,333,333,333,333,333,340,000`. Lock both directions
+    so a future wei-vs-USD drift trips this test instead of shipping to
+    the demo dashboard."""
+    app, client = app_client
+    user_addr = _TEST_USER
+    with client:
+        client.post(
+            f"/v1/users/{user_addr}/meta-strategy",
+            json=_signed_payload(allowed_assets=["USDC"]),
+        )
+        store = app.state.store  # type: ignore[attr-defined]
+        store.update_allocation(
+            user_addr,
+            AllocationState(
+                strategy_id="0x" + "11" * 20,
+                chain_id=2368,
+                declared_class="momentum_v1",
+                capital_deployed_usd=33 * 10**18,  # 33 mUSDC in wei
+                high_water_mark_usd=33 * 10**18,
+                nav_usd=30 * 10**18,
+            ),
+        )
+        r = client.get(f"/v1/users/{user_addr}/dashboard")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["total_capital_usd"] == 33
+        assert body["total_nav_usd"] == 30
+        assert body["allocations"][0]["capital_deployed_usd"] == 33
+        assert body["allocations"][0]["current_nav_usd"] == 30
+
+
 def test_strategies_directory_filters_by_class(app_client: tuple[object, TestClient]) -> None:
     app, client = app_client
 

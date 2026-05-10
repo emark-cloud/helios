@@ -298,15 +298,30 @@ def _make_router(
     return router
 
 
+# Sentinel keeps every USD-named field as raw 18-decimal base-asset units
+# (mUSDC has 18 decimals on Kite testnet — see `87e7cab`). Allocator math,
+# `allocateToStrategy(amount)` calls, and the on-chain `capitalDeployed`
+# accumulator all run in wei so they round-trip cleanly. The dashboard
+# payload, by contrast, is a *display* surface — the `_usd` fields there
+# are integer USD as the frontend formatter expects. Scale at the boundary
+# so the loop's wei-native math is unchanged.
+_BASE_ASSET_DECIMALS = 18
+_BASE_ASSET_SCALE = 10**_BASE_ASSET_DECIMALS
+
+
+def _to_usd(wei: int) -> int:
+    return int(wei) // _BASE_ASSET_SCALE
+
+
 def _dashboard_for(state, cfg: Settings) -> DashboardPayload:
     allocations = [
         AllocationView(
             strategy_id=a.strategy_id,
             chain_id=a.chain_id,
             declared_class=a.declared_class,
-            capital_deployed_usd=a.capital_deployed_usd,
-            high_water_mark_usd=a.high_water_mark_usd,
-            current_nav_usd=a.nav_usd,
+            capital_deployed_usd=_to_usd(a.capital_deployed_usd),
+            high_water_mark_usd=_to_usd(a.high_water_mark_usd),
+            current_nav_usd=_to_usd(a.nav_usd),
             drawdown_bps=a.drawdown_bps,
             defunded=a.defunded,
             last_rebalance_ts=a.last_rebalance_ts,
@@ -316,10 +331,10 @@ def _dashboard_for(state, cfg: Settings) -> DashboardPayload:
     active = [a for a in state.allocations.values() if not a.defunded]
     return DashboardPayload(
         user_address=state.meta.user_address,
-        total_capital_usd=sum(a.capital_deployed_usd for a in active),
-        total_nav_usd=sum(a.nav_usd for a in active),
-        realized_pnl_usd=state.realized_pnl_usd,
-        fees_paid_usd=state.fees_paid_usd,
+        total_capital_usd=_to_usd(sum(a.capital_deployed_usd for a in active)),
+        total_nav_usd=_to_usd(sum(a.nav_usd for a in active)),
+        realized_pnl_usd=_to_usd(state.realized_pnl_usd),
+        fees_paid_usd=_to_usd(state.fees_paid_usd),
         allocations=allocations,
         allocator_name=cfg.name,
         allocator_fee_rate_bps=cfg.fee_rate_bps,
