@@ -147,9 +147,7 @@ class AllocatorLoop:
         # None and we fall back to whatever the meta-strategy POST or a
         # test fixture seeded.
         try:
-            balance = await self._onchain.read_user_vault_balance_async(
-                user.meta.user_address
-            )
+            balance = await self._onchain.read_user_vault_balance_async(user.meta.user_address)
         except Exception as exc:  # pragma: no cover — defensive RPC guard
             _log.warning(
                 "allocator.user_vault_balance.error",

@@ -73,9 +73,7 @@ class Settings(BaseServiceSettings):
     # returns None and `delegated_capital_usd` stays at whatever the
     # POST or a test seeded — i.e. zero in production, so leave this
     # set to skip the gate on `if user.delegated_capital_usd <= 0`.
-    user_vault_address: str = Field(
-        default="", validation_alias="SENTINEL_USER_VAULT_ADDRESS"
-    )
+    user_vault_address: str = Field(default="", validation_alias="SENTINEL_USER_VAULT_ADDRESS")
     http_port: int = 8001
     # Chain-watcher (WS-SVC-1). Comma-separated list of StrategyVault
     # proxies whose `NavDivergenceObserved` logs the watcher fans out
