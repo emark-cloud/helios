@@ -108,6 +108,15 @@ class TradeExecutor:
     def chain_id(self) -> int:
         return self._chain_id
 
+    @property
+    def w3(self) -> Web3 | None:
+        """Lazily-dialed web3 handle. None in dry-run mode (no rpc/pk).
+        Lets the runtime read on-chain state (e.g. NAV-seed
+        `IERC20.balanceOf(vault)`) without each caller re-dialling."""
+        if self._w3 is None and self._live:
+            self._ensure_live()
+        return self._w3
+
     # ── Calldata builders ─────────────────────────────────────
     def build_swap_calldata(
         self,

@@ -85,6 +85,7 @@ class RuntimeStats:
     execs_submitted: int = 0
     nav_reports: int = 0
     last_block_window_end: int = 0
+    last_seeded_nav_usd: float = 0.0
     last_error: str = ""
     last_signal: dict[str, Any] = field(default_factory=dict)
 
@@ -160,6 +161,7 @@ class MeanReversionRuntime:
                 continue
 
     async def tick_bar(self) -> list[ExecutionRecord]:
+        self._seed_nav_from_chain()
         produced: list[ExecutionRecord] = []
         for asset in self._strategy.asset_universe:
             if asset == "USDC":
@@ -258,6 +260,34 @@ class MeanReversionRuntime:
             "nonce": nonce,
         }
         return record
+
+    # ── NAV seed from on-chain balance ────────────────────────
+    def _seed_nav_from_chain(self) -> None:
+        """Read `IERC20(USDC).balanceOf(vault)` and set the strategy's
+        `available_capital` + `nav` to that value. Without this seed
+        `_size()` returns 0 (NAV = 0), which the directional circuit
+        rejects via Constraint 0 (`amount_in > 0`). Silently no-ops in
+        dry-run mode (no live web3) so unit tests don't need a chain."""
+        if not self._executor.live:
+            return
+        base_asset = self._universe[0] if self._universe else ""
+        if not base_asset:
+            return
+        try:
+            from helios.runtime.nav_seed import seed_strategy_capital
+
+            seeded = seed_strategy_capital(
+                strategy=self._strategy,
+                w3=self._executor.w3,
+                base_asset_address=base_asset,
+                vault_address=self._executor.vault,
+                base_asset_decimals=self._cfg.asset_decimals.get("USDC", 18)
+                if self._cfg.asset_decimals
+                else 18,
+            )
+            self.stats.last_seeded_nav_usd = seeded
+        except Exception as exc:
+            _log.warning("mean_reversion.nav.seed_failed", err=str(exc))
 
     # ── NAV tick ──────────────────────────────────────────────
     async def _nav_loop(self) -> None:

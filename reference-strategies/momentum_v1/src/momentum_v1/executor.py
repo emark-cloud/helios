@@ -144,6 +144,15 @@ class TradeExecutor:
         return self._chain_id
 
     @property
+    def w3(self) -> Web3 | None:
+        """Lazily-dialed web3 handle. None in dry-run mode (no rpc/pk).
+        Callers that need to read on-chain state for NAV seeding can
+        opt into `_ensure_live()` themselves and read this back."""
+        if self._w3 is None and self._live:
+            self._ensure_live()
+        return self._w3
+
+    @property
     def venue_kind(self) -> str:
         return self._venue_kind
 
