@@ -157,6 +157,13 @@ services:
       # runtime executor is explicitly mapped here so all three runtimes
       # share one .env file without colliding on the same key.
       STRATEGY_VAULT_ADDRESS: ${MOMENTUM_STRATEGY_VAULT_ADDRESS}
+      # WS9 #9: per-class navOracle key — each Phase-6 base vault was
+      # init'd with `navOracle = operator`, so the EIP-712 NAV
+      # signature must come from the same dedicated key. Without
+      # this override every NAV signature would still recover to
+      # the deployer (the previous shared key) and reportNAV would
+      # revert NavSignatureInvalid.
+      NAV_ORACLE_PK: ${MOMENTUM_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8005:8005"]
     depends_on: [oracle, prover]
 
@@ -175,6 +182,7 @@ services:
       ORACLE_ENDPOINT: http://oracle:8003
       PROVER_ENDPOINT: http://prover:8004
       STRATEGY_VAULT_ADDRESS: ${MEAN_REV_STRATEGY_VAULT_ADDRESS}
+      NAV_ORACLE_PK: ${MEAN_REV_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8006:8006"]
     depends_on: [oracle, prover]
 
