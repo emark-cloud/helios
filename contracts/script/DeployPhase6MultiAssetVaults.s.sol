@@ -62,6 +62,7 @@ contract DeployPhase6MultiAssetVaults is Script {
         address weth;
         address sol;
         address strategyRegistry;
+        address strategyRegistryV2;
         address allocatorVault;
         address tradeVerifier;
         address swapRouter;
@@ -101,6 +102,17 @@ contract DeployPhase6MultiAssetVaults is Script {
         i.weth = vm.envAddress("MWETH");
         i.sol = vm.envAddress("MSOL");
         i.strategyRegistry = vm.envAddress("STRATEGY_REGISTRY");
+        // WS9: optional secondary registry. The deployed Phase-1 registry
+        // (STRATEGY_REGISTRY) predates the `paramsHashOf` work in commit
+        // `4674f61` (Phase-2 WS7.A) so `StrategyVault._activeParamsHash`
+        // reverts on it. If `STRATEGY_REGISTRY_V2` is set, vaults' init-time
+        // `registry` field uses V2 (so executeWithProof can succeed) AND
+        // each vault is registered in BOTH registries — V2 for the proof
+        // check, V1 for the AllocatorVault.allocateToStrategy active-check
+        // (`AllocatorVault.strategyRegistry` is itself init-immutable on
+        // the V1 address, no rotate path). Fallback: empty → single-registry
+        // legacy behaviour.
+        i.strategyRegistryV2 = vm.envOr("STRATEGY_REGISTRY_V2", address(0));
         i.allocatorVault = vm.envAddress("ALLOCATOR_VAULT");
         i.tradeVerifier = vm.envAddress("TRADE_VERIFIER");
         i.swapRouter = vm.envAddress("SWAP_ROUTER");
@@ -165,10 +177,18 @@ contract DeployPhase6MultiAssetVaults is Script {
             stakeAmount: STRATEGY_STAKE,
             paramsHash: paramsHash
         });
+        // Vault.registry (init-immutable) goes to V2 if provided so
+        // `StrategyVault._activeParamsHash` resolves against the registry
+        // that has `paramsHashOf`. AllocatorVault still queries V1 via its
+        // own init-immutable `strategyRegistry`, so we register in both
+        // registries below.
+        address vaultRegistry = i.strategyRegistryV2 == address(0)
+            ? i.strategyRegistry
+            : i.strategyRegistryV2;
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,
             baseAsset: MockERC20(i.usdc),
-            registry: i.strategyRegistry,
+            registry: vaultRegistry,
             verifier: i.tradeVerifier,
             allowedRouter: i.swapRouter,
             navOracle: deployer,
@@ -184,11 +204,20 @@ contract DeployPhase6MultiAssetVaults is Script {
     }
 
     function _registerAll(Inputs memory i, Vaults memory v) internal {
-        // Top up approval — covers all nine registrations even if the
-        // operator key was rotated since the last allowance was set.
+        // Top up approval — covers all nine registrations on both
+        // registries (V1 + V2) even if the operator key was rotated.
         MockERC20(i.usdc).approve(i.strategyRegistry, type(uint256).max);
+        if (i.strategyRegistryV2 != address(0)) {
+            MockERC20(i.usdc).approve(i.strategyRegistryV2, type(uint256).max);
+        }
 
-        StrategyRegistry r = StrategyRegistry(i.strategyRegistry);
+        _registerInto(StrategyRegistry(i.strategyRegistry), v);
+        if (i.strategyRegistryV2 != address(0)) {
+            _registerInto(StrategyRegistry(i.strategyRegistryV2), v);
+        }
+    }
+
+    function _registerInto(StrategyRegistry r, Vaults memory v) internal {
         r.registerStrategy(v.momentumBase, CLASS_MOM, STRATEGY_STAKE);
         r.registerStrategy(v.momentumVariant2, CLASS_MOM, STRATEGY_STAKE);
         r.registerStrategy(v.momentumVariant3, CLASS_MOM, STRATEGY_STAKE);

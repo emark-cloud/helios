@@ -2,12 +2,13 @@
   "chainId": 2368,
   "deployedAt": 1777277331,
   "phase": "6",
-  "phase6MultiAssetVaultsDeployedAt": 1778427740,
+  "phase6MultiAssetVaultsDeployedAt": 1778436553,
   "addresses": {
     "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
     "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
     "reputationAnchor": "0x51c07adf596b1e72697a9b8232d061ed006943dc",
     "strategyRegistry": "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d",
+    "strategyRegistryV2": "0x7e707c8a2ce38dc43084a8205e18a6bfd731c5c2",
     "allocatorRegistry": "0xbfeba025ca32324a87c620a5c7c110c7666f417c",
     "tradeAttestationVerifier": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81",
     "userVault": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
@@ -33,14 +34,14 @@
     "mWbtc": "0x3f81a60c5d5c6bfcb415080b846da22903ff37a0",
     "mWeth": "0x789ff10eb109626b01816161be72c9df32be4a00",
     "mSol": "0xcf1276516a625723e40ae13d598de837079ad532",
-    "phase6VaultMomentum": "0xdadeac5d72fce1ef918bf1c06f4e3615ee0a101d",
-    "phase6VaultMomentumVariant2": "0x96ea2d199fe4ec65bc50d1c738b8516a6a424d30",
-    "phase6VaultMomentumVariant3": "0xc05862efe7da69cf33b0bc357688cb2c2075f6b5",
-    "phase6VaultMeanReversion": "0xf6d714e8ade2c4956ce9dc741f6042b258d8deaf",
-    "phase6VaultMeanReversionVariant2": "0xb95c141f706cd35f38af2044becde3ce5b2fb8bd",
-    "phase6VaultMeanReversionVariant3": "0x3d2465701431441719b3d79ff828ef74c1b43bd3",
-    "phase6VaultYieldRotation": "0x1caba93ff27a4ccbebb21ae927f00b466952e10e",
-    "phase6VaultYieldRotationVariant2": "0x660d8826c7ca6099bdd724134b7d3cc9afe2a2b0",
-    "phase6VaultYieldRotationVariant3": "0x42248ab4a8b2a90b5be8abae0422cd7e48a5dd65"
+    "phase6VaultMomentum": "0x35c07f855d10da4b09e5d6322a2155f0396e4311",
+    "phase6VaultMomentumVariant2": "0x7a18727375065b29526d816b713fad99cd247006",
+    "phase6VaultMomentumVariant3": "0xecfeb975789cf058865830f985ba18299d8e1dca",
+    "phase6VaultMeanReversion": "0xe09ed1ecb4bd9e6d64f9fd0270c95e4f17d98015",
+    "phase6VaultMeanReversionVariant2": "0x4509c3e7b5e418c0701cf4d0145c570bac2f8fca",
+    "phase6VaultMeanReversionVariant3": "0x125b10809e3c6d70c51bf6385ed3cfb1c771d0f5",
+    "phase6VaultYieldRotation": "0x2aff8735ed89451d359205dc6a80ae625e6f6e47",
+    "phase6VaultYieldRotationVariant2": "0x7ed482adcc6951bc2058dd45cc26d15b3d585deb",
+    "phase6VaultYieldRotationVariant3": "0x76a50fe4c5585a13be311eca135d0ab8f39b434d"
   }
 }

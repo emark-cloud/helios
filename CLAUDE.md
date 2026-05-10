@@ -136,7 +136,8 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
 - **Kite testnet (2368)** — Phase-6 real-price cutover live (broadcast 2026-05-09, `docs/phase6-realprice-plan.md`); full set in `contracts/deployments/kite-testnet.json`. Pinned references:
   - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f` (impl `0x245a96310b228016d79f6b93d934eb26c1FcE209`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + setMeta tightening guard from HIGH #5/#10)
   - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (impl `0x770E3078a285651c11863Ec4D8Be87D0aDE29Cb7`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + `userTotalDeployed` view + capped `_unwindAndCredit` from HIGH #5/#8/#10)
-  - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d`
+  - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d` (V1, Phase-1 deploy; predates `paramsHashOf`/`commitInitialParamsHash` from PR #70 / commit `4674f61`. AllocatorVault references this registry as immutable, so it stays the active-flag source of truth)
+  - `strategyRegistryV2` `0x7e707c8a2ce38dc43084a8205e18a6bfd731c5c2` (WS9 redeploy 2026-05-10; current source compile, has `paramsHashOf` + `commitInitialParamsHash`. Phase-6 vaults' init-time `registry` field points here so `_activeParamsHash` resolves; vaults are also dual-registered in V1 so the AllocatorVault check passes)
   - `allocatorRegistry` `0xbfeba025ca32324a87c620a5c7c110c7666f417c`
   - `tradeAttestationVerifier` `0x3698F60a6761bfDd1511B4C68d000d55FF8fff81` (TAV; **Phase 6 #13 redeploy 2026-05-08** with PR #70 timelock code — `CHANGE_DELAY = 2 days`, propose/commit machinery present. Supersedes legacy `0x743e1bd7…` which was the lax pre-PR-#70 version with no rotation path.)
   - Verifier adapters (current, post-Phase-6 #13 redeploy):
@@ -154,15 +155,16 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - `mSol` `0xcf1276516a625723e40ae13d598de837079ad532` (9 dec; 1M seeded)
     - `swapRouter` (MockSwapRouter, owner = deployer) `0x55782e7019f4619a06a25bf66d2998c8fe2cc436` — fed by VPS `RouterPriceMirror` keeper (`oracle.router_mirror.posted` log) every bar with 5 bps spread per leg.
   - Strategy vaults — **Phase-6 capacity-fix redeploy 2026-05-10** (`DeployPhase6MultiAssetVaults.s.sol`); nine new ERC1967 proxies on impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`. Universe per class: mom/mr `[mUSDC, mWBTC, mWETH, mSOL]`; yr `[mUSDC]` (Helios.md §12.1 carve-out — yield venues live on Arbitrum). Distinct paramsHash per (class, variant) seeded as `keccak256("helios.<class>.phase6.multiasset.<variant>")`. All active in StrategyRegistry; the prior phase-6 nine are flipped `active=false` (`DeactivateLegacyVaults.s.sol`) — supersedes the 2026-05-09 cohort which used 6-dec `MAX_CAPACITY = 1_000_000e6` against an 18-dec mUSDC, capping each vault at ~1e-6 mUSDC and reverting every Sentinel `allocateToStrategy` with `CapacityExceeded()` (`0x9ff41fe0`). The 2026-05-10 cohort uses `MAX_CAPACITY = 1_000_000e18` and stake `5_000e18`.
-    - `phase6VaultMomentum` `0xdadeac5d72fce1ef918bf1c06f4e3615ee0a101d` (supersedes 2026-05-09 `0x29b5d20f…` — now inactive)
-    - `phase6VaultMomentumVariant2` `0x96ea2d199fe4ec65bc50d1c738b8516a6a424d30` (supersedes 2026-05-09 `0xdcb2d64f…`)
-    - `phase6VaultMomentumVariant3` `0xc05862efe7da69cf33b0bc357688cb2c2075f6b5` (supersedes 2026-05-09 `0x24dc209d…`)
-    - `phase6VaultMeanReversion` `0xf6d714e8ade2c4956ce9dc741f6042b258d8deaf` (supersedes 2026-05-09 `0xf825727e…`)
-    - `phase6VaultMeanReversionVariant2` `0xb95c141f706cd35f38af2044becde3ce5b2fb8bd` (supersedes 2026-05-09 `0xa863b037…`)
-    - `phase6VaultMeanReversionVariant3` `0x3d2465701431441719b3d79ff828ef74c1b43bd3` (supersedes 2026-05-09 `0xf44051d8…`)
-    - `phase6VaultYieldRotation` `0x1caba93ff27a4ccbebb21ae927f00b466952e10e` (supersedes 2026-05-09 `0x2c765493…`)
-    - `phase6VaultYieldRotationVariant2` `0x660d8826c7ca6099bdd724134b7d3cc9afe2a2b0` (supersedes 2026-05-09 `0x6734ce81…`)
-    - `phase6VaultYieldRotationVariant3` `0x42248ab4a8b2a90b5be8abae0422cd7e48a5dd65` (supersedes 2026-05-09 `0x92c15c4f…`)
+    - **WS9 dual-registry redeploy 2026-05-10 (afternoon)**: morning's capacity-fix vaults could never satisfy `_activeParamsHash` because V1 registry predates `paramsHashOf`. Afternoon redeploy points each vault's init-time `registry` at V2 (`0x7e707c8a…`) and dual-registers in BOTH V1 (so AllocatorVault's active-check passes) and V2 (so executeWithProof's paramsHashOf resolves). Stake doubled: 90,000e18 mUSDC total. Deployer minted 100k extra mUSDC pre-broadcast.
+    - `phase6VaultMomentum` `0x35c07f855d10da4b09e5d6322a2155f0396e4311` (supersedes morning `0xdadeac5d…` — now inactive in V1)
+    - `phase6VaultMomentumVariant2` `0x7a18727375065b29526d816b713fad99cd247006` (supersedes morning `0x96ea2d19…`)
+    - `phase6VaultMomentumVariant3` `0xecfeb975789cf058865830f985ba18299d8e1dca` (supersedes morning `0xc05862ef…`)
+    - `phase6VaultMeanReversion` `0xe09ed1ecb4bd9e6d64f9fd0270c95e4f17d98015` (supersedes morning `0xf6d714e8…`)
+    - `phase6VaultMeanReversionVariant2` `0x4509c3e7b5e418c0701cf4d0145c570bac2f8fca` (supersedes morning `0xb95c141f…`)
+    - `phase6VaultMeanReversionVariant3` `0x125b10809e3c6d70c51bf6385ed3cfb1c771d0f5` (supersedes morning `0x3d246570…`)
+    - `phase6VaultYieldRotation` `0x2aff8735ed89451d359205dc6a80ae625e6f6e47` (morning `0x1caba93f…` retained `active=true` because it holds 55 mUSDC user NAV; deactivation deferred until defunded)
+    - `phase6VaultYieldRotationVariant2` `0x7ed482adcc6951bc2058dd45cc26d15b3d585deb` (supersedes morning `0x660d8826…`)
+    - `phase6VaultYieldRotationVariant3` `0x76a50fe4c5585a13be311eca135d0ab8f39b434d` (supersedes morning `0x42248ab4…`)
     Allocators auto-resolve through Goldsky's `where: { active: true }` filter (`AllocatorGoldsky.fetch_directory`) — no env-var change to switch the strategy set, the registry is canonical. Subgraph deployed at `helios/v0.6.0` (`https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.6.0/gn`). The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
 - **Kite mainnet**: *(Stretch — only if time permits; playbook in `docs/deployment-strategy.md`. Not in v1 scope.)*
 - **Base Sepolia (84532)**: *(Phase 5)*
