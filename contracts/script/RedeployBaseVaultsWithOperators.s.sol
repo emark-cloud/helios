@@ -45,7 +45,9 @@ contract RedeployBaseVaultsWithOperators is Script {
 
     function run() external {
         address impl = vm.envAddress("STRATEGY_VAULT_IMPL");
-        address registryV1 = vm.envAddress("STRATEGY_REGISTRY");
+        // Use distinct names so /srv/helios/.env's `STRATEGY_REGISTRY=V2`
+        // (set after WS9 cutover) doesn't shadow this script's V1 reference.
+        address registryV1 = vm.envAddress("STRATEGY_REGISTRY_V1");
         address registryV2 = vm.envAddress("STRATEGY_REGISTRY_V2");
         address allocatorVault = vm.envAddress("ALLOCATOR_VAULT");
         address tradeVerifier = vm.envAddress("TRADE_ATTESTATION_VERIFIER");
