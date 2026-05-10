@@ -69,6 +69,13 @@ class Settings(BaseServiceSettings):
     allocator_registry_address: str = Field(
         default="", validation_alias="SENTINEL_ALLOCATOR_REGISTRY_ADDRESS"
     )
+    # UserVault proxy. When unset the loop's per-tick balance refresh
+    # returns None and `delegated_capital_usd` stays at whatever the
+    # POST or a test seeded — i.e. zero in production, so leave this
+    # set to skip the gate on `if user.delegated_capital_usd <= 0`.
+    user_vault_address: str = Field(
+        default="", validation_alias="SENTINEL_USER_VAULT_ADDRESS"
+    )
     http_port: int = 8001
     # Chain-watcher (WS-SVC-1). Comma-separated list of StrategyVault
     # proxies whose `NavDivergenceObserved` logs the watcher fans out
@@ -108,6 +115,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         allocator_vault_address=cfg.allocator_vault_address,
         allocator_registry_address=cfg.allocator_registry_address,
         chain_id=cfg.kite_chain_id,
+        user_vault_address=cfg.user_vault_address,
     )
     loop = AllocatorLoop(
         store=store,

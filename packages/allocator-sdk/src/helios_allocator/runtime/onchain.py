@@ -39,6 +39,22 @@ from helios_allocator.runtime.state import AllocationState
 # `project_strategy_sdk_distribution.md` memory.
 RECEIPT_TIMEOUT_SEC: int = 30
 
+# Minimal balanceOf fragment for UserVault. The generated `IUserVault_ABI`
+# in `helios-contracts-abi-py` only ships the operator-facing surface
+# (deposit/setMetaStrategy/delegateToAllocator/withdraw + events), not
+# the per-user balance accessor. Inlining here avoids a binding-regen
+# cycle for a single read-only call. Signature matches
+# `UserVault.balanceOf(address)` in `contracts/src/UserVault.sol:279`.
+_USER_VAULT_BALANCE_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "balanceOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "user", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+)
+
 _log = structlog.get_logger(__name__)
 
 
@@ -78,11 +94,13 @@ class AllocatorOnChain:
         allocator_vault_address: str,
         allocator_registry_address: str,
         chain_id: int,
+        user_vault_address: str = "",
     ) -> None:
         self._rpc_url = rpc_url
         self._operator_pk = operator_pk
         self._allocator_vault = allocator_vault_address
         self._allocator_registry = allocator_registry_address
+        self._user_vault = user_vault_address
         self._chain_id = chain_id
         self._live = bool(rpc_url and operator_pk and allocator_vault_address)
         self.pending: list[OnChainCall] = []
@@ -93,6 +111,7 @@ class AllocatorOnChain:
         self._account: Any = None
         self._vault_contract: Any = None
         self._registry_contract: Any = None
+        self._user_vault_contract: Any = None
 
     @property
     def live(self) -> bool:
@@ -105,6 +124,10 @@ class AllocatorOnChain:
     @property
     def allocator_registry(self) -> str:
         return self._allocator_registry
+
+    @property
+    def user_vault(self) -> str:
+        return self._user_vault
 
     def allocate(self, user: str, strategy: str, amount: int) -> OnChainCall:
         return self._submit(
@@ -159,6 +182,34 @@ class AllocatorOnChain:
 
     async def settle_fee_async(self, user: str, strategy: str) -> OnChainCall:
         return await asyncio.to_thread(self.settle_fee, user, strategy)
+
+    def read_user_vault_balance(self, user: str) -> int | None:
+        """Idle UserVault balance for `user`, in raw asset wei.
+
+        Returns None when stub mode is active or `user_vault_address` is
+        unset — the loop falls back to its in-memory `delegated_capital_usd`
+        in that case (which tests seed manually). Live mode reads
+        `UserVault.balanceOf(user)`. The unit is raw asset wei (18 dec
+        for the deployed mUSDC mock); `_apply_diffs` passes the same
+        units straight to `allocateToStrategy`, so no conversion is
+        needed.
+        """
+        if not self._live or not self._user_vault:
+            return None
+        self._ensure_live()
+        assert self._w3 is not None
+        if self._user_vault_contract is None:
+            self._user_vault_contract = self._w3.eth.contract(
+                address=Web3.to_checksum_address(self._user_vault),
+                abi=list(_USER_VAULT_BALANCE_ABI),
+            )
+        balance = self._user_vault_contract.functions.balanceOf(
+            Web3.to_checksum_address(user)
+        ).call()
+        return int(balance)
+
+    async def read_user_vault_balance_async(self, user: str) -> int | None:
+        return await asyncio.to_thread(self.read_user_vault_balance, user)
 
     async def read_allocation(self, user: str, strategy: str) -> AllocationState | None:
         """Mirror current on-chain allocation state.

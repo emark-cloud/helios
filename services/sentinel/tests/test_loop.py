@@ -470,6 +470,57 @@ async def test_partial_decrease_routes_through_rebalance() -> None:
 
 
 @pytest.mark.asyncio
+async def test_user_vault_balance_seeds_delegated_capital() -> None:
+    """When the on-chain UserVault returns a balance the loop adopts it
+    as `delegated_capital_usd` before deciding — this is the production
+    path that closes the spec gap (`upsert_user` does not seed the
+    field, so without an RPC read the loop's `_compute_target` gate
+    `if user.delegated_capital_usd <= 0: return []` deadlocks)."""
+
+    s1 = _candidate("0x" + "11" * 20, rep=0.9)
+    loop, store, onchain = _build([s1])
+    user = store.upsert_user(_user_meta(max_per_strategy_bps=10_000))
+    # Intentionally do NOT seed delegated_capital_usd manually — the
+    # whole point of this test is that the on-chain read fills it in.
+    assert user.delegated_capital_usd == 0
+
+    async def fake_balance(addr: str) -> int:
+        assert addr == user.meta.user_address
+        return 4_242
+
+    onchain.read_user_vault_balance_async = fake_balance  # type: ignore[method-assign]
+
+    await loop.tick_once(now=1_000)
+
+    assert user.delegated_capital_usd == 4_242
+    methods = [c.method for c in onchain.pending]
+    assert methods.count("allocateToStrategy") == 1
+    assert onchain.pending[0].amount <= 4_242
+
+
+@pytest.mark.asyncio
+async def test_user_vault_balance_none_preserves_prior_value() -> None:
+    """Stub mode (no UserVault address configured) returns None — the
+    loop must NOT clobber the seed in that case, otherwise scenario
+    tests and scenario-mode replays that pre-seed `delegated_capital_usd`
+    would lose their setup on the very first tick."""
+
+    s1 = _candidate("0x" + "11" * 20, rep=0.9)
+    loop, store, onchain = _build([s1])
+    user = store.upsert_user(_user_meta(max_per_strategy_bps=10_000))
+    user.delegated_capital_usd = 10_000  # test seed mirrors prior fixtures
+
+    # AllocatorOnChain in stub mode (the _build helper) already returns
+    # None; assert via the low-level method to make the contract
+    # explicit, then run a tick and confirm the seed survived.
+    assert onchain.read_user_vault_balance(user.meta.user_address) is None
+
+    await loop.tick_once(now=1_000)
+
+    assert user.delegated_capital_usd == 10_000
+
+
+@pytest.mark.asyncio
 async def test_event_fanout_to_subscriber() -> None:
     s1 = _candidate("0x" + "11" * 20)
     loop, store, _ = _build([s1])

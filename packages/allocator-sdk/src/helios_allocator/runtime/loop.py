@@ -138,6 +138,28 @@ class AllocatorLoop:
         return list(self._directory)
 
     async def _tick_user(self, user: UserState, ts: int) -> None:
+        # Refresh `delegated_capital_usd` from on-chain UserVault balance.
+        # `_compute_target` gates on this — without an RPC seed it stays
+        # zero (the upsert path doesn't write it) and no allocation ever
+        # fires. Reading on every tick also handles deposit/withdraw
+        # cycles transparently. RPC errors leave the prior value in
+        # place; stub mode (no UserVault address configured) returns
+        # None and we fall back to whatever the meta-strategy POST or a
+        # test fixture seeded.
+        try:
+            balance = await self._onchain.read_user_vault_balance_async(
+                user.meta.user_address
+            )
+        except Exception as exc:  # pragma: no cover — defensive RPC guard
+            _log.warning(
+                "allocator.user_vault_balance.error",
+                user=user.meta.user_address,
+                err=str(exc),
+            )
+            balance = None
+        if balance is not None:
+            user.delegated_capital_usd = balance
+
         # Step 4: drawdown check first — before any rebalancing logic.
         await self._enforce_drawdown(user, ts)
 
