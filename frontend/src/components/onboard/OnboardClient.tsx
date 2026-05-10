@@ -1038,17 +1038,27 @@ function formToContractStruct(
   };
 }
 
+// Poseidon-derived class IDs, mirrored from `contracts/src/ClassIds.sol`
+// and `packages/contracts-abi-py/src/helios_contracts_abi/class_ids.py`.
+// keccak digests of the slugs overflow the BN254 scalar field and would
+// trip snarkjs's `checkField` before any proof check ran, so we use
+// Poseidon([int.from_bytes(slug, "big")]) instead. Drift between this
+// table and `ClassIds.sol` is caught by the Foundry parity test
+// (`test/ClassIds.t.sol`, re-derived via `vm.ffi`).
+const CLASS_ID_BY_SLUG: Record<string, Hex> = {
+  momentum_v1: "0x2a9aa442064b635baec37a7a259282faa5563a653a8325378d5676c6f04bc9dd",
+  mean_reversion_v1: "0x18602f4f74172d545f5258541634e1a125c3a4e1227ee2a4cbee957d3490f1fb",
+  yield_rotation_v1: "0x2e882135c6afc3bda02a9c8a7c6a351198d97599c804a2575a3d616073a87251",
+};
+
 function classSlugToBytes32(slug: string): Hex {
-  // Match the keccak-derived byte32 IDs published by the contracts-abi
-  // generator. Avoid importing `@helios/contracts-abi` SLUG_TO_BYTES32
-  // on the JS side because the upstream Poseidon-derived ClassIds
-  // (project_classids_poseidon memory) ship via the Python ABI module
-  // only. The on-chain UserVault uses keccak256 in Phase 1 — see
-  // scripts/e2e_scenario.py CLASS_*_BYTES32. Drop in once frontend
-  // mirrors are in place; until then stub to zero so the userOp still
-  // type-checks (the e2e harness exercises the real path).
-  void slug;
-  return ("0x" + "00".repeat(32)) as Hex;
+  const id = CLASS_ID_BY_SLUG[slug];
+  if (id === undefined) {
+    throw new Error(
+      `unknown strategy class slug: ${slug} — extend CLASS_ID_BY_SLUG and ClassIds.sol`,
+    );
+  }
+  return id;
 }
 
 function isPassportConfigComplete(): boolean {
