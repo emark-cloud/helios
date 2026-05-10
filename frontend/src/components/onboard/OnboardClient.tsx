@@ -60,10 +60,14 @@ const VALID_FOR_DAYS = 90;
 // at the bundler. Meta-strategy validity stays at 90d; the user
 // re-delegates if the session lapses before the meta expires.
 const ALLOCATOR_SESSION_TTL_SEC = 30 * 86_400;
-// USDC has 6 decimals on every Helios chain (testnet test token,
-// mainnet bridged USDC.e). Hardcoded rather than read from chain
+// The deployed `mUSDC` mock on Kite testnet uses **18 decimals** (the
+// MockERC20 default), not 6. parseUnits("1000", 6) = 1e9 wei, which
+// is dust at 18 decimals — every onboard userOp landed with effectively
+// zero capital, so the allocator decision loop never had anything to
+// deploy. Confirmed via `cast call usdc decimals()` against
+// 0xe8cf8a5711... on chain. Hardcoded rather than read from chain
 // because the userOp builder runs synchronously off the form value.
-const USDC_DECIMALS = 6;
+const USDC_DECIMALS = 18;
 
 const KITE_CHAIN_ID = Number(process.env.NEXT_PUBLIC_KITE_CHAIN_ID ?? "2368");
 
