@@ -153,16 +153,16 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - `mWeth` `0x789ff10eb109626b01816161be72c9df32be4a00` (18 dec; 50k seeded)
     - `mSol` `0xcf1276516a625723e40ae13d598de837079ad532` (9 dec; 1M seeded)
     - `swapRouter` (MockSwapRouter, owner = deployer) `0x55782e7019f4619a06a25bf66d2998c8fe2cc436` — fed by VPS `RouterPriceMirror` keeper (`oracle.router_mirror.posted` log) every bar with 5 bps spread per leg.
-  - Strategy vaults — **Phase-6 fresh redeploy 2026-05-09** (`DeployPhase6MultiAssetVaults.s.sol`); nine new ERC1967 proxies on impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`. Universe per class: mom/mr `[mUSDC, mWBTC, mWETH, mSOL]`; yr `[mUSDC]` (Helios.md §12.1 carve-out — yield venues live on Arbitrum). Distinct paramsHash per (class, variant) seeded as `keccak256("helios.<class>.phase6.multiasset.<variant>")`. All active in StrategyRegistry; the legacy nine are flipped `active=false` (`DeactivateLegacyVaults.s.sol`) and stay in the registry only so existing user capital can exit via the standard `defundStrategy` path.
-    - `phase6VaultMomentum` `0x29b5d20fe7005ab81b3b919385003399e6397622` (supersedes legacy `0xf11D55a3…` — now inactive)
-    - `phase6VaultMomentumVariant2` `0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e` (supersedes legacy `0xc1B19Df0…`)
-    - `phase6VaultMomentumVariant3` `0x24dc209dab31887f20ecf7eae626f4e8fa46d570` (supersedes legacy `0x4e19e5Ee…`)
-    - `phase6VaultMeanReversion` `0xf825727ea1d19066e6b06bcc928a658ee1e7516f` (supersedes legacy `0xE85FC70e…`)
-    - `phase6VaultMeanReversionVariant2` `0xa863b0372f28f368119cbf4ae2b46730e5d009f5` (supersedes legacy `0xD4898262…`)
-    - `phase6VaultMeanReversionVariant3` `0xf44051d85f1a2f31a249d5f4136176c083f09dd3` (supersedes legacy `0x50c1DCC2…`)
-    - `phase6VaultYieldRotation` `0x2c765493f3899d2236d172b5c9c7c9473bd71765` (supersedes legacy `0xb7496bE7…`)
-    - `phase6VaultYieldRotationVariant2` `0x6734ce8189eeb801f595e5c0a7b4239221f08d93` (supersedes legacy `0x5605B2E1…`)
-    - `phase6VaultYieldRotationVariant3` `0x92c15c4f20641191dd9b464ec446cc7d7ac616c5` (supersedes legacy `0x3863f44F…`)
+  - Strategy vaults — **Phase-6 capacity-fix redeploy 2026-05-10** (`DeployPhase6MultiAssetVaults.s.sol`); nine new ERC1967 proxies on impl `0x934f7639e5Cb320e4394736f5663b53E9C6b5c7b`. Universe per class: mom/mr `[mUSDC, mWBTC, mWETH, mSOL]`; yr `[mUSDC]` (Helios.md §12.1 carve-out — yield venues live on Arbitrum). Distinct paramsHash per (class, variant) seeded as `keccak256("helios.<class>.phase6.multiasset.<variant>")`. All active in StrategyRegistry; the prior phase-6 nine are flipped `active=false` (`DeactivateLegacyVaults.s.sol`) — supersedes the 2026-05-09 cohort which used 6-dec `MAX_CAPACITY = 1_000_000e6` against an 18-dec mUSDC, capping each vault at ~1e-6 mUSDC and reverting every Sentinel `allocateToStrategy` with `CapacityExceeded()` (`0x9ff41fe0`). The 2026-05-10 cohort uses `MAX_CAPACITY = 1_000_000e18` and stake `5_000e18`.
+    - `phase6VaultMomentum` `0xdadeac5d72fce1ef918bf1c06f4e3615ee0a101d` (supersedes 2026-05-09 `0x29b5d20f…` — now inactive)
+    - `phase6VaultMomentumVariant2` `0x96ea2d199fe4ec65bc50d1c738b8516a6a424d30` (supersedes 2026-05-09 `0xdcb2d64f…`)
+    - `phase6VaultMomentumVariant3` `0xc05862efe7da69cf33b0bc357688cb2c2075f6b5` (supersedes 2026-05-09 `0x24dc209d…`)
+    - `phase6VaultMeanReversion` `0xf6d714e8ade2c4956ce9dc741f6042b258d8deaf` (supersedes 2026-05-09 `0xf825727e…`)
+    - `phase6VaultMeanReversionVariant2` `0xb95c141f706cd35f38af2044becde3ce5b2fb8bd` (supersedes 2026-05-09 `0xa863b037…`)
+    - `phase6VaultMeanReversionVariant3` `0x3d2465701431441719b3d79ff828ef74c1b43bd3` (supersedes 2026-05-09 `0xf44051d8…`)
+    - `phase6VaultYieldRotation` `0x1caba93ff27a4ccbebb21ae927f00b466952e10e` (supersedes 2026-05-09 `0x2c765493…`)
+    - `phase6VaultYieldRotationVariant2` `0x660d8826c7ca6099bdd724134b7d3cc9afe2a2b0` (supersedes 2026-05-09 `0x6734ce81…`)
+    - `phase6VaultYieldRotationVariant3` `0x42248ab4a8b2a90b5be8abae0422cd7e48a5dd65` (supersedes 2026-05-09 `0x92c15c4f…`)
     Allocators auto-resolve through Goldsky's `where: { active: true }` filter (`AllocatorGoldsky.fetch_directory`) — no env-var change to switch the strategy set, the registry is canonical. Subgraph deployed at `helios/v0.6.0` (`https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.6.0/gn`). The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
 - **Kite mainnet**: *(Stretch — only if time permits; playbook in `docs/deployment-strategy.md`. Not in v1 scope.)*
 - **Base Sepolia (84532)**: *(Phase 5)*

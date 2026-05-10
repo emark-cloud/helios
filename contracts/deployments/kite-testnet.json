@@ -2,7 +2,7 @@
   "chainId": 2368,
   "deployedAt": 1777277331,
   "phase": "6",
-  "phase6MultiAssetVaultsDeployedAt": 1778340249,
+  "phase6MultiAssetVaultsDeployedAt": 1778427740,
   "addresses": {
     "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
     "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
@@ -33,14 +33,14 @@
     "mWbtc": "0x3f81a60c5d5c6bfcb415080b846da22903ff37a0",
     "mWeth": "0x789ff10eb109626b01816161be72c9df32be4a00",
     "mSol": "0xcf1276516a625723e40ae13d598de837079ad532",
-    "phase6VaultMomentum": "0x29b5d20fe7005ab81b3b919385003399e6397622",
-    "phase6VaultMomentumVariant2": "0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e",
-    "phase6VaultMomentumVariant3": "0x24dc209dab31887f20ecf7eae626f4e8fa46d570",
-    "phase6VaultMeanReversion": "0xf825727ea1d19066e6b06bcc928a658ee1e7516f",
-    "phase6VaultMeanReversionVariant2": "0xa863b0372f28f368119cbf4ae2b46730e5d009f5",
-    "phase6VaultMeanReversionVariant3": "0xf44051d85f1a2f31a249d5f4136176c083f09dd3",
-    "phase6VaultYieldRotation": "0x2c765493f3899d2236d172b5c9c7c9473bd71765",
-    "phase6VaultYieldRotationVariant2": "0x6734ce8189eeb801f595e5c0a7b4239221f08d93",
-    "phase6VaultYieldRotationVariant3": "0x92c15c4f20641191dd9b464ec446cc7d7ac616c5"
+    "phase6VaultMomentum": "0xdadeac5d72fce1ef918bf1c06f4e3615ee0a101d",
+    "phase6VaultMomentumVariant2": "0x96ea2d199fe4ec65bc50d1c738b8516a6a424d30",
+    "phase6VaultMomentumVariant3": "0xc05862efe7da69cf33b0bc357688cb2c2075f6b5",
+    "phase6VaultMeanReversion": "0xf6d714e8ade2c4956ce9dc741f6042b258d8deaf",
+    "phase6VaultMeanReversionVariant2": "0xb95c141f706cd35f38af2044becde3ce5b2fb8bd",
+    "phase6VaultMeanReversionVariant3": "0x3d2465701431441719b3d79ff828ef74c1b43bd3",
+    "phase6VaultYieldRotation": "0x1caba93ff27a4ccbebb21ae927f00b466952e10e",
+    "phase6VaultYieldRotationVariant2": "0x660d8826c7ca6099bdd724134b7d3cc9afe2a2b0",
+    "phase6VaultYieldRotationVariant3": "0x42248ab4a8b2a90b5be8abae0422cd7e48a5dd65"
   }
 }

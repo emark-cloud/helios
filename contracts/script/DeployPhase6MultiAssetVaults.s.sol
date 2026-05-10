@@ -30,8 +30,11 @@ contract DeployPhase6MultiAssetVaults is Script {
     bytes32 internal constant CLASS_YR = ClassIds.YIELD_ROTATION_V1;
 
     uint16 internal constant STRATEGY_FEE_BPS = 1500;
-    uint256 internal constant STRATEGY_STAKE = 5000e6;
-    uint256 internal constant MAX_CAPACITY = 1_000_000e6;
+    // mUSDC mock has 18 decimals (matches the Kite testnet ERC-20). The
+    // earlier 6-dec values capped vault capacity at ~1e-6 mUSDC and
+    // collapsed every Sentinel allocation with `CapacityExceeded()`.
+    uint256 internal constant STRATEGY_STAKE = 5000e18;
+    uint256 internal constant MAX_CAPACITY = 1_000_000e18;
 
     /// @dev Distinct paramsHash per (class, variant) so the cohort sees
     ///      nine separate strategies. Off-chain commit will replace
