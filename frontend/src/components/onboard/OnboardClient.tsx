@@ -709,6 +709,76 @@ async function sendOnboardingUserOp(
   // SDK's own example does, and it auto-prepends the paymaster
   // approve when the token branch is taken.
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+  // Paymaster preflight. The Kite testnet paymaster
+  // (0x9Adcbf85...) caps free sponsorship at 5 userOps per AA.
+  // After that it falls back to charging Test USD
+  // (0x0fF53933...). The AA is unfunded by default, so the bundler
+  // would just throw `AA33 reverted (InsufficientBalance)` from
+  // estimateUserOperation with no actionable detail. Read the
+  // paymaster + token state first and surface a precise message
+  // before the SDK call.
+  const PAYMASTER = "0x9Adcbf85D5c724611a490Ba9eDc4d38d6F39e92d" as const;
+  const TEST_USD = "0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63" as const;
+  try {
+    const rpcUrl =
+      process.env.NEXT_PUBLIC_KITE_RPC_URL ?? "https://rpc-testnet.gokite.ai";
+    const ethCall = async (to: string, data: string): Promise<string | null> => {
+      const r = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [{ to, data }, "latest"],
+          id: Math.floor(Math.random() * 1e9),
+        }),
+      });
+      const j = (await r.json()) as { result?: string };
+      return j.result ?? null;
+    };
+    // selectors (verified via `cast sig`):
+    //   maxSponsoredTransactions() = 0x6bcce0ac
+    //   userSponsorship(address)   = 0xf3ce37f6
+    //   balanceOf(address) on TUSD = 0x70a08231
+    const padAA = aa.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+    const [maxSponsored, userUsed, tusdBalance] = await Promise.all([
+      ethCall(PAYMASTER, "0x6bcce0ac"),
+      ethCall(PAYMASTER, "0xf3ce37f6" + padAA),
+      ethCall(TEST_USD, "0x70a08231" + padAA),
+    ]);
+    const max = maxSponsored ? BigInt(maxSponsored) : 0n;
+    const used = userUsed ? BigInt(userUsed) : 0n;
+    const bal = tusdBalance ? BigInt(tusdBalance) : 0n;
+    console.info("[onboard] paymaster preflight", {
+      aa,
+      maxSponsored: max.toString(),
+      userSponsorshipUsed: used.toString(),
+      remainingSponsorships: (max > used ? max - used : 0n).toString(),
+      testUsdBalance: bal.toString(),
+    });
+    if (used >= max && bal === 0n) {
+      throw new Error(
+        `Paymaster sponsorship exhausted for this wallet (${used}/${max} free userOps used) and the AA holds no Test USD to pay for further userOps.\n\n`
+          + `Fix one of these:\n`
+          + `  • Sign in with a different passkey (incognito) — fresh AA, fresh 5 free userOps.\n`
+          + `  • Send Test USD (${TEST_USD}) to ${aa} from the Kite faucet at https://faucet.gokite.ai.\n`
+          + `  • Ask the Kite team to bump the sponsorship cap.`,
+      );
+    }
+  } catch (preflightErr) {
+    // Re-throw our own diagnostic; swallow RPC/network errors so a
+    // flaky read doesn't block onboarding when the bundler would
+    // actually accept the op.
+    if (
+      preflightErr instanceof Error
+      && preflightErr.message.startsWith("Paymaster sponsorship exhausted")
+    ) {
+      throw preflightErr;
+    }
+    console.warn("[onboard] paymaster preflight read failed (non-fatal)", preflightErr);
+  }
+
   // estimateUserOperation calls eth_estimateUserOperationGas on the
   // bundler, which runs full simulation including our batch. A revert
   // anywhere in the batch surfaces here as a generic "execution
