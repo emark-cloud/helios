@@ -128,6 +128,61 @@ async def test_first_tick_allocates_idle_capital() -> None:
 
 
 @pytest.mark.asyncio
+async def test_swap_cycle_defunds_before_allocates() -> None:
+    """When the new target adds a fresh strategy *and* removes an existing
+    one (saturating `max_strategies_count`), defund must be submitted first
+    or AllocatorVault.allocateToStrategy reverts MetaMaxStrategiesExceeded.
+    Reproduces the bug observed against Kite testnet on 2026-05-10.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())  # max_strategies_count=2
+    user.delegated_capital_usd = 10_000
+    user.last_rebalance_ts = now_ts() - 10_000  # past cadence so we rebalance
+
+    sid_old = "0x" + "11" * 20
+    sid_new = "0x" + "22" * 20
+    # Pre-seed two healthy allocations — exactly at the cap.
+    for sid in (sid_old, "0x" + "33" * 20):
+        user.allocations[sid] = AllocationState(
+            strategy_id=sid,
+            chain_id=2368,
+            declared_class="momentum_v1",
+            capital_deployed_usd=5_000,
+            high_water_mark_usd=5_000,
+            nav_usd=5_000,
+        )
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    # The stub allocator picks the first directory row; serve `sid_new`
+    # (no existing allocation), forcing the diff to drop both olds and
+    # add one new.
+    goldsky = _StubGoldsky([_row(sid_new)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    methods = [c.method for c in onchain.pending]
+    # All defunds must come before any allocate.
+    first_alloc = next((i for i, m in enumerate(methods) if m == "allocateToStrategy"), len(methods))
+    last_defund = max(
+        (i for i, m in enumerate(methods) if m == "defundStrategy"),
+        default=-1,
+    )
+    assert last_defund < first_alloc, methods
+
+
+@pytest.mark.asyncio
 async def test_drawdown_breach_defunds_before_rebalance() -> None:
     store = AllocatorStore()
     user = store.upsert_user(_meta())

@@ -296,7 +296,14 @@ class AllocatorLoop:
             self._emit_rebalance_complete(user, ts, tx_hash=rebal_call.tx_hash)
             return
 
-        for strategy_id, delta in ops:
+        # Defunds first, then allocates. AllocatorVault checks
+        # `userActiveStrategyCount + 1 > meta.maxStrategiesCount` on every
+        # allocateToStrategy, so when this cycle is swapping strategy A out
+        # and strategy B in (count saturated at the cap), the allocate-first
+        # ordering trips MetaMaxStrategiesExceeded on B before A's slot is
+        # released. Draining first frees the slot for the new allocation.
+        ordered_ops = sorted(ops, key=lambda op: 0 if op[1] < 0 else 1)
+        for strategy_id, delta in ordered_ops:
             if delta > 0:
                 alloc_call = await self._onchain.allocate_async(
                     user.meta.user_address, strategy_id, delta
