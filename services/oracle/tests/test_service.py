@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from oracle.service import Settings, build_app
+from oracle.service import _ALIASES, Settings, _resolve_asset, build_app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCENARIO_PATH = REPO_ROOT / "scenarios" / "phase1-drawdown.json"
@@ -73,3 +73,55 @@ async def test_scenario_mode_serves_signed_snapshots() -> None:
 
         missing = await client.get("/v1/snapshots/recent", params={"asset": "BTC/USDT", "n": 5})
         assert missing.status_code == 404
+
+
+def test_alias_table_covers_phase6_universe() -> None:
+    """The reference strategies declare their `asset_universe` in token-symbol
+    form (`WBTC`, `WETH`, `WSOL`) so the operator-facing API stays in vault
+    token names. The oracle keys its rings by exchange-pair names. Lock the
+    alias table so a future rename here is caught by CI before strategies
+    start 404'ing on the live oracle."""
+    assert _ALIASES == {
+        "WBTC": "BTC/USDT",
+        "WETH": "ETH/USDT",
+        "WSOL": "SOL/USDT",
+    }
+    # Unknown / canonical names round-trip unchanged.
+    assert _resolve_asset("BTC/USDT") == "BTC/USDT"
+    assert _resolve_asset("KITE/USDT") == "KITE/USDT"
+    assert _resolve_asset("WBTC") == "BTC/USDT"
+
+
+@pytest.mark.asyncio
+async def test_alias_resolves_to_canonical_snapshots() -> None:
+    """A `WETH` request must return the same snapshots as `ETH/USDT` —
+    snapshot store is keyed by canonical name; aliases never bifurcate
+    state. Regression on the WS9 fix that unblocked the strategy runtime
+    from a 404 cascade against the live oracle."""
+    settings = Settings()  # type: ignore[call-arg]
+    app = build_app(settings)
+    poller = app.state.poller
+    for _ in range(3):
+        await poller.tick_once()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        canonical = await client.get("/v1/snapshots/recent", params={"asset": "ETH/USDT", "n": 3})
+        assert canonical.status_code == 200, canonical.text
+        aliased = await client.get("/v1/snapshots/recent", params={"asset": "WETH", "n": 3})
+        assert aliased.status_code == 200, aliased.text
+        # The route preserves the canonical asset name in the response
+        # (snapshot store is keyed by canonical), but the timestamps,
+        # prices, and signatures are identical to the canonical fetch.
+        c, a = canonical.json(), aliased.json()
+        assert c["n"] == a["n"]
+        assert [s["timestamp_ms"] for s in c["snapshots"]] == [
+            s["timestamp_ms"] for s in a["snapshots"]
+        ]
+        assert [s["digest"] for s in c["snapshots"]] == [s["digest"] for s in a["snapshots"]]
+
+        # `/snapshots/root` honors the alias too.
+        root_c = await client.get("/v1/snapshots/root", params={"asset": "ETH/USDT", "n": 3})
+        root_a = await client.get("/v1/snapshots/root", params={"asset": "WETH", "n": 3})
+        assert root_c.status_code == 200 and root_a.status_code == 200
+        assert root_c.json()["root_bytes32"] == root_a.json()["root_bytes32"]

@@ -229,3 +229,16 @@ lands on `main` once the WS8 acceptance PR merges. WS1–WS7 already on
 `services/sentinel/tests/test_phase5_xchain.py`, and the
 `scripts/e2e-scenario.sh phase5` mode. See `docs/phase5-acceptance.md`
 for the WS8 evidence and `TODO.md` for the live Phase 6 checklist.
+
+**WS9 — Autonomous attested trades** (active, gates WS5 + WS6). After
+the Phase-6 capacity-fix redeploy + sentinel decimals/allocate fixes
+landed 2026-05-10, the allocator chain works end-to-end (user →
+allocator → 9 vaults holding capital), but no strategy has fired a
+`TradeAttested` event yet because seven runtime misconfigs cascade.
+See `docs/phase6-plan.md` §WS9 + the design doc at
+`/home/emark/.claude/plans/dazzling-spinning-quokka.md`. Three layers:
+oracle aliases + cadence (`services/oracle/src/oracle/service.py`),
+strategy runtime wiring (`asset_universe_addresses`, `Web3BlockProvider`,
+autonomous `commitInitialParamsHash` lifespan hook in each
+`reference-strategies/*/service.py`), and VPS env updates (operator +
+NAV PKs, anchor cadence, `*_ASSET_UNIVERSE_ADDRESSES_JSON`).

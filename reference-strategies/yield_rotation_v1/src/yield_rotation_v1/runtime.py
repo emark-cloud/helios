@@ -299,6 +299,23 @@ class _DummyBlockProvider(BlockProvider):
         return start, start + size
 
 
+class Web3BlockProvider(BlockProvider):
+    """Reads `eth_blockNumber` from the operator's RPC. Mirrors
+    momentum/mean_reversion's `Web3BlockProvider`; required for the
+    witness's `[block_window_start, block_window_end]` to bracket
+    the on-chain `block.number` at `executeWithProof` time."""
+
+    _BACK_BUFFER = 5
+
+    def __init__(self, w3: Any) -> None:
+        self._w3 = w3
+
+    def window(self, size: int) -> tuple[int, int]:
+        head = int(self._w3.eth.block_number)
+        start = max(0, head - self._BACK_BUFFER)
+        return start, start + size
+
+
 def _normalize_pk(pk: str) -> str:
     return pk if pk.startswith("0x") else "0x" + pk
 

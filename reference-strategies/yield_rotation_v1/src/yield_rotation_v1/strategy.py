@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from typing import ClassVar
 
 from helios import StrategyAgent
+from helios.poseidon import poseidon_hash
 from helios.types import MarketSnapshot, TradeIntent
 
 from yield_rotation_v1.types import RotationIntent, YieldTick
@@ -59,6 +60,16 @@ class YieldRotationStrategy(StrategyAgent):
         # YR doesn't track per-asset positions the way directional
         # strategies do; we track the active market id (or None) here.
         self._active_market: int | None = None
+
+    # Bound exposure used by both the witness builder and
+    # `ensure_params_committed` on container start. YR's hash is
+    # narrower than the directional classes (only two operator
+    # bounds — threshold + bridging cost) to match
+    # `circuits/yield_rotation_v1.circom`'s param vector.
+    def params_hash(self) -> bytes:
+        return poseidon_hash([self._signal_threshold_bps, self._bridging_cost_bps]).to_bytes(
+            32, "big"
+        )
 
     # ── Operator surface ───────────────────────────────────────
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:

@@ -18,20 +18,28 @@ match the on-chain `markets_allowlist_root` set on the registry.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI
+from helios.runtime import (
+    ParamsHashMismatchError,
+    ensure_params_committed,
+)
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
+from web3 import Web3
 
 from yield_rotation_v1.executor import TradeExecutor
 from yield_rotation_v1.oracle_client import YieldOracleClient
 from yield_rotation_v1.prover_client import ProverClient
-from yield_rotation_v1.runtime import RuntimeConfig, YieldRotationRuntime
+from yield_rotation_v1.runtime import RuntimeConfig, Web3BlockProvider, YieldRotationRuntime
 from yield_rotation_v1.strategy import YieldRotationStrategy
+
+_log = logging.getLogger(__name__)
 
 
 class Settings(BaseServiceSettings):
@@ -57,6 +65,7 @@ class Settings(BaseServiceSettings):
     yield_interval_sec: int = 300
     nav_interval_sec: int = 300
     http_port: int = 8007
+    strategy_registry_address: str = Field(default="", validation_alias="STRATEGY_REGISTRY")
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -86,6 +95,12 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         signal_threshold_bps=cfg.signal_threshold_bps,
         bridging_cost_bps=cfg.bridging_cost_bps,
     )
+    w3: Web3 | None = None
+    block_provider: Web3BlockProvider | None = None
+    if cfg.kite_rpc_url:
+        w3 = Web3(Web3.HTTPProvider(cfg.kite_rpc_url))
+        block_provider = Web3BlockProvider(w3)
+
     runtime = (
         YieldRotationRuntime(
             strategy=strategy,
@@ -100,6 +115,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             market_subscriptions=subs,
             nav_oracle_pk=cfg.nav_oracle_pk,
             allocator_address=cfg.allocator_address,
+            block_provider=block_provider,
         )
         if oracle is not None and prover is not None and subs
         else None
@@ -107,6 +123,29 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Bring-up: commit the strategy's Poseidon paramsHash to the
+        # registry before the bar loop fires (`StrategyVault.sol:470`).
+        # YR's hash is narrower (just threshold + bridging cost).
+        if (
+            runtime is not None
+            and w3 is not None
+            and cfg.strategy_registry_address
+            and cfg.operator_pk
+            and cfg.strategy_vault_address
+        ):
+            try:
+                ensure_params_committed(
+                    w3=w3,
+                    registry_address=cfg.strategy_registry_address,
+                    vault_address=cfg.strategy_vault_address,
+                    params_hash=strategy.params_hash(),
+                    operator_pk=cfg.operator_pk,
+                )
+            except ParamsHashMismatchError:
+                _log.exception("yield_rotation.params_hash.mismatch")
+                raise
+            except Exception:
+                _log.exception("yield_rotation.params_hash.commit_failed")
         if runtime is not None:
             runtime.start()
         try:

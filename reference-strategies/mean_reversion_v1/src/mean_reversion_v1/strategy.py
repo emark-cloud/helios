@@ -30,6 +30,7 @@ from __future__ import annotations
 import math
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
+from helios.poseidon import poseidon_hash
 from helios.sizing import nav_target_notional
 
 LOOKBACK_BARS = 16
@@ -58,6 +59,21 @@ class MeanReversionStrategy(StrategyAgent):
         self._stop_loss_price = stop_loss_price_usd
         self._max_slippage_bps = max_slippage_bps
         self._position_fraction = position_fraction
+
+    # Bound exposure used by both the witness builder and
+    # `ensure_params_committed` on container start (`StrategyVault.sol:470`
+    # gates every proof against this hash).
+    def params_hash(self) -> bytes:
+        max_position_size_e18 = self.max_position_size_usd * 10**18
+        stop_loss_price_e18 = int(self._stop_loss_price * 10**18)
+        return poseidon_hash(
+            [
+                max_position_size_e18,
+                self._max_slippage_bps,
+                self._n_sigma_x100,
+                stop_loss_price_e18,
+            ]
+        ).to_bytes(32, "big")
 
     # ── Operator surface ───────────────────────────────────────
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:

@@ -27,11 +27,19 @@ from helios.runtime.config import (
     VenueMode,
     load_chain_surface,
 )
+from helios.runtime.registry_init import (
+    CommitOutcome,
+    ParamsHashMismatchError,
+    ensure_params_committed,
+)
 
 __all__ = [
     "ChainSurface",
     "ChainTarget",
+    "CommitOutcome",
     "DeploymentNotFoundError",
+    "ParamsHashMismatchError",
     "VenueMode",
+    "ensure_params_committed",
     "load_chain_surface",
 ]

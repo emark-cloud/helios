@@ -10,20 +10,28 @@ runtime.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI
+from helios.runtime import (
+    ParamsHashMismatchError,
+    ensure_params_committed,
+)
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
+from web3 import Web3
 
 from momentum_v1.executor import TradeExecutor
 from momentum_v1.oracle_client import OracleClient
 from momentum_v1.prover_client import ProverClient
-from momentum_v1.runtime import MomentumRuntime, RuntimeConfig
+from momentum_v1.runtime import MomentumRuntime, RuntimeConfig, Web3BlockProvider
 from momentum_v1.strategy import MomentumStrategy
+
+_log = logging.getLogger(__name__)
 
 
 class Settings(BaseServiceSettings):
@@ -53,6 +61,47 @@ class Settings(BaseServiceSettings):
     # to switch the runtime into raw-tokenIn mode so on-chain `amountIn`
     # matches `publicInputs[PI_AMOUNT_IN]`.
     asset_decimals_json: str = Field(default="", validation_alias="MOMENTUM_ASSET_DECIMALS_JSON")
+    # 8-entry on-chain ERC-20 address list mapped 1:1 to
+    # `MomentumStrategy.asset_universe`. The runtime needs the real
+    # addresses (not just symbols) to embed `assetIn`/`assetOut` in
+    # the witness's `publicInputs[PI_ASSET_*]` for `executeWithProof`.
+    # Empty string keeps the symbol-fallback (Phase-1 dry-run); on
+    # Kite testnet set to JSON of `[mUSDC, mWBTC, mWETH, mSOL, "", "", "", ""]`.
+    asset_universe_addresses_json: str = Field(
+        default="",
+        validation_alias="MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON",
+    )
+    # Address of the deployed StrategyRegistry that gates
+    # `_activeParamsHash` (`StrategyVault.sol:470`). Read once on
+    # startup to commit the strategy's Poseidon paramsHash; never read
+    # in the hot path. Required for Kite testnet — local tests can
+    # leave empty and skip the lifespan commit.
+    strategy_registry_address: str = Field(default="", validation_alias="STRATEGY_REGISTRY")
+
+
+def _parse_asset_universe_addresses(raw: str) -> list[str] | None:
+    """Parse `MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON` into the 8-entry
+    list `MomentumRuntime` requires (`runtime.py:128-129`). Empty input
+    returns `None` so the runtime falls back to symbol-form for local
+    tests; non-list / wrong-arity / non-string entries raise so a
+    half-configured deploy fails loudly at startup."""
+    if not raw or not raw.strip():
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        raise ValueError("MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON must be a JSON list")
+    if len(parsed) != 8:
+        raise ValueError(
+            f"MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON must have exactly 8 entries, got {len(parsed)}"
+        )
+    out: list[str] = []
+    for entry in parsed:
+        if not isinstance(entry, str):
+            raise ValueError(
+                "MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON entries must be address strings"
+            )
+        out.append(entry)
+    return out
 
 
 def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
@@ -94,6 +143,16 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     strategy = MomentumStrategy(
         signal_threshold=cfg.signal_threshold, lookback_bars=cfg.lookback_bars
     )
+    # Live RPC is required to (a) read `paramsHashOf` + commit on
+    # startup, (b) feed `Web3BlockProvider` so the witness's block
+    # window aligns with chain head. Reuse a single Web3 across both
+    # paths so the operator only points at one RPC URL.
+    w3: Web3 | None = None
+    block_provider: Web3BlockProvider | None = None
+    if cfg.kite_rpc_url:
+        w3 = Web3(Web3.HTTPProvider(cfg.kite_rpc_url))
+        block_provider = Web3BlockProvider(w3)
+
     runtime = (
         MomentumRuntime(
             strategy=strategy,
@@ -108,6 +167,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             ),
             nav_oracle_pk=cfg.nav_oracle_pk,
             allocator_address=cfg.allocator_address,
+            asset_universe_addresses=_parse_asset_universe_addresses(
+                cfg.asset_universe_addresses_json
+            ),
+            block_provider=block_provider,
         )
         if oracle is not None and prover is not None
         else None
@@ -115,6 +178,35 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Bring-up: commit the strategy's Poseidon paramsHash to the
+        # registry before the bar loop starts firing. `executeWithProof`
+        # will revert `ParamsHashMismatch` until this lands. Idempotent —
+        # subsequent restarts read-and-skip. Hard fail on a stored hash
+        # that doesn't match what this container would build, since the
+        # registry has no rotate path.
+        if (
+            runtime is not None
+            and w3 is not None
+            and cfg.strategy_registry_address
+            and cfg.operator_pk
+            and cfg.strategy_vault_address
+        ):
+            try:
+                ensure_params_committed(
+                    w3=w3,
+                    registry_address=cfg.strategy_registry_address,
+                    vault_address=cfg.strategy_vault_address,
+                    params_hash=strategy.params_hash(),
+                    operator_pk=cfg.operator_pk,
+                )
+            except ParamsHashMismatchError:
+                _log.exception("momentum.params_hash.mismatch")
+                raise
+            except Exception:
+                _log.exception("momentum.params_hash.commit_failed")
+                # Don't crash the container on transient RPC errors —
+                # the bar loop's per-tick executor will surface the
+                # underlying issue (revert) on the next signal.
         if runtime is not None:
             runtime.start()
         try:

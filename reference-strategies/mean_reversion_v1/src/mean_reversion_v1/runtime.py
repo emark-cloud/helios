@@ -308,6 +308,25 @@ class _DummyBlockProvider(BlockProvider):
         return start, start + size
 
 
+class Web3BlockProvider(BlockProvider):
+    """Reads `eth_blockNumber` from the operator's RPC and emits a
+    window centered on the current head. The witness's
+    `[block_window_start, block_window_end]` must bracket the block
+    `executeWithProof` lands in (`StrategyVault.sol:481-482`); a 5-block
+    buffer back covers RPC-vs-bundler skew without expanding the
+    proof's blast radius."""
+
+    _BACK_BUFFER = 5
+
+    def __init__(self, w3: Any) -> None:
+        self._w3 = w3
+
+    def window(self, size: int) -> tuple[int, int]:
+        head = int(self._w3.eth.block_number)
+        start = max(0, head - self._BACK_BUFFER)
+        return start, start + size
+
+
 def _normalize_pk(pk: str) -> str:
     return pk if pk.startswith("0x") else "0x" + pk
 

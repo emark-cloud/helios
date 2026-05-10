@@ -159,6 +159,25 @@ _COINGECKO_SLUGS: dict[str, tuple[str, str]] = {
 }
 
 
+# Reference strategies (`momentum_v1`, `mean_reversion_v1`) declare their
+# `asset_universe` in token-symbol form (`WBTC`, `WETH`, `WSOL`) so the
+# operator-facing API stays in vault token names. The live oracle keys
+# its snapshot rings by exchange-pair names (`BTC/USDT`, `ETH/USDT`,
+# `SOL/USDT`) because those are what Binance + Coingecko index. Without
+# a translation, every strategy fetch returns 404 ("asset not tracked")
+# and no witness ever builds. Resolve at the route layer so the snapshot
+# store stays single-keyed and aliases never bifurcate state.
+_ALIASES: dict[str, str] = {
+    "WBTC": "BTC/USDT",
+    "WETH": "ETH/USDT",
+    "WSOL": "SOL/USDT",
+}
+
+
+def _resolve_asset(asset: str) -> str:
+    return _ALIASES.get(asset, asset)
+
+
 def _parse_assets(raw: str) -> list[str]:
     return [a.strip() for a in raw.split(",") if a.strip()]
 
@@ -311,6 +330,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         asset: str = Query(...),
         n: int = Query(default=16, ge=1, le=512),
     ) -> dict[str, object]:
+        asset = _resolve_asset(asset)
         if asset not in assets:
             raise HTTPException(status_code=404, detail=f"asset not tracked: {asset}")
         snaps = store.recent(asset, n)
@@ -336,6 +356,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         asset: str = Query(...),
         n: int = Query(default=16, ge=1, le=512),
     ) -> dict[str, object]:
+        asset = _resolve_asset(asset)
         if asset not in assets:
             raise HTTPException(status_code=404, detail=f"asset not tracked: {asset}")
         # Poseidon root is a BN254 field element. Serialize as decimal

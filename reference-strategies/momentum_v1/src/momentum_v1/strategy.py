@@ -21,6 +21,7 @@ operator's IP.
 from __future__ import annotations
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
+from helios.poseidon import poseidon_hash
 from helios.sizing import nav_target_notional
 
 
@@ -41,6 +42,7 @@ class MomentumStrategy(StrategyAgent):
         lookback_bars: int = 10,
         max_slippage_bps: int = 30,
         position_fraction: float = 0.5,
+        stop_loss_price: float = 0.0,
     ) -> None:
         super().__init__()
         # `signal_threshold` is private witness data — not serialized
@@ -49,6 +51,24 @@ class MomentumStrategy(StrategyAgent):
         self._lookback = lookback_bars
         self._max_slippage_bps = max_slippage_bps
         self._position_fraction = position_fraction
+        self._stop_loss_price = stop_loss_price
+
+    # ── Bound exposure (used both by the witness builder + by
+    # `ensure_params_committed` on container start). The on-chain
+    # registry stores the bytes32 returned here; every Groth16
+    # `executeWithProof` is checked against it (`StrategyVault.sol:470`).
+    def params_hash(self) -> bytes:
+        max_position_size_e18 = self.max_position_size_usd * 10**18
+        signal_threshold_bps = round(self._signal_threshold * 10_000)
+        stop_loss_price_e18 = int(self._stop_loss_price * 10**18)
+        return poseidon_hash(
+            [
+                max_position_size_e18,
+                self._max_slippage_bps,
+                signal_threshold_bps,
+                stop_loss_price_e18,
+            ]
+        ).to_bytes(32, "big")
 
     # ── Operator surface ───────────────────────────────────────
     def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
