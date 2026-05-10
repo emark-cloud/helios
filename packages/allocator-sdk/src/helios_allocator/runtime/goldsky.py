@@ -19,6 +19,15 @@ import httpx
 
 from helios_allocator.types import StrategyCandidate
 
+# Frontend POSTs allowed_strategy_classes as slugs; Goldsky surfaces
+# `declaredClass` as the on-chain Poseidon hash. Cache the reverse
+# lookup at import time so `_normalise_class` stays a hot-path lookup
+# without redoing the bytes→hex conversion on every directory refresh.
+try:
+    from helios_contracts_abi.class_ids import BYTES32_TO_SLUG as _BYTES32_TO_SLUG
+except ImportError:  # pragma: no cover — workspace-only fallback
+    _BYTES32_TO_SLUG: dict[bytes, str] = {}
+
 _QUERY_DIRECTORY = """
 query StrategyDirectory {
   strategies(first: 200, where: { active: true }) {
@@ -111,11 +120,18 @@ def to_candidate(row: StrategyDirectoryRow) -> StrategyCandidate:
     `currentReputation` is stored as score_e4 (signed int, -10_000..+10_000)
     — convert to a [0, 1] float for the allocator's ranking math. Negative
     scores become 0 (we don't allocate to provably bad strategies).
+
+    Goldsky exposes `declaredClass` as the on-chain Poseidon hash
+    (`0x2a9aa442…`), but `MetaStrategy.allowed_strategy_classes` is the
+    human-readable slug list (`["momentum_v1", …]`) the frontend POSTs.
+    Normalise hash → slug here so `StrategyCandidate.class_fit` sees
+    matching identifiers; orphan classes that aren't in `BYTES32_TO_SLUG`
+    keep their raw hash and naturally score 0.
     """
     rep_float = max(0.0, row.reputation_score_e4 / 10_000.0)
     return StrategyCandidate(
         strategy_id=row.strategy_id,
-        declared_class=row.declared_class,
+        declared_class=_normalise_class(row.declared_class),
         chain_id=row.chain_id,
         operator=row.operator,
         fee_rate_bps=row.fee_rate_bps,
@@ -125,6 +141,22 @@ def to_candidate(row: StrategyDirectoryRow) -> StrategyCandidate:
         reputation_score=rep_float,
         trades_attested=row.trades_attested,
     )
+
+
+def _normalise_class(declared: str) -> str:
+    """Map a Poseidon hash hex (with or without 0x prefix) back to its
+    canonical slug from `helios_contracts_abi.class_ids`. Falls back to
+    the raw input on any failure so unknown classes still surface in
+    /v1/strategies — they just won't pick up allocator score because
+    `class_fit` won't match the slug-keyed `allowed_strategy_classes`.
+    """
+    if not declared:
+        return declared
+    try:
+        h = declared[2:] if declared.startswith("0x") else declared
+        return _BYTES32_TO_SLUG.get(bytes.fromhex(h), declared)
+    except ValueError:
+        return declared
 
 
 def _to_int(v: Any) -> int:
