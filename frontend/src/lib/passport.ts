@@ -26,6 +26,16 @@ export type PassportEnv = {
   rpcUrl: string;
   bundlerUrl: string;
   chainId: number;
+  /**
+   * Salt fed into `gokite-aa-sdk`'s CREATE2 derivation. Same EOA + same
+   * salt = same AA, so bumping this rotates every Passport user onto a
+   * brand-new AA address with a fresh paymaster sponsorship counter
+   * (5/5). Use only when an AA is sponsorship-locked and the on-chain
+   * state on the old address can be abandoned (capital still recoverable
+   * via `UserVault.withdraw`). Default 2 matches the SDK's hardcoded
+   * `generateSalt() = BigInt(2)`.
+   */
+  aaSalt: bigint;
 };
 
 export function readPassportEnv(): PassportEnv | null {
@@ -41,6 +51,7 @@ export function readPassportEnv(): PassportEnv | null {
   const bundlerUrl =
     process.env.NEXT_PUBLIC_AA_BUNDLER_URL ?? "https://bundler-service.staging.gokite.ai/rpc/";
   const chainId = Number(process.env.NEXT_PUBLIC_KITE_CHAIN_ID ?? "2368");
+  const aaSalt = BigInt(process.env.NEXT_PUBLIC_AA_SALT ?? "2");
   if (
     !particleProjectId
     || !particleClientKey
@@ -59,6 +70,7 @@ export function readPassportEnv(): PassportEnv | null {
     rpcUrl,
     bundlerUrl,
     chainId,
+    aaSalt,
   };
 }
 

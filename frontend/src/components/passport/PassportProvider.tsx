@@ -156,11 +156,22 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     // Lazy import keeps `@particle-network/auth`'s top-level
     // `window` / IndexedDB access off the SSR critical path. Both
     // packages are listed as runtime deps in package.json.
-    const [particleMod, gokiteAuthMod, aaSdkMod] = await Promise.all([
+    const [particleMod, gokiteAuthMod, aaSdkMod, aaSdkUtilsMod] = await Promise.all([
       import("@particle-network/auth"),
       import("@gokite-network/auth"),
       import("gokite-aa-sdk"),
+      // Internal utils module — only loaded so we can monkey-patch
+      // `generateSalt`. The SDK's `estimateUserOperation` doesn't
+      // accept a salt argument; it always calls `generateSalt()` to
+      // pick the default. By replacing the export on the shared
+      // module record (CommonJS interop, the SDK reads the property
+      // off the live object on every call) every internal salt
+      // resolution honours `env.aaSalt`. Required when the previous
+      // salt's AA has exhausted its 5 free paymaster sponsorships and
+      // we need to rotate to a fresh AA.
+      import("gokite-aa-sdk/dist/utils.js"),
     ]);
+    (aaSdkUtilsMod as { generateSalt: () => bigint }).generateSalt = () => env.aaSalt;
 
     const ParticleNetworkCtor = (
       particleMod as { ParticleNetwork: new (_cfg: object) => { auth: unknown } }
@@ -245,12 +256,13 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     if (!bundle.particleAuth.isLogin()) {
       await bundle.particleAuth.login({});
     }
-    // Derive the AA via gokite-aa-sdk's getAccountAddress(owner=eoa,
-    // salt=2). MUST match what `aaSdk.estimateUserOperation` /
-    // `sendUserOperationWithPayment` compute for the userOp `sender`,
-    // since the SDK hardcodes salt=2 and treats the first arg as the
-    // owner EOA. The earlier path used `bundle.smartAccount.getAddress()`
-    // from `@gokite-network/auth`, which derives a different address
+    // Derive the AA via gokite-aa-sdk's `getAccountAddress(owner=eoa,
+    // salt=env.aaSalt)`. MUST match what `aaSdk.estimateUserOperation`
+    // / `sendUserOperationWithPayment` compute for the userOp `sender`
+    // — both paths read salt via the SDK's `generateSalt()`, which we
+    // monkey-patched in `ensureBundle` to return `env.aaSalt`. The
+    // earlier path used `bundle.smartAccount.getAddress()` from
+    // `@gokite-network/auth`, which derives a different address
     // (salt = keccak256(particleClientKey)) — the userOp would deploy
     // an account at the SDK address while we displayed/funded the
     // gokite-auth address, and validateUserOp failed on-chain.
@@ -259,11 +271,14 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     if (!eoaAddress) {
       throw new Error("Particle login returned no EOA wallet — cannot derive AA address.");
     }
-    const aaAddress = bundle.aaSdk.getAccountAddress(eoaAddress) as `0x${string}`;
+    const aaAddress = bundle.aaSdk.getAccountAddress(
+      eoaAddress,
+      env?.aaSalt,
+    ) as `0x${string}`;
     const next: PassportSession = { aaAddress, eoaAddress };
     setSession(next);
     return next;
-  }, [enabled, ensureBundle]);
+  }, [enabled, ensureBundle, env?.aaSalt]);
 
   const logout = useCallback(async (): Promise<void> => {
     if (bundleRef.current === null) {
