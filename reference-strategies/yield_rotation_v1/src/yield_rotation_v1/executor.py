@@ -35,7 +35,7 @@ from yield_rotation_v1.aave_v3 import (
 
 _log = structlog.get_logger(__name__)
 
-_RECEIPT_TIMEOUT_SEC = 30
+_RECEIPT_TIMEOUT_SEC = 120
 
 
 @dataclass(frozen=True, slots=True)

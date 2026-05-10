@@ -30,7 +30,7 @@ from web3.types import TxReceipt
 
 _log = structlog.get_logger(__name__)
 
-_RECEIPT_TIMEOUT_SEC = 30
+_RECEIPT_TIMEOUT_SEC = 120
 
 
 # `function exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))`
