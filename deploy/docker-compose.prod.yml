@@ -58,7 +58,15 @@ services:
       PROVER_HTTP_PORT: "8004"
       LOG_LEVEL: info
     volumes:
-      - ../circuits/build:/app/circuits/build:ro
+      # NOTE: bind-mounted from /srv/helios/circuits-build (helios-owned) rather
+      # than the repo path `../circuits/build`. The repo's `circuits/build/`
+      # directory was created as root by docker on first compose-up when the
+      # mount target needed a directory to exist, and we lost passwordless sudo
+      # so we can't chown it. Populate `/srv/helios/circuits-build/` by rsyncing
+      # the artifacts from a dev host (see deploy/README.md WS9 follow-up).
+      # Phase-2 follow-up: drop this mount entirely once artifacts are COPY'd
+      # into the prover image at build time.
+      - /srv/helios/circuits-build:/app/circuits/build:ro
     ports:
       - "127.0.0.1:8004:8004"
     depends_on:
