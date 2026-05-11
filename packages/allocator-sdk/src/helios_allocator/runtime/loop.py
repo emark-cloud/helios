@@ -531,8 +531,14 @@ def _diff_allocations(
 ) -> list[tuple[str, int]]:
     """Return (strategy, delta) ops needed to move from current to target.
 
-    Mirrors `services/sentinel/src/sentinel/allocator.diff_allocations`.
-    Lifted into the runtime so the loop has zero sentinel-specific imports.
+    Invariant: a defund op is emitted only for sids present in
+    `current_capital` with non-zero capital. Caller hands us
+    `{sid: capital_deployed for sid in user.allocations if not defunded}`,
+    so a strategy the user was never allocated to cannot generate a
+    defund — closing the `StrategyNotAllocated()` revert path that
+    legacy vaults could otherwise reach if they leaked into the diff
+    via a different code path. Mirrors
+    `services/sentinel/src/sentinel/allocator.diff_allocations`.
     """
     ops: list[tuple[str, int]] = []
     seen: set[str] = set()

@@ -305,3 +305,45 @@ async def test_drawdown_breach_defunds_before_rebalance() -> None:
     assert methods[0:1] == ["defundStrategy"]
     kinds = [e.kind for e in store.recent_events(user.meta.user_address)]
     assert "STRATEGY_DEFUNDED" in kinds
+
+
+@pytest.mark.asyncio
+async def test_unallocated_strategy_never_emits_defund() -> None:
+    """Regression for the legacy-vault defund symptom: after a registry
+    redeploy, the prior cohort of strategy vaults is still on-chain but
+    the user was never allocated to them. The loop's diff must not emit
+    defunds for sids absent from `user.allocations` — those calls would
+    revert `StrategyNotAllocated()` on AllocatorVault and pollute the
+    activity log. Captures the invariant added to `_diff_allocations`.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    sid_active = "0x" + "11" * 20  # current target
+    sid_ghost = "0x" + "ee" * 20  # legacy vault — never allocated
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    # Directory only knows about the active vault — the ghost is absent
+    # (it was filtered upstream by `active=true` or the live-NAV gate).
+    goldsky = _StubGoldsky([_row(sid_active)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    defunds = [c for c in onchain.pending if c.method == "defundStrategy"]
+    # The ghost must not appear in any defund call — neither as the target
+    # nor anywhere else in the pending op list.
+    assert all(c.strategy != sid_ghost for c in onchain.pending)
+    assert defunds == []  # first tick allocates; no prior state to drain
