@@ -39,8 +39,7 @@ contract DeployReputationCutover is Script {
     uint256 internal constant STAKE_COOLDOWN = 7 days;
 
     /// @dev Live V1 StrategyRegistry on Kite — read for `stakeToken`.
-    address internal constant V1_STRATEGY_REGISTRY =
-        0x3A0f5B9436EcA0c8C0ECed659Dcc41E86E65E33D;
+    address internal constant V1_STRATEGY_REGISTRY = 0x3A0f5B9436EcA0c8C0ECed659Dcc41E86E65E33D;
 
     function run()
         external
@@ -60,8 +59,7 @@ contract DeployReputationCutover is Script {
         vm.startBroadcast(pk);
 
         // (1) Fresh anchor. oApp left zero — WS11.6 wires it.
-        ReputationAnchorV2 anchor =
-            new ReputationAnchorV2(signer, address(0), deployer);
+        ReputationAnchorV2 anchor = new ReputationAnchorV2(signer, address(0), deployer);
 
         // (2) Registries point at v2-bis at construction.
         StrategyRegistry strategyRegistry =
@@ -95,9 +93,7 @@ contract DeployReputationCutover is Script {
     function _patchDeploymentJson(address anchor, address sr, address ar) internal {
         string memory file = "./deployments/kite-testnet.json";
         vm.writeJson(
-            string.concat('"', vm.toString(anchor), '"'),
-            file,
-            ".addresses.reputationAnchorV2Bis"
+            string.concat('"', vm.toString(anchor), '"'), file, ".addresses.reputationAnchorV2Bis"
         );
         vm.writeJson(
             string.concat('"', vm.toString(sr), '"'), file, ".addresses.strategyRegistryV3"
