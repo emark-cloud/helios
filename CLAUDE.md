@@ -167,8 +167,18 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - `phase6VaultYieldRotationVariant3` `0x76a50fe4c5585a13be311eca135d0ab8f39b434d` (supersedes morning `0x42248ab4…`)
     Allocators auto-resolve through Goldsky's `where: { active: true }` filter (`AllocatorGoldsky.fetch_directory`) — no env-var change to switch the strategy set, the registry is canonical. Subgraph deployed at `helios/v0.6.0` (`https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.6.0/gn`). The mainnet stretch (if exercised) does a fresh deploy from a clean slate.
 - **Kite mainnet**: *(Stretch — only if time permits; playbook in `docs/deployment-strategy.md`. Not in v1 scope.)*
-- **Base Sepolia (84532)**: *(Phase 5)*
-- **Arbitrum Sepolia (421614)**: *(Phase 5)*
+- **Base Sepolia (84532)** — Phase-5 WS10 live-network verification (broadcast 2026-05-11; full set in `contracts/deployments/base-sepolia.json`). Pinned references:
+  - `heliosOApp` `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` (LZ V2 OApp, `kiteEid=40415`, `reputationAnchor=address(0)` — execution-chain shape)
+  - LZ V2 endpoint `0x6EDCE65403992e310A62460808c4b910D972f10f` (LZ EID `40245`)
+  - Peers set to Kite (`0x9d93f3f2…`) and Arb (`0x55782e70…`)
+- **Arbitrum Sepolia (421614)** — Phase-5 WS10 live-network verification (broadcast 2026-05-11; full set in `contracts/deployments/arbitrum-sepolia.json`). Pinned references:
+  - `heliosOApp` `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` (same address as Base — deployer EOA nonce sequence is identical on both freshly-used chains; LZ EID `40231`)
+  - LZ V2 endpoint `0x6EDCE65403992e310A62460808c4b910D972f10f`
+  - Peers set to Kite + Base
+- **Kite testnet — Phase-5 cross-chain additions (2026-05-11)**:
+  - `heliosOApp` `0x9D93F3f2254d7d6f6f4208938b7Ce7F9E33c43B3` (canonical-side OApp; wired to live V1 `reputationAnchor` `0x51c07adf…`. Constructor `kiteEid=40415`, `maxPendingPerStrategy=64`. Owner = deployer)
+  - LZ V2 endpoint `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` (LZ EID `40415`)
+  - V1 `ReputationAnchor.setOApp(heliosOApp)` landed in tx `0xabc5f4fb…` 2026-05-11 — pre-WS10 the field was `0x0`, so any inbound `postCrossChainUpdate(...)` reverted `NotOApp()`. Live-network verification in `docs/phase5-xchain-verification.md`.
 
 ---
 

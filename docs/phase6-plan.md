@@ -118,6 +118,18 @@ Mirrors `TODO.md` lines 497–502:
 | WS6 — Acceptance + tag | ⏳ gated on WS5; will cut `v1.0.0` once cold-judge dry run passes against the Phase-6 vault set. |
 | #17 — Reputation V1 `InvalidSigner` revert | ⏳ tracked; not demo-blocking — V2 sidecar is what `/audit` reads. |
 | #18 — VPS pm2 systemd unit + nginx swap | ⏳ deferred; needs sudo password from user. |
+| **WS10 — Cross-chain (LayerZero V2) verification** | ⏳ in progress 2026-05-11; all 3 OApps deployed (Kite `0x9D93F3f2…`, Base/Arb `0x55782e70…`), 6/6 peers wired, V1 anchor `setOApp` plumbed (uncovered as a latent gap during the first send attempt — see WS10.6 in `docs/phase5-xchain-verification.md`). First Base→Kite message landed at the DVN but reverted in the executor's `lzReceive` because anchor.oApp was `0x0`; fresh post-fix message in flight. |
+
+## Open items from before WS10 (parked, not lost)
+
+WS10 is the active focus; these stay tracked so they don't slip:
+
+- **#40 — Verify autonomous trade firing on Kite testnet** — `bkcs56cvt` monitor timed out waiting for the first mr `executeWithProof` post-`CommitMirror`. No new exec since. Re-arm or wait for next high-volatility window; closure proves the WS9 chain end-to-end.
+- **#50 — Oracle `CommitMirror` verification** — deployed to `services/oracle/src/oracle/commit_mirror.py` + wired into the snapshots HTTP views, but the "did it actually fix `UnknownOracleRoot`?" question only closes when an mr exec lands as `TradeAttested`. Shares the gate with #40.
+- **#10 — WS5-prep: real attested trade on Kite testnet** — gated on #40. `verify-trade.js` PASS-smoke needs a real on-chain `executeWithProof` against one of the `phase6Vault*` proxies.
+- **#7 — WS5 Demo materials** — user-directed to be last priority; gated on #10.
+- **#8 — WS6 Phase 6 acceptance + `v1.0.0` tag** — gated on #7 + cold-judge dry run.
+- **WS9 latent follow-ups** — stranded NAV in the deactivated `mom.legacy` cohort and cold-start ranking parity (project memory `project_sentinel_allocation_gap.md`); not formal tasks, picked up opportunistically.
 
 ## Newly-uncovered work (during Phase 6)
 

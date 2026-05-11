@@ -70,42 +70,86 @@ Kite testnet has a LayerZero V2 endpoint at
 `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` with EID `40415`. Full
 3-chain round-trip is viable. See "Pre-check outcomes" table above.
 
-### WS10.1 — Existing test baseline — _pending_
+### WS10.1 — Existing test baseline — COMPLETE (2026-05-11)
 
-### WS10.2 — Env + faucet on Base/Arb Sepolia — _pending (user-action)_
+All three offline surfaces clean:
+- `forge test --match-contract HeliosOApp` → 21/21 pass.
+- `pytest services/sentinel/tests/test_phase5_xchain.py` → 3 pass + 1
+  skipped (CI-gate test, gated on env).
+- `HELIOS_VENUE_*=MOCK bash scripts/e2e-scenario.sh phase5` → GREEN.
 
-The deployer EOA (`0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`) needs
-~0.1 ETH on each of Base Sepolia and Arbitrum Sepolia. Faucets:
+### WS10.2 — Env + faucet — COMPLETE (2026-05-11)
 
-- https://www.alchemy.com/faucets/base-sepolia
-- https://www.alchemy.com/faucets/arbitrum-sepolia
+Deployer `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` funded on all
+three chains (0.3 ETH Base, 0.5 ETH Arb, 0.65 KITE). All three LZ
+endpoints respond with their expected EIDs (40245/40231/40415). RPC
+URLs use the official public testnet endpoints (`https://sepolia.base.org`
+and `https://sepolia-rollup.arbitrum.io/rpc`) — no API key needed.
 
-Env entries to add to local `.env` (not committed):
+### WS10.3 — Kite-side HeliosOApp deploy script — COMPLETE (2026-05-11)
 
-```
-BASE_SEPOLIA_RPC_URL=<infura/alchemy URL>
-ARBITRUM_SEPOLIA_RPC_URL=<infura/alchemy URL>
-LZ_ENDPOINT_BASE_SEPOLIA=0x6EDCE65403992e310A62460808c4b910D972f10f
-LZ_ENDPOINT_ARBITRUM_SEPOLIA=0x6EDCE65403992e310A62460808c4b910D972f10f
-LZ_ENDPOINT_KITE=0x3aCAAf60502791D199a5a5F0B173D78229eBFe32
-LZ_KITE_EID=40415
-LZ_BASE_SEPOLIA_EID=40245
-LZ_ARBITRUM_SEPOLIA_EID=40231
-```
+`contracts/script/DeployKiteHeliosOApp.s.sol` written + compiles. Wires
+the live V1 ReputationAnchor (`0x51c07adf...`) as constructor arg —
+distinct from DeployPhase5Execution which hardcodes `address(0)` for
+execution chains. Surgically patches `kite-testnet.json` via three
+`vm.writeJson` calls.
 
-### WS10.3 — Kite-side HeliosOApp deploy script — _pending_
+### WS10.4 — Broadcast HeliosOApp to each chain — COMPLETE (2026-05-11)
 
-Need `contracts/script/DeployKiteHeliosOApp.s.sol` modelled on
-DeployPhase5Execution but with `reputationAnchor_ =
-0x51c07adf596b1e72697a9b8232d061ed006943dc` (the live V1 anchor),
-NOT `address(0)`. Persists `heliosOApp` + `lzKiteEid` into
-`kite-testnet.json`.
+| Chain | OApp | tx | EID |
+|---|---|---|---|
+| Base Sepolia | `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` | (DeployPhase5Execution batch) | 40245 |
+| Arbitrum Sepolia | `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` | (DeployPhase5Execution batch) | 40231 |
+| Kite testnet | `0x9D93F3f2254d7d6f6f4208938b7Ce7F9E33c43B3` | `0x8807fcc0252c74663993e3c5ccb16a9d5064385655f680b253c29209d3b71ae2` | 40415 |
 
-### WS10.4 — Broadcast — _pending_
+Same OApp address on Base + Arb is intentional: same deployer EOA, same
+nonce sequence on freshly-used chains → same CREATE address.
 
-### WS10.5 — Wire peers — _pending_
+Kite hit a nonce race with VPS-resident services using `DEPLOYER_PK`
+(oracle anchor commits, reputation engine ticks). `forge script`'s
+4-retry loop lost the race; recovered with `forge create` + explicit
+`--nonce` + bumped `--gas-price`. The bogus first-pass JSON patch
+(predicted address with no code) was reverted via `git checkout` before
+re-patching with the actual deployed address.
 
-### WS10.6 — Send — _pending_
+### WS10.5 — Wire peers bidirectionally — COMPLETE (2026-05-11)
+
+All 6 peer mappings landed and verified by reading `peers(uint32)` on
+each OApp:
+- Base→Kite=`0x...9d93f3f2...`, Base→Arb=`0x...55782e70...`
+- Arb→Kite=`0x...9d93f3f2...`, Arb→Base=`0x...55782e70...`
+- Kite→Base=`0x...55782e70...`, Kite→Arb=`0x...55782e70...`
+
+`WireLayerZeroPeers.s.sol` handled Base + Arb cleanly (single
+broadcast each, two setPeer txs per chain). Kite needed cast send
+with explicit nonces to dodge the same VPS-services race; both
+setPeer txs landed status=1.
+
+### WS10.6 — Trigger real cross-chain reputation message — COMPLETE (2026-05-11)
+
+| Field | Value |
+|---|---|
+| Direction | Base Sepolia → Kite testnet |
+| Allowlist tx | `0xfeae0cdb96f16a79515e541b6e08056a213b2b608e35971a03dc0de0252863fb` (`setStrategyVault(deployer, true)`) |
+| Send tx (first attempt) | `0xb63f366459fe21dca337db2965b748d6207db0697a41bc2ea3b3d59641dc085b` |
+| First-attempt GUID | `0xbdb2300e197e0e17264736e83d86837c209d34d928cdf7655da103c59b9532f1` |
+| LZ V2 fee paid | 98985491284465 wei (~0.0001 ETH; 20% slack added on quote) |
+| First-attempt LZ Scan status | **FAILED** — "Executor transaction simulation reverted" |
+
+The first message reached the Kite endpoint (DVN verified inbound) but
+the executor's `lzReceive` call reverted. Root cause: `HeliosOApp._applyReputation`
+calls `IReputationAnchor.postCrossChainUpdate(actor, actorType, data)`
+on the V1 anchor (`0x51c07adf...`). That function gates on
+`msg.sender == oApp` (ReputationAnchor.sol:128). The V1 anchor's `oApp`
+field was still `0x0` because `setOApp(...)` had never been called —
+the OApp didn't exist when Phase 1 deployed the anchor, and there's
+been no reason to call it until now.
+
+**Fix landed**: `cast send V1_ANCHOR setOApp(0x9D93F3f2...)` tx
+`0xabc5f4fba1de86a717f0e95339fe0c68fa1d1aacbf9e9087073068902c72a151`
+(status=1). Verified via `cast call oApp()` returning the Kite OApp.
+
+A fresh message was then sent and is in flight — tracking under WS10.7.
 
 ### WS10.7 — Verify round-trip — _pending_
 

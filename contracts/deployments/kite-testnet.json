@@ -52,6 +52,10 @@
     "phase6VaultYieldRotation": "0x2aff8735ed89451d359205dc6a80ae625e6f6e47",
     "phase6VaultYieldRotationVariant2": "0x7ed482adcc6951bc2058dd45cc26d15b3d585deb",
     "phase6VaultYieldRotationVariant3": "0x76a50fe4c5585a13be311eca135d0ab8f39b434d",
-    "tradeAttestationVerifierPrevTimelock": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81"
-  }
+    "tradeAttestationVerifierPrevTimelock": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81",
+    "heliosOApp": "0x9d93f3f2254d7d6f6f4208938b7ce7f9e33c43b3"
+  },
+  "lzLocalEid": 40415,
+  "lzKiteEndpoint": "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32",
+  "phase5HeliosOAppDeployedAt": 1747000000
 }

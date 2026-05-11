@@ -1,0 +1,24 @@
+{
+  "chainId": 84532,
+  "deployedAt": 1778517842,
+  "phase": "5",
+  "phase5DeployedAt": 1778517842,
+  "lzKiteEid": 40415,
+  "lzLocalEid": 40245,
+  "addresses": {
+    "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
+    "heliosOApp": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
+    "tradeAttestationVerifier": "0x51c07adf596b1e72697a9b8232d061ed006943dc",
+    "momentumVerifier": "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d",
+    "momentumVerifierAdapter": "0xbfeba025ca32324a87c620a5c7c110c7666f417c",
+    "meanReversionVerifier": "0x4843df27d6ebea2158d44ed2c60857654f2f51e5",
+    "meanReversionVerifierAdapter": "0x743e1bd7e9795e78b10965eaeaa93bf215476c96",
+    "yieldRotationVerifier": "0x65fa6993063b74dc66481b32baf7a6201c672204",
+    "yieldRotationVerifierAdapter": "0x49588532a238c8fba81fb521478404eddd95c7e2",
+    "oraclePriceAnchor": "0x6e3c2304d1e7c8953b52e8e5f49a6dbd7ef4875b",
+    "oracleYieldAnchor": "0x37714f599570bb2b8389e98d771f6176b9c96cd3",
+    "strategyVaultImpl": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
+    "swapRouter": "0x94cc0aac535ccdb3c01d6787d6413c739ae12bc4",
+    "mockSwapRouter": "0xc065af9b57e2666877a9b479ee61b1f249516277"
+  }
+}
