@@ -118,7 +118,7 @@ Mirrors `TODO.md` lines 497–502:
 | WS6 — Acceptance + tag | ⏳ gated on WS5; will cut `v1.0.0` once cold-judge dry run passes against the Phase-6 vault set. |
 | #17 — Reputation V1 `InvalidSigner` revert | ⏳ tracked; not demo-blocking — V2 sidecar is what `/audit` reads. |
 | #18 — VPS pm2 systemd unit + nginx swap | ⏳ deferred; needs sudo password from user. |
-| **WS10 — Cross-chain (LayerZero V2) verification** | ⏳ in progress 2026-05-11; all 3 OApps deployed (Kite `0x9D93F3f2…`, Base/Arb `0x55782e70…`), 6/6 peers wired, V1 anchor `setOApp` plumbed (uncovered as a latent gap during the first send attempt — see WS10.6 in `docs/phase5-xchain-verification.md`). First Base→Kite message landed at the DVN but reverted in the executor's `lzReceive` because anchor.oApp was `0x0`; fresh post-fix message in flight. |
+| **WS10 — Cross-chain (LayerZero V2) verification** | ✅ infrastructure verified end-to-end 2026-05-11. Both Base→Kite (GUID `0x2eb1ec24…`, dest tx `0xcf313f05…`) and Arb→Kite (GUID `0x4191d1e0…`, dest tx `0x46bdede7…`) emit `ReputationMessageReceived` on Kite OApp `0x7bad5250…`. Surfaced + documented a separate integration gap: the V1 ReputationAnchor (Phase-1 vintage) predates the OApp's V2 ABI for `postCrossChainTradeTick` + 8-field `postCrossChainUpdate` selectors — the WS10 verification OApp uses `reputationAnchor=address(0)` to skip the integration call; full anchor integration is a Phase-5 V1→V2 cutover follow-up (see `docs/reputation-v1-v2-cutover.md`). Evidence: `docs/phase5-xchain-verification.md`. |
 
 ## Open items from before WS10 (parked, not lost)
 

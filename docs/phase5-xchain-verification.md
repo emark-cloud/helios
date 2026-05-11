@@ -212,9 +212,29 @@ on canonical-anchor integration.
 | Fresh batch flush | tx `0xb23d24d5eac913b191709dd3e4e7b7806c4be7410a893a87e9d68661f38f3cb4` |
 | Fresh batch GUID | `0x2eb1ec248ba911c556715f4d43242687098e32c638f3c3449d7a3e8706ab55ca` |
 
-### WS10.7 — Verify round-trip — _pending_
+### WS10.7 — Verify LZ V2 round-trip delivery — COMPLETE (2026-05-11)
 
-### WS10.8 — Commit + docs — _pending_
+**Acceptance proven end-to-end. Single GUID traceable in both directions:**
+
+| Direction | Source tx | Dest tx | GUID | Block |
+|---|---|---|---|---|
+| Base → Kite | `0xb23d24d5eac913b191709dd3e4e7b7806c4be7410a893a87e9d68661f38f3cb4` | `0xcf313f052b128497e6ae73d204af6542992a22dd544824427b9c13fece36b395` | `0x2eb1ec248ba911c556715f4d43242687098e32c638f3c3449d7a3e8706ab55ca` | Kite 21308858 |
+| Arb → Kite | `0xae29f8338305b398d17bfa5308e8766c1e522364b0637b47e130af214d8704b2` | `0x46bdede7fe754e8727a19a9db2ac1476690dba1e4d81ecc239133a6392027c09` | `0x4191d1e0c8208e5146b4bfa3e4fbb9a39f20e52e1b81a25734abe5c688abdf59` | Kite 21308958 |
+
+Both destination txs landed `status=1` and emitted
+`ReputationMessageReceived(srcEid, actor, actorType, guid)` from
+the Kite OApp `0x7Bad5250A1C0B286bC5128bB1D7c19320341C830`. LZ Scan
+reports both as DELIVERED. Path used: `queueAttestation` +
+`flushAttestationsFor` (batch / trade-tick) — the OApp's `_lzReceive`
+decoder dispatches `_handleReputationBatch` → `_applyTradeTick` → the
+null-anchor skip at `HeliosOApp.sol:280` → `emit ReputationMessageReceived`.
+
+**Infrastructure verified end-to-end**: LZ V2 transport (Base/Arb
+Sepolia ↔ Kite), DVN delivery, bidirectional peer trust, OApp
+codec round-trip, `_lzReceive` dispatcher, and receive-side event
+emission all work against the live Kite LayerZero V2 endpoint.
+
+### WS10.8 — Commit + docs + phase6-plan.md update — in progress
 
 ## Risks (live tracking)
 
