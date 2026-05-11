@@ -22,6 +22,7 @@ from typing import Any
 import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
+from helios.runtime.nav_seed import seed_strategy_capital
 from helios.types import TradeIntent
 
 from mean_reversion_v1.executor import ExecutionRecord, TradeExecutor
@@ -274,8 +275,6 @@ class MeanReversionRuntime:
         if not base_asset:
             return
         try:
-            from helios.runtime.nav_seed import seed_strategy_capital
-
             seeded = seed_strategy_capital(
                 strategy=self._strategy,
                 w3=self._executor.w3,

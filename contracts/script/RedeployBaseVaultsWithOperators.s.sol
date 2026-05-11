@@ -34,14 +34,12 @@ contract RedeployBaseVaultsWithOperators is Script {
     bytes32 internal constant CLASS_MR =
         0x18602f4f74172d545f5258541634e1a125c3a4e1227ee2a4cbee957d3490f1fb;
 
-    bytes32 internal constant PH_MOM =
-        keccak256("helios.momentum_v1.phase6.multiasset.base");
-    bytes32 internal constant PH_MR =
-        keccak256("helios.mean_reversion_v1.phase6.multiasset.base");
+    bytes32 internal constant PH_MOM = keccak256("helios.momentum_v1.phase6.multiasset.base");
+    bytes32 internal constant PH_MR = keccak256("helios.mean_reversion_v1.phase6.multiasset.base");
 
     uint256 internal constant MAX_CAPACITY = 1_000_000e18;
-    uint256 internal constant STRATEGY_STAKE = 5_000e18;
-    uint16 internal constant STRATEGY_FEE_BPS = 2_000;
+    uint256 internal constant STRATEGY_STAKE = 5000e18;
+    uint16 internal constant STRATEGY_FEE_BPS = 2000;
 
     function run() external {
         address impl = vm.envAddress("STRATEGY_VAULT_IMPL");
@@ -87,14 +85,38 @@ contract RedeployBaseVaultsWithOperators is Script {
         MockERC20(usdc).approve(registryV2, type(uint256).max);
 
         address momVault = _deployVault(
-            impl, deployer, momOperator, momOperator, usdc, registryV2,
-            tradeVerifier, swapRouter, allocatorVault, priceAnchor,
-            yieldAnchor, CLASS_MOM, universe, PH_MOM, "mom.base.dedicated"
+            impl,
+            deployer,
+            momOperator,
+            momOperator,
+            usdc,
+            registryV2,
+            tradeVerifier,
+            swapRouter,
+            allocatorVault,
+            priceAnchor,
+            yieldAnchor,
+            CLASS_MOM,
+            universe,
+            PH_MOM,
+            "mom.base.dedicated"
         );
         address mrVault = _deployVault(
-            impl, deployer, mrOperator, mrOperator, usdc, registryV2,
-            tradeVerifier, swapRouter, allocatorVault, priceAnchor,
-            yieldAnchor, CLASS_MR, universe, PH_MR, "mr.base.dedicated"
+            impl,
+            deployer,
+            mrOperator,
+            mrOperator,
+            usdc,
+            registryV2,
+            tradeVerifier,
+            swapRouter,
+            allocatorVault,
+            priceAnchor,
+            yieldAnchor,
+            CLASS_MR,
+            universe,
+            PH_MR,
+            "mr.base.dedicated"
         );
 
         // Dual-register: V1 keeps AllocatorVault's `isActive(...)` happy;
@@ -108,7 +130,7 @@ contract RedeployBaseVaultsWithOperators is Script {
 
         console2.log("=== Dedicated-operator base vaults ===");
         console2.log("mom.base.dedicated  ", momVault, "operator", momOperator);
-        console2.log("mr.base.dedicated   ", mrVault,  "operator", mrOperator);
+        console2.log("mr.base.dedicated   ", mrVault, "operator", mrOperator);
     }
 
     function _deployVault(

@@ -182,9 +182,8 @@ contract DeployPhase6MultiAssetVaults is Script {
         // that has `paramsHashOf`. AllocatorVault still queries V1 via its
         // own init-immutable `strategyRegistry`, so we register in both
         // registries below.
-        address vaultRegistry = i.strategyRegistryV2 == address(0)
-            ? i.strategyRegistry
-            : i.strategyRegistryV2;
+        address vaultRegistry =
+            i.strategyRegistryV2 == address(0) ? i.strategyRegistry : i.strategyRegistryV2;
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,
             baseAsset: MockERC20(i.usdc),

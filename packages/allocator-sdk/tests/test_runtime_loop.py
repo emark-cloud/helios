@@ -174,7 +174,10 @@ async def test_swap_cycle_defunds_before_allocates() -> None:
 
     methods = [c.method for c in onchain.pending]
     # All defunds must come before any allocate.
-    first_alloc = next((i for i, m in enumerate(methods) if m == "allocateToStrategy"), len(methods))
+    first_alloc = next(
+        (i for i, m in enumerate(methods) if m == "allocateToStrategy"),
+        len(methods),
+    )
     last_defund = max(
         (i for i, m in enumerate(methods) if m == "defundStrategy"),
         default=-1,
