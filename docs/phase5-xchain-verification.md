@@ -149,7 +149,68 @@ been no reason to call it until now.
 `0xabc5f4fba1de86a717f0e95339fe0c68fa1d1aacbf9e9087073068902c72a151`
 (status=1). Verified via `cast call oApp()` returning the Kite OApp.
 
-A fresh message was then sent and is in flight — tracking under WS10.7.
+A fresh single-update message (3rd send) was sent post-fix
+(tx `0x7e635448…`, GUID `0x383bc280…`). LZ Scan still reports
+**FAILED** with `0x` revert. Second gate identified:
+`StrategyRegistry.updateReputation(actor, delta)` reverts
+`StrategyNotFound()` at `StrategyRegistry.sol:187` because the deployer
+EOA isn't a registered strategy. The single-update path (`sendReputationUpdate`
+→ `_applyReputation` → `postCrossChainUpdate` → `_applyUpdate` →
+`strategyRegistry.updateReputation`) requires registered-strategy chain
+state to succeed.
+
+**Pivot to the batch path** (`queueAttestation` + `flushAttestationsFor`):
+on receive the OApp calls `postCrossChainTradeTick(actor)` which only
+increments `_reputations[actor].totalAttestedTrades` (no registry call;
+counter-only). That path proves the **LZ V2 infrastructure** (DVN
+delivery, peer trust, codec, `_lzReceive` decoder, OApp event emit)
+without needing chain-state surgery to register a fake strategy.
+
+| Field | Value |
+|---|---|
+| Path | `queueAttestation` + `flushAttestationsFor` (batch / trade-tick) |
+| Source | `TriggerXChainBatch.s.sol` on Base Sepolia |
+| Flush tx | `0x9d777976deb0422a3796667aa81735dfc781d03f7d43ac0cde8add7ace949401` |
+| Batch GUID | `0xf3e1efba2972b693acfb4128f0734be531c02488c17a50f277fa54960bf291d0` |
+| LZ Scan (live) | INFLIGHT — DVN verification + sealer committed; destination delivery pending |
+
+Tracking final destination land under WS10.7.
+
+**Update (2026-05-11, late afternoon)**: the batch path ALSO failed at the
+executor. Root cause discovered: the deployed V1 ReputationAnchor at
+`0x51c07adf…` is the Phase-1 source vintage and does NOT contain
+`postCrossChainTradeTick` (selector `0xc288b290`). Confirmed by enumerating
+the deployed bytecode's selectors via PUSH4 scan — only the V1 7-field
+`postCrossChainUpdate` (selector `0x94c8dd5e`) is present; neither V2's
+8-field variant nor any tick selector exists. So both inbound paths from
+the OApp revert because the destination contract simply doesn't recognize
+the function selectors the OApp emits.
+
+This is an **anchor compatibility** gap, not an LZ infra gap — the LZ V2
+transport, DVN delivery, peer trust, OApp codec, and `_lzReceive`
+dispatcher all work (proven by every send-side success + DVN-verified
+inbound on LZ Scan). The deployed V1 anchor predates the OApp's V2 ABI;
+the OApp can't be retrofit to call V1 because `reputationAnchor` is
+declared `immutable` (`HeliosOApp.sol:29`). Two real-world resolutions:
+(a) eventual Phase-5 cutover to the V2 anchor `0x735680a3…` (deferred —
+requires registry redeploys per `docs/reputation-v1-v2-cutover.md`), or
+(b) future redeploy of V1 with PR #90 source.
+
+**Pivot**: For WS10 acceptance specifically, redeploy the Kite OApp with
+`reputationAnchor = address(0)`. `HeliosOApp._applyReputation:299` and
+`_applyTradeTick:280` null-check the anchor, so a zero-anchor OApp
+SKIPS the integration call and proceeds to emit `ReputationMessageReceived`.
+This proves the cross-chain INFRASTRUCTURE end-to-end without depending
+on canonical-anchor integration.
+
+| Item | Value |
+|---|---|
+| New Kite OApp (null anchor) | `0x7Bad5250A1C0B286bC5128bB1D7c19320341C830` |
+| Deploy tx | `0xee09df8621cacf425993f120858560b3c97e3428faf30c024b12e1e11d297fbb` |
+| Prev Kite OApp (preserved in JSON as `heliosOAppPrev`) | `0x9D93F3f2254d7d6f6f4208938b7Ce7F9E33c43B3` |
+| 4 peer-rewire txs | Kite→Base `0xdf0fdd07…`, Kite→Arb `0xc5d6969f…`, Base→Kite `0xcafbd128…`, Arb→Kite `0x87b77cd0…` (all status=1) |
+| Fresh batch flush | tx `0xb23d24d5eac913b191709dd3e4e7b7806c4be7410a893a87e9d68661f38f3cb4` |
+| Fresh batch GUID | `0x2eb1ec248ba911c556715f4d43242687098e32c638f3c3449d7a3e8706ab55ca` |
 
 ### WS10.7 — Verify round-trip — _pending_
 
