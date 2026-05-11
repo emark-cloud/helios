@@ -421,6 +421,34 @@ contract StrategyVault is
         emit StrandedNAVRecovered(address(this), to, amount);
     }
 
+    /// @notice Sweep allocator-side capital that no AllocatorVault
+    ///         per-user record backs anymore. Distinct from
+    ///         `recoverStrandedNAV`: that one requires
+    ///         `_allocationOf[allocator] == 0` and only sweeps the
+    ///         markup left after a clean defund. This one decrements
+    ///         BOTH `_allocationOf[allocatorVault]` AND `_totalNAV`
+    ///         by the same amount — it's the recovery path for the
+    ///         case where AllocatorVault user-records were cleared
+    ///         but the StrategyVault's aggregated `allocationOf` lagged
+    ///         (multi-user allocator state, HIGH-#8 clamp on partial
+    ///         unwind, etc.).
+    /// @dev    Owner trusts that `amount <= (_allocationOf[allocatorVault] -
+    ///         sum_of_user_records)` — the StrategyVault cannot verify
+    ///         the off-chain sum, so this is testnet-grade. For mainnet
+    ///         add a timelock + a callback to AllocatorVault that
+    ///         exposes the per-user sum on-chain. See WS9 stranded-NAV
+    ///         postmortem.
+    function recoverOrphanedAllocation(address to, uint256 amount) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert AmountInMismatch();
+        if (amount > _allocationOf[allocatorVault]) revert AllocationOverdrawn();
+        if (amount > _totalNAV) revert WithdrawExceedsNAVShare();
+        _allocationOf[allocatorVault] -= amount;
+        _totalNAV -= amount;
+        baseAsset.safeTransfer(to, amount);
+        emit OrphanedAllocationRecovered(address(this), to, amount);
+    }
+
     /// @notice Pay accrued realized PnL (NAV above principal) back to the allocator vault.
     function distributeRealized(address allocator) external onlyAllocatorVault nonReentrant {
         uint256 share = _navOf(allocator);

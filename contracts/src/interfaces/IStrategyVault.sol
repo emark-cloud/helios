@@ -94,6 +94,14 @@ interface IStrategyVault {
     ///         because HIGH-#8's clamp left it behind after defund.
     event StrandedNAVRecovered(address indexed strategy, address indexed to, uint256 amount);
 
+    /// @notice Emitted when the owner sweeps orphaned allocator-side
+    ///         capital — `_allocationOf[allocator]` that no longer
+    ///         backs any AllocatorVault per-user `AllocationRecord`.
+    ///         Decrements `_allocationOf` AND `_totalNAV` together
+    ///         (unlike StrandedNAVRecovered which assumes allocator
+    ///         principal is already zero).
+    event OrphanedAllocationRecovered(address indexed strategy, address indexed to, uint256 amount);
+
     error InvalidProof();
     error NotOperator();
     error NotRegistry();

@@ -509,6 +509,70 @@ contract StrategyVaultTest is Test {
         vault.recoverStrandedNAV(address(0xCAFE), 200e6 + 1);
     }
 
+    // ── recoverOrphanedAllocation ───────────────────────────────────
+
+    function test_RecoverOrphanedAllocation_HappyPath() public {
+        // Simulate the on-chain state seen on Kite mom.legacy:
+        // `_allocationOf[allocator] == _totalNAV > 0` while
+        // AllocatorVault's per-user records have been cleared
+        // elsewhere (no user backs the residual). Force-set
+        // `_allocationOf` by allocating, then have the owner sweep.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(100e6);
+        assertEq(vault.totalNAV(), 100e6);
+        assertEq(vault.allocationOf(allocatorVault), 100e6);
+
+        // Owner sweeps 60. Both balances drop by 60.
+        address recipient = address(0xC0FFEE);
+        uint256 balBefore = usdc.balanceOf(recipient);
+        vm.expectEmit(true, true, false, true);
+        emit IStrategyVault.OrphanedAllocationRecovered(address(vault), recipient, 60e6);
+        vm.prank(owner);
+        vault.recoverOrphanedAllocation(recipient, 60e6);
+
+        assertEq(usdc.balanceOf(recipient) - balBefore, 60e6);
+        assertEq(vault.totalNAV(), 40e6);
+        assertEq(vault.allocationOf(allocatorVault), 40e6);
+    }
+
+    function test_RecoverOrphanedAllocation_RevertsOnNonOwner() public {
+        vm.expectRevert();
+        vault.recoverOrphanedAllocation(address(0xCAFE), 1);
+    }
+
+    function test_RecoverOrphanedAllocation_RevertsOnZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        vault.recoverOrphanedAllocation(address(0), 1);
+    }
+
+    function test_RecoverOrphanedAllocation_RevertsOnZeroAmount() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.AmountInMismatch.selector);
+        vault.recoverOrphanedAllocation(address(0xCAFE), 0);
+    }
+
+    function test_RecoverOrphanedAllocation_RevertsAboveAllocationOf() public {
+        vm.prank(allocatorVault);
+        vault.allocateFrom(100e6);
+
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.AllocationOverdrawn.selector);
+        vault.recoverOrphanedAllocation(address(0xCAFE), 100e6 + 1);
+    }
+
+    function test_RecoverOrphanedAllocation_RevertsAboveTotalNAV() public {
+        // Build a state where `_allocationOf > _totalNAV` (vault in
+        // loss) so amount can be ≤ allocOf but > totalNAV.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(100e6);
+        _reportNAV(80e6, uint64(block.timestamp + 1)); // 20% drawdown
+
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.WithdrawExceedsNAVShare.selector);
+        vault.recoverOrphanedAllocation(address(0xCAFE), 100e6);
+    }
+
     // ── distributeRealized ──────────────────────────────────────────
 
     function test_DistributeRealized_NoOpWhenUnderwater() public {
