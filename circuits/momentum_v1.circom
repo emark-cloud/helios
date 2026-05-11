@@ -100,16 +100,19 @@ template MomentumV1(UNIVERSE_SIZE) {
     // price_first` (~constraint 4) and `(price_last - price_first) *
     // 10000` would alias, and the downstream Num2Bits(192) only catches
     // results that don't coincidentally fit in 192 bits. Pin the inputs
-    // to realistic ranges: prices fit in 64 bits, threshold (bps) in 32,
-    // stop-loss in 64.
+    // to realistic ranges: prices fit in 96 bits, threshold (bps) in 32,
+    // stop-loss in 96. Bumped 2026-05-11 from 64 → 96 to fit price_e18
+    // values: BTC at $80k yields ~76 bits, well above the prior 64-bit
+    // ceiling. 96 bits leaves room for prices up to ~$8e10 in e18 terms
+    // while still under the field-wrap floor (price * 10000 ≪ p).
     component priceBits[16];
     for (var pi = 0; pi < 16; pi++) {
-        priceBits[pi] = Num2Bits(64);
+        priceBits[pi] = Num2Bits(96);
         priceBits[pi].in <== price_observations[pi];
     }
     component thresholdBits = Num2Bits(32);
     thresholdBits.in <== signal_threshold;
-    component stopLossBits = Num2Bits(64);
+    component stopLossBits = Num2Bits(96);
     stopLossBits.in <== stop_loss_price;
 
     // ── Constraint B: asset indices in range ────────────────────────

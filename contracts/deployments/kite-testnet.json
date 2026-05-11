@@ -5,6 +5,10 @@
   "phase6MultiAssetVaultsDeployedAt": 1778436553,
   "addresses": {
     "strategyVaultImplBugC": "0xB2Ee445b3Db43F70cD8a91712223E4E102329a08",
+    "momentumVerifierPathB": "0xbBafEd75e0bfb9c805ccbb00224cA8B205FAEbc1",
+    "momentumVerifierAdapterPathB": "0xA9F126B2D2B445C63a0cc8C168FEeC532fa79A78",
+    "meanReversionVerifierPathB": "0xd85674d161ceA284A164e1DAfb00B9729a32176E",
+    "meanReversionVerifierAdapterPathB": "0x91374C3de1e21d601C7238bb0659045Fe59B43ad",
     "usdc": "0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd",
     "swapRouter": "0x55782e7019f4619a06a25bf66d2998c8fe2cc436",
     "reputationAnchor": "0x51c07adf596b1e72697a9b8232d061ed006943dc",

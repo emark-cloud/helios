@@ -82,16 +82,20 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     // Mean-reversion squares the deviations (16·price - sum)², so a
     // malicious prover with witness control could grind unrealistic
     // prices to wrap the field and bypass the downstream Num2Bits(192).
-    // Pin price intake to 64 bits and the n_sigma_x100 threshold to 32.
+    // Pin price intake to 96 bits and the n_sigma_x100 threshold to 32.
+    // Bumped 2026-05-11 from 64 → 96 to fit price_e18 values: BTC at
+    // $80k yields ~76 bits, well above the prior 64-bit ceiling. 96 bits
+    // leaves room for prices up to ~$8e10 in e18 terms while still
+    // safely under the field-wrap floor (squared sum stays < 2^200 ≪ p).
     // stop_loss_price feeds the exit-side stop-loss check.
     component priceBits[16];
     for (var pi = 0; pi < 16; pi++) {
-        priceBits[pi] = Num2Bits(64);
+        priceBits[pi] = Num2Bits(96);
         priceBits[pi].in <== price_observations[pi];
     }
     component thresholdBits = Num2Bits(32);
     thresholdBits.in <== signal_threshold;
-    component stopLossBits = Num2Bits(64);
+    component stopLossBits = Num2Bits(96);
     stopLossBits.in <== stop_loss_price;
 
     // ── Constraint B: asset indices in range ────────────────────────
