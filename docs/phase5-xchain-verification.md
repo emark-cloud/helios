@@ -236,6 +236,85 @@ emission all work against the live Kite LayerZero V2 endpoint.
 
 ### WS10.8 — Commit + docs + phase6-plan.md update — in progress
 
+## WS11 — Full V1→V2 ReputationAnchor cutover (2026-05-11)
+
+WS10 verified the LayerZero V2 **infrastructure** against a null-anchor
+Kite OApp (`0x7Bad5250…`). The follow-up gap was the V1 anchor ABI —
+the registry-bound V1 had no `postCrossChainUpdate` / `postCrossChainTradeTick`
+selectors, and the existing V2 anchor was foot-gunned by an early
+`setRegistries(V1, V1)` one-shot. WS11 cleans this up with a full
+cutover: fresh V2-bis anchor + new registries (SR-v3, AR-v2) bound to
+it at construction, vault upgrades that add `setRegistry` /
+`setStrategyRegistry` setters, then a new Kite OApp pointing at V2-bis.
+
+### Live addresses (WS11.2, .6 broadcasts)
+
+| Surface | Address | Notes |
+|---|---|---|
+| `reputationAnchorV2Bis` | `0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D` | Engine signs against this; binds new registries via `setRegistries` |
+| `strategyRegistryV3` (SR-v3) | `0xe6c2cfCa8fd59f4b6fCF0b5F83A515aBB7498D35` | Immutable `reputationAnchor = V2-bis`; 9 vaults migrated WS11.4 |
+| `allocatorRegistryV2` (AR-v2) | `0xb673e6F8f11fb416B47f5d9C0a36400bF9485A06` | Sentinel-shadow re-registered WS11.4 |
+| `heliosOApp` (Kite, new) | `0x9845c0C697964464dCAF2602b4e516CaEA98E51E` | Immutable `reputationAnchor = V2-bis`; peers wired Base + Arb WS11.6 |
+| `heliosOAppPrevNullAnchor` | `0x7Bad5250A1C0B286bC5128bB1D7c19320341C830` | WS10 null-anchor predecessor, parked |
+| Base OApp | `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` | Peer for 40415 → new Kite OApp |
+| Arb OApp | `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` | Peer for 40415 → new Kite OApp |
+
+### WS11.9 — End-to-end integration verification (2026-05-11)
+
+Goal: prove `_applyUpdate` lands `StrategyRegistry.updateReputation` on
+SR-v3 — the **integration** unlock that the WS10 null-anchor OApp
+could not deliver — and prove `postCrossChainTradeTick` increments
+trade-tick counters on V2-bis.
+
+Pre-state for `actor = 0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25`
+(deployer, registered on SR-v3 as a Phase-6 sandbox strategy with class
+`momentum` + 5000e18 mUSDC stake at tx `0xaddc5051…`):
+
+- V2-bis `reputationOf(actor)` = `(0, 0, 0, 0, 0, 0, 0, 0x0)`
+- SR-v3 `strategyOf(actor).currentReputation` = `0`
+
+| Direction | Path | Source tx | LZ GUID | Kite dst block | Verified state delta |
+|---|---|---|---|---|---|
+| Base → Kite | batch (`postCrossChainTradeTick`) | `0xa19a27bf…` | `0xee32cb6d54a55db529f17cad43be62cab84cf4a25afa21030bc86e802385ad41` | 21311309 | V2-bis `totalAttestedTrades` 0 → 1; `CrossChainTradeTick` emitted |
+| Base → Kite | single-update (`postCrossChainUpdate`) | `0x7ac80a0f…` | `0x24fd53440beefde488d2dbcd8c3a71ad00dbce5f84afcc6e327e423e35c2ca98` | 21311548 | V2-bis `currentScore` 0 → 750; **SR-v3 `currentReputation` 0 → 750** (Path A unlock); `CrossChainReputationPosted` emitted |
+| Arb → Kite | batch | `0x455830e5…` | `0x3de1c5f96edde8cdd336e6bcf6acfa1683e6691d26205ef473a64e04a49e81e5` | 21311565 | V2-bis trade-tick increment landed (engine over-writes the struct field on subsequent local posts — see "Engine struct-overwrite" note below) |
+| Arb → Kite | single-update | `0x161a11d0…` | `0xfcbd2a5a772f60d75d4eeb5ca588acad81fc20cd447b2e4993bef87923e116a9` | _pending DVN_ | LZ source emitted `MessagingSent` + `ReputationMessageSent` on Arb block 267452731; awaiting Kite-side `ReputationMessageReceived` |
+
+**Goldsky v0.7.0 confirmation** (https://api.goldsky.com/api/public/project_cmodpmbv1pkd70127d9g741ek/subgraphs/helios/v0.7.0/gn):
+
+- `crossChainReputationMessages` row for Base batch GUID `0xee32cb6d…` (srcEid 40245)
+- `reputationSnapshots` row `source="V2_xchain_tick"` from `CrossChainTradeTick`
+- `reputationSnapshots` row `source="V2"` for engine-driven local posts
+
+**Engine struct-overwrite note**: `ReputationAnchorV2._applyUpdate` copies
+the *full* `ReputationData` struct (`_reputations[actor] = data`). The
+local reputation engine doesn't track cross-chain `CrossChainTradeTick`
+counter increments, so its next tick overwrites
+`totalAttestedTrades` back to its own known value (typically 0 for a
+sandbox actor). The cross-chain *increment* is observable from
+`CrossChainTradeTick` events + Goldsky `ReputationSnapshot` rows
+(`source = "V2_xchain_tick"`), not from a stable storage counter.
+Reconciling the engine's local state to honour incoming tick deltas
+is the next iteration's plumbing — out of scope for WS11.
+
+### Integration vs infrastructure
+
+WS10 proved the LZ transport works (infrastructure). WS11 proves the
+**registry chain** works end-to-end:
+
+```
+src OApp → LZ V2 → Kite OApp (V2-bis-bound)
+                    → V2-bis._applyUpdate
+                    → SR-v3.updateReputation(actor, delta)
+                    → emit ReputationUpdated   ← visible on-chain
+```
+
+The Base→Kite single-update on `0x24fd5344…` is the canonical
+evidence: it touched 5 contracts in one cross-chain hop (Base OApp,
+LZ endpoint, Kite endpoint, Kite OApp, V2-bis anchor, SR-v3 registry),
+emitted the events the audit page needs, and moved SR-v3's source-of-
+truth reputation field.
+
 ## Risks (live tracking)
 
 1. **DVN scheduling**: testnet round-trip is non-deterministic. If

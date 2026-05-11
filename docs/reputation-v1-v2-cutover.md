@@ -1,5 +1,16 @@
 # ReputationAnchor V1 → V2 cutover
 
+> **STATUS: DONE (2026-05-11 — WS11)**. V2-bis anchor + fresh registries
+> (SR-v3 `0xe6c2cfCa…`, AR-v2 `0xb673e6F8…`) are live on Kite testnet
+> bound to V2-bis (`0x2b6c5f36…`) at construction. The 9 Phase-6 vaults
+> were upgraded to setter-enabled impls and rebound to SR-v3. Cross-chain
+> single-update path proven end-to-end (Base→Kite GUID `0x24fd5344…`
+> moved SR-v3 `currentReputation` 0 → 750 in a single hop). Evidence:
+> `docs/phase5-xchain-verification.md` §WS11. Engine + frontend + VPS env
+> are all pointed at V2-bis + SR-v3 + AR-v2 + Goldsky `helios/v0.7.0`.
+> The narrative below is preserved as the *why* and as a runbook for
+> any future re-cutover.
+
 Phase 2 ships `ReputationAnchorV2` (typehash version 2 + `componentsHash`)
 alongside the immutable `ReputationAnchorV1` deployed in Phase 1. The
 two anchors cannot share a registry binding.

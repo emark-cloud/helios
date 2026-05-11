@@ -17,18 +17,30 @@ import { CrossChainCodec } from "../src/lib/CrossChainCodec.sol";
 ///           - DEPLOYER_PK
 ///           - SRC_OAPP   (HeliosOApp on the source chain)
 ///           - DST_EID    (destination EID, e.g. 40415 for Kite)
+///         Optional env:
+///           - ACTOR      (override the strategy actor on the payload; default = deployer).
+///                        Use a registered SR-v3 strategy address to verify the single-update
+///                        path lands `StrategyRegistry.updateReputation` (WS11.9).
 contract TriggerXChainSend is Script {
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PK");
         address deployer = vm.addr(pk);
         address srcOAppAddr = vm.envAddress("SRC_OAPP");
         uint32 dstEid = uint32(vm.envUint("DST_EID"));
+        address actor = vm.envOr("ACTOR", deployer);
 
         HeliosOApp oapp = HeliosOApp(srcOAppAddr);
 
+        // WS11.9 — the engine posts `block.timestamp` into the misleadingly-
+        // named `lastUpdateBlock` field, so prev values for already-touched
+        // actors look like a Kite timestamp (~1.78e9). When source-chain
+        // block.number is smaller than that, `_applyUpdate` reverts
+        // `StaleUpdate`. Default to current source timestamp + 1 to outrun
+        // any pre-existing engine post; allow explicit override for replay.
+        uint64 lub = uint64(vm.envOr("LAST_UPDATE_BLOCK", uint256(block.timestamp + 1)));
         IReputationAnchor.ReputationData memory data = IReputationAnchor.ReputationData({
             currentScore: 750,
-            lastUpdateBlock: block.number,
+            lastUpdateBlock: lub,
             totalAttestedTrades: 1,
             totalRealizedPnL: 0,
             maxDrawdownBps: 100,
@@ -38,11 +50,15 @@ contract TriggerXChainSend is Script {
         });
 
         // Build the same payload the contract will build, so we can quote.
+        // Note: lastSeqOut is keyed on the caller (= deployer / strategy-vault
+        // allowlistee), not on `actor`, so per-actor overrides share the
+        // deployer's nonce stream — which matches `sendReputationUpdate`'s
+        // own bookkeeping on the source OApp.
         uint64 nextSeq = oapp.lastSeqOut(deployer) + 1;
         bytes memory payload = CrossChainCodec.encodeReputationUpdate(
             CrossChainCodec.ReputationUpdateV1({
                 seq: nextSeq,
-                actor: deployer,
+                actor: actor,
                 actorType: IReputationAnchor.ActorType.STRATEGY,
                 data: data
             })
@@ -74,9 +90,11 @@ contract TriggerXChainSend is Script {
         // Pay 20% slack on the quoted fee.
         uint256 sendValue = fee.nativeFee + (fee.nativeFee / 5);
         oapp.sendReputationUpdate{ value: sendValue }(
-            dstEid, deployer, IReputationAnchor.ActorType.STRATEGY, data, options
+            dstEid, actor, IReputationAnchor.ActorType.STRATEGY, data, options
         );
         vm.stopBroadcast();
+        console2.log("actor:");
+        console2.logAddress(actor);
 
         console2.log("send broadcast (value=", sendValue, "wei)");
         console2.log("watch dst chain for ReputationMessageReceived w/ matching guid");
