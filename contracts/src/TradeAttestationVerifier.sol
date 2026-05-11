@@ -25,11 +25,12 @@ import {
 ///         (Phase 6 mainnet) use the timelock.
 contract TradeAttestationVerifier is ITradeAttestationVerifier, Ownable {
     /// @dev Minimum delay between `proposeVerifierChange` and
-    ///      `commitVerifierChange`. Two days lines up with the typical
-    ///      Helios upgrade window: long enough for users / auditors to see
-    ///      the proposed change, short enough not to strand a circuit fix
-    ///      behind an emergency.
-    uint256 public constant CHANGE_DELAY = 2 days;
+    ///      `commitVerifierChange`. Permanent: 2 days in production.
+    ///      TEMPORARY (Phase-6 hackathon window, 2026-05-11): set to 0
+    ///      so we can swap in the bit-widened verifiers without a 48h
+    ///      stall. A post-demo redeploy restores the 2-day delay;
+    ///      see project_path_b_verifier_swap.md for the cutover plan.
+    uint256 public constant CHANGE_DELAY = 0;
 
     struct PendingChange {
         address verifier;

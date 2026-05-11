@@ -193,4 +193,11 @@ def _resolve_amount_in(
 
 
 def _min_amount_out(amount_in: int, max_slippage_bps: int) -> int:
-    return amount_in * (10_000 - max_slippage_bps) // 10_000
+    # Ceiling division — the circuit's slippage constraint is
+    # `min_amount_out * 10000 >= amount_in * (10000 - max_slippage_bps)`,
+    # which floor-division can violate by 1 when the product isn't
+    # exactly divisible by 10000. Ceil keeps it inclusive on the
+    # constraint side (effectively says "you must accept at LEAST
+    # this rounded-up minimum").
+    numerator = amount_in * (10_000 - max_slippage_bps)
+    return (numerator + 9_999) // 10_000

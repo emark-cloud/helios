@@ -79,12 +79,13 @@ contract TradeAttestationVerifierTest is Test {
         vm.prank(owner);
         v.proposeVerifierChange(CLASS_MOMENTUM, address(meanRevVerifier));
 
-        // Commit before delay → revert.
-        vm.prank(owner);
-        vm.expectRevert(TradeAttestationVerifier.ChangeNotReady.selector);
-        v.commitVerifierChange(CLASS_MOMENTUM);
-
-        vm.warp(block.timestamp + v.CHANGE_DELAY());
+        // Commit before delay → revert (only meaningful when CHANGE_DELAY > 0).
+        if (v.CHANGE_DELAY() > 0) {
+            vm.prank(owner);
+            vm.expectRevert(TradeAttestationVerifier.ChangeNotReady.selector);
+            v.commitVerifierChange(CLASS_MOMENTUM);
+            vm.warp(block.timestamp + v.CHANGE_DELAY());
+        }
         vm.expectEmit(true, false, false, true);
         emit ITradeAttestationVerifier.VerifierRegistered(CLASS_MOMENTUM, address(meanRevVerifier));
         vm.prank(owner);
@@ -112,6 +113,10 @@ contract TradeAttestationVerifierTest is Test {
     }
 
     function test_Propose_OverwritesPriorPending() public {
+        // Only meaningful while the timelock is non-zero; CHANGE_DELAY=0
+        // means propose+commit are atomic and there's no "before delay"
+        // window to demonstrate timer re-arming.
+        if (v.CHANGE_DELAY() == 0) return;
         vm.prank(owner);
         v.registerVerifier(CLASS_MOMENTUM, address(momVerifier));
         vm.prank(owner);
