@@ -59,6 +59,14 @@ class LoopConfig:
     drawdown_check_interval_sec: int = 60
     rank_update_interval_sec: int = 300
     fee_check_interval_sec: int = 300
+    # Drop strategies from the candidate set when their most recent
+    # NAV snapshot is older than this. The protocol requires a live
+    # navOracle signer to keep posting NAVs as the operator drives the
+    # vault — a strategy whose oracle has gone silent shouldn't keep
+    # receiving capital just because its registry row is `active=true`.
+    # 0 disables the filter (back-compat for backtests / scenario mode
+    # that have no NAV snapshots).
+    nav_freshness_sec: int = 3600
 
 
 class AllocatorLoop:
@@ -123,12 +131,76 @@ class AllocatorLoop:
             return
         try:
             rows = await self._goldsky.fetch_directory()
+            # If the subgraph's NAVSnapshot index is empty (e.g., the
+            # subgraph version predates a fresh vault deployment), fall
+            # back to reading `StrategyVault.lastNAVTimestamp()` over
+            # RPC. The on-chain getter is the source of truth anyway —
+            # the subgraph is just a faster cache when warm.
+            if self._cfg.nav_freshness_sec > 0 and self._onchain.live:
+                rows = await self._enrich_nav_timestamps(rows)
             self._directory = rows
-            self._candidates = [to_candidate(r) for r in rows]
+            # Filter to strategies whose navOracle is actively posting.
+            # `nav_freshness_sec == 0` disables (back-compat for scenarios
+            # without a NAV stream); otherwise a row is eligible only if
+            # its most recent NAV snapshot is within the freshness budget.
+            # A strategy that has never NAV-reported is excluded — the
+            # protocol's runtime contract is that the navOracle signer
+            # MUST publish on operator start, so a missing signal means
+            # nobody is driving the vault and capital would just stagnate.
+            budget = self._cfg.nav_freshness_sec
+            if budget <= 0:
+                eligible = rows
+            else:
+                eligible = [
+                    r for r in rows
+                    if r.last_nav_update_ts > 0
+                    and ts - r.last_nav_update_ts <= budget
+                ]
+            dropped = len(rows) - len(eligible)
+            self._candidates = [to_candidate(r) for r in eligible]
             self._last_rank_ts = ts
-            _log.info("allocator.candidates.refresh", count=len(self._candidates))
+            _log.info(
+                "allocator.candidates.refresh",
+                count=len(self._candidates),
+                dropped_stale_nav=dropped,
+            )
         except Exception as exc:
             _log.warning("allocator.candidates.error", err=str(exc), exc_info=True)
+
+    async def _enrich_nav_timestamps(
+        self, rows: list[StrategyDirectoryRow]
+    ) -> list[StrategyDirectoryRow]:
+        # Concurrently look up `lastNAVTimestamp` for any row the subgraph
+        # didn't already supply. Bounded fan-out: at most ~20 strategies
+        # in the testnet directory, one eth_call each, ~50 ms apiece.
+        targets = [
+            (i, r) for i, r in enumerate(rows) if r.last_nav_update_ts == 0
+        ]
+        if not targets:
+            return rows
+        ts_results = await asyncio.gather(
+            *(self._onchain.read_strategy_nav_timestamp_async(r.strategy_id) for _, r in targets),
+            return_exceptions=True,
+        )
+        enriched = list(rows)
+        for (i, _), result in zip(targets, ts_results, strict=True):
+            if isinstance(result, BaseException) or result is None:
+                continue
+            r = enriched[i]
+            enriched[i] = StrategyDirectoryRow(
+                strategy_id=r.strategy_id,
+                declared_class=r.declared_class,
+                chain_id=r.chain_id,
+                operator=r.operator,
+                fee_rate_bps=r.fee_rate_bps,
+                stake_amount_usd=r.stake_amount_usd,
+                max_capacity_usd=r.max_capacity_usd,
+                current_allocations_usd=r.current_allocations_usd,
+                reputation_score_e4=r.reputation_score_e4,
+                trades_attested=r.trades_attested,
+                last_nav_update_ts=int(result),
+            )
+        return enriched
 
     async def directory(self, ts: int | None = None) -> list[StrategyDirectoryRow]:
         """Cached directory rows for `/v1/strategies`. Refreshes lazily on the

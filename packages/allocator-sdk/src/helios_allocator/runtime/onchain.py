@@ -55,6 +55,22 @@ _USER_VAULT_BALANCE_ABI: tuple[dict[str, Any], ...] = (
     },
 )
 
+# `lastNAVTimestamp` is the unix-seconds timestamp of the most recent
+# NAV update accepted by `StrategyVault.reportNAV`. We read it directly
+# so the allocator can gate on "is the navOracle actively posting"
+# without depending on subgraph NAVSnapshot indexing — the subgraph
+# can be slow to backfill new vault deployments, and an authoritative
+# RPC read is the right source of truth anyway.
+_STRATEGY_VAULT_LAST_NAV_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "lastNAVTimestamp",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "uint64"}],
+    },
+)
+
 _log = structlog.get_logger(__name__)
 
 
@@ -210,6 +226,31 @@ class AllocatorOnChain:
 
     async def read_user_vault_balance_async(self, user: str) -> int | None:
         return await asyncio.to_thread(self.read_user_vault_balance, user)
+
+    def read_strategy_nav_timestamp(self, strategy: str) -> int | None:
+        """Return `StrategyVault.lastNAVTimestamp(strategy)` or None in
+        stub mode. Used by the loop's candidate refresh to drop
+        strategies whose navOracle has gone silent — vaults that look
+        `active=true` in the registry but aren't being driven.
+        """
+        if not self._live:
+            return None
+        self._ensure_live()
+        assert self._w3 is not None
+        c = self._w3.eth.contract(
+            address=Web3.to_checksum_address(strategy),
+            abi=list(_STRATEGY_VAULT_LAST_NAV_ABI),
+        )
+        try:
+            return int(c.functions.lastNAVTimestamp().call())
+        except Exception:
+            # Phantom addresses (registered without a real contract) or
+            # vault layouts without the getter — neither should attract
+            # capital, so treat as "never reported".
+            return 0
+
+    async def read_strategy_nav_timestamp_async(self, strategy: str) -> int | None:
+        return await asyncio.to_thread(self.read_strategy_nav_timestamp, strategy)
 
     async def read_allocation(self, user: str, strategy: str) -> AllocationState | None:
         """Mirror current on-chain allocation state.

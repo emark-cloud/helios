@@ -79,7 +79,7 @@ def _meta() -> MetaStrategy:
     )
 
 
-def _row(sid: str) -> StrategyDirectoryRow:
+def _row(sid: str, *, nav_ts: int | None = None) -> StrategyDirectoryRow:
     return StrategyDirectoryRow(
         strategy_id=sid,
         declared_class="momentum_v1",
@@ -91,6 +91,9 @@ def _row(sid: str) -> StrategyDirectoryRow:
         current_allocations_usd=0,
         reputation_score_e4=8_000,
         trades_attested=120,
+        # Default to "fresh" so existing tests pass through the
+        # live-NAV filter without each one needing to set the field.
+        last_nav_update_ts=nav_ts if nav_ts is not None else now_ts(),
     )
 
 
@@ -183,6 +186,79 @@ async def test_swap_cycle_defunds_before_allocates() -> None:
         default=-1,
     )
     assert last_defund < first_alloc, methods
+
+
+@pytest.mark.asyncio
+async def test_stale_nav_strategies_dropped_from_candidates() -> None:
+    """Strategies whose navOracle stopped posting drop out of the
+    candidate set. Without this filter, a registry row with
+    `active=true` but no live operator still attracts capital,
+    which is what happened on Kite testnet to the variant vaults
+    that had no strategy service driving them.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    fresh_sid = "0x" + "11" * 20
+    stale_sid = "0x" + "22" * 20
+    never_sid = "0x" + "33" * 20  # never NAV-reported
+
+    now = now_ts()
+    goldsky = _StubGoldsky([
+        _row(fresh_sid, nav_ts=now - 60),         # 1 min ago → fresh
+        _row(stale_sid, nav_ts=now - 24 * 3600),  # 24 hr ago → stale
+        _row(never_sid, nav_ts=0),                # never NAV-reported
+    ])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(nav_freshness_sec=3600),
+    )
+
+    await loop.tick_once(now=now)
+
+    seen = [c.strategy_id for c in loop.candidates]
+    assert fresh_sid in seen
+    assert stale_sid not in seen
+    assert never_sid not in seen
+
+
+@pytest.mark.asyncio
+async def test_nav_filter_disabled_passes_all() -> None:
+    """`nav_freshness_sec == 0` disables the filter (back-compat for
+    scenario mode + backtests that have no NAV stream)."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    sids = ["0x" + (h * 2) * 20 for h in "abcd"]
+    goldsky = _StubGoldsky([_row(s, nav_ts=0) for s in sids])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(nav_freshness_sec=0),
+    )
+    await loop.tick_once(now=now_ts())
+    assert {c.strategy_id for c in loop.candidates} == set(sids)
 
 
 @pytest.mark.asyncio

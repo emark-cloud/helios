@@ -20,6 +20,8 @@ def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
     """PR5: loop now caches `StrategyDirectoryRow` so `/v1/strategies` can read
     from the same payload. Existing test fixtures still construct candidates;
     map them back to rows so the stub can satisfy `fetch_directory`."""
+    import time as _time
+
     return StrategyDirectoryRow(
         strategy_id=c.strategy_id,
         declared_class=c.declared_class,
@@ -31,6 +33,9 @@ def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
         current_allocations_usd=c.current_allocations_usd,
         reputation_score_e4=round(c.reputation_score * 10_000),
         trades_attested=c.trades_attested,
+        # Pretend the stub has fresh NAV snapshots so the live-NAV
+        # filter (added in WS9) doesn't drop the test fixtures.
+        last_nav_update_ts=int(_time.time()),
     )
 
 

@@ -42,6 +42,9 @@ query StrategyDirectory {
     allocations(first: 200, where: { defundedAt: 0 }) {
       capitalDeployed
     }
+    navSnapshots(first: 1, orderBy: timestamp, orderDirection: desc) {
+      timestamp
+    }
   }
 }
 """
@@ -59,6 +62,13 @@ class StrategyDirectoryRow:
     current_allocations_usd: int
     reputation_score_e4: int
     trades_attested: int = 0
+    # Unix-seconds timestamp of the most recent on-chain NAV snapshot
+    # for this strategy, or 0 if the strategy has never NAV-reported.
+    # Allocators use this to gate cold-start allocations on whether
+    # an operator is actively driving the vault — a strategy whose
+    # navOracle key is offline shouldn't receive capital just because
+    # its registry row is `active=true`.
+    last_nav_update_ts: int = 0
 
 
 class AllocatorGoldsky:
@@ -97,6 +107,8 @@ class AllocatorGoldsky:
         # `Allocation.capitalDeployed` is per-event (graph-ts BigInt limitation,
         # see project_subgraph_bigint_limitation.md). Sum at query time.
         deployed = sum(_to_int(a.get("capitalDeployed")) for a in allocs)
+        snaps = list(raw.get("navSnapshots") or [])
+        last_nav_ts = _to_int(snaps[0].get("timestamp")) if snaps else 0
         return StrategyDirectoryRow(
             strategy_id=str(raw.get("id")),
             declared_class=str(raw.get("declaredClass") or ""),
@@ -108,6 +120,7 @@ class AllocatorGoldsky:
             current_allocations_usd=deployed,
             reputation_score_e4=_to_int(raw.get("currentReputation")),
             trades_attested=_to_int(raw.get("totalAttestedTrades")),
+            last_nav_update_ts=last_nav_ts,
         )
 
 

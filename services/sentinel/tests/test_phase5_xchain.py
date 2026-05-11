@@ -76,6 +76,8 @@ def _row(
     stake_usd: int = 5_000,
     trades: int = 100,
 ) -> StrategyDirectoryRow:
+    import time as _time
+
     return StrategyDirectoryRow(
         strategy_id=sid,
         declared_class=declared_class,
@@ -87,6 +89,7 @@ def _row(
         current_allocations_usd=0,
         reputation_score_e4=rep_e4,
         trades_attested=trades,
+        last_nav_update_ts=int(_time.time()),
     )
 
 
