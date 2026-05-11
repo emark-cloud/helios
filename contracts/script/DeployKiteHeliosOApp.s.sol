@@ -26,11 +26,15 @@ import { HeliosOApp } from "../src/HeliosOApp.sol";
 ///                                 0x3aCAAf60502791D199a5a5F0B173D78229eBFe32)
 ///           - LZ_KITE_EID        (local EID, e.g. 40415)
 contract DeployKiteHeliosOApp is Script {
-    /// @dev Canonical Kite ReputationAnchor V1 (registry-bound; immutable).
+    /// @dev Canonical Kite ReputationAnchor — V2-bis (WS11 cutover).
     ///      Source: contracts/deployments/kite-testnet.json @
-    ///      addresses.reputationAnchor. Pinned here to keep the broadcast
-    ///      script side-effect-free against the JSON read.
-    address internal constant KITE_REPUTATION_ANCHOR = 0x51C07aDf596B1e72697a9B8232d061ed006943Dc;
+    ///      addresses.reputationAnchorV2Bis. Predecessor V1 anchor
+    ///      `0x51C07aDf…` lacked `postCrossChainTradeTick` and the
+    ///      8-field `postCrossChainUpdate` selectors, so the WS10
+    ///      Kite OApp could not route inbound cross-chain rep
+    ///      messages. WS11 redeploys v2-bis with the matching ABI;
+    ///      this constant points there.
+    address internal constant KITE_REPUTATION_ANCHOR = 0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D;
 
     /// @dev Matches DeployPhase5Execution constructor arg.
     uint256 internal constant MAX_PENDING = 64;
