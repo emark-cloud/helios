@@ -15,7 +15,7 @@
     "strategyRegistry": "0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d",
     "strategyRegistryV2": "0x7e707c8a2ce38dc43084a8205e18a6bfd731c5c2",
     "allocatorRegistry": "0xbfeba025ca32324a87c620a5c7c110c7666f417c",
-    "tradeAttestationVerifier": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81",
+    "tradeAttestationVerifier": "0x7875210faef17ece25a59861f3cce86d53ac6cf7",
     "userVault": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
     "allocatorVault": "0xf3e4452fe17edbfa6833022b9c186aa14b98955d",
     "momentumVerifier": "0x6201037d1490c8f5b5c46729f127f14ff42010ba",
@@ -51,6 +51,7 @@
     "phase6VaultMeanReversionVariant3": "0x125b10809e3c6d70c51bf6385ed3cfb1c771d0f5",
     "phase6VaultYieldRotation": "0x2aff8735ed89451d359205dc6a80ae625e6f6e47",
     "phase6VaultYieldRotationVariant2": "0x7ed482adcc6951bc2058dd45cc26d15b3d585deb",
-    "phase6VaultYieldRotationVariant3": "0x76a50fe4c5585a13be311eca135d0ab8f39b434d"
+    "phase6VaultYieldRotationVariant3": "0x76a50fe4c5585a13be311eca135d0ab8f39b434d",
+    "tradeAttestationVerifierPrevTimelock": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81"
   }
 }
