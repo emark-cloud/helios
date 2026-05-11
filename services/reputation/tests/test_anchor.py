@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 
 import pytest
@@ -43,13 +44,15 @@ def test_dry_run_records_without_submitting() -> None:
     assert list(poster.pending) == [result]
 
 
-def test_live_encoding_uses_postReputationUpdate_selector() -> None:
-    """Confirms the ABI-driven encoder picks the right function without RPC."""
+def test_v2_live_encoding_uses_v2_selector() -> None:
+    """v2 poster picks the 8-field ABI (componentsHash) and emits the v2
+    selector. Path used when pointed at the v2 anchor on a clean-slate chain."""
     poster = AnchorPoster(
         rpc_url="http://127.0.0.1:1",  # never dialled
         signer_pk=_PK,
         anchor_address=_ANCHOR,
         chain_id=2368,
+        typehash_version="2",
     )
     poster._ensure_live()
     assert poster._contract is not None
@@ -73,11 +76,103 @@ def test_live_encoding_uses_postReputationUpdate_selector() -> None:
         signed.signature,  # type: ignore[attr-defined]
     )
     data = fn._encode_transaction_data()
-    # Compare against the on-the-fly selector — robust to ABI tweaks.
-    assert data.startswith(_expected_selector())
+    assert data.startswith(_v2_selector())
 
 
-def _expected_selector() -> str:
+def test_v1_live_encoding_uses_v1_selector() -> None:
+    """Default (typehash="1") poster MUST emit the 7-field v1 selector so
+    the on-chain v1 anchor at 0x51c07adf… on Kite testnet accepts the call.
+    Sending v2 calldata to a v1 anchor reverts with `('execution reverted',
+    'no data')` because the v2 selector hits no handler — regression guard."""
+    poster = AnchorPoster(
+        rpc_url="http://127.0.0.1:1",  # never dialled
+        signer_pk=_PK,
+        anchor_address=_ANCHOR,
+        chain_id=2368,
+        # typehash_version="1" is the default — make it explicit for clarity
+        typehash_version="1",
+    )
+    poster._ensure_live()
+    assert poster._contract is not None
+
+    signed = _signed_update()
+    u = signed.update  # type: ignore[attr-defined]
+    # 7-field tuple — no componentsHash slot.
+    fn = poster._contract.functions.postReputationUpdate(
+        u.actor,
+        int(u.actor_type),
+        (
+            int(u.current_score),
+            int(u.last_update_block),
+            int(u.total_attested_trades),
+            int(u.total_realized_pnl),
+            int(u.max_drawdown_bps),
+            int(u.proof_validity_rate_bps),
+            int(u.actor_type),
+        ),
+        signed.signature,  # type: ignore[attr-defined]
+    )
+    data = fn._encode_transaction_data()
+    assert data.startswith(_v1_selector())
+    # And the v1 selector must NOT collide with the v2 one — proves the
+    # branch actually changed the calldata shape.
+    assert _v1_selector() != _v2_selector()
+
+
+def test_submit_payload_shape_branches_on_typehash() -> None:
+    """`_submit` must build a 7-field tuple for v1 and 8-field for v2 —
+    the engine signs typehash v1 by default; sending an 8-field tuple to
+    the v1 anchor is what caused the production outage."""
+    captured: dict[str, tuple] = {}
+
+    class _StubFn:
+        def build_transaction(self, _tx: dict) -> dict:  # pragma: no cover
+            return {"data": "0x", "nonce": 0, "gas": 0, "gasPrice": 0}
+
+    class _StubFns:
+        def postReputationUpdate(self, actor, actor_type, data_tuple, sig):
+            captured["v"] = data_tuple
+            return _StubFn()
+
+    class _StubContract:
+        functions = _StubFns()
+
+    for version, expected_len in (("1", 7), ("2", 8)):
+        captured.clear()
+        poster = AnchorPoster(
+            rpc_url="http://stub",
+            signer_pk=_PK,
+            anchor_address=_ANCHOR,
+            chain_id=2368,
+            typehash_version=version,
+        )
+        # Bypass the real RPC wiring; the test cares about tuple shape only.
+        poster._ensure_live()
+        poster._contract = _StubContract()  # type: ignore[assignment]
+        # Short-circuit before send_raw_transaction. The stub returns a
+        # dict from build_transaction; downstream signing/sending will
+        # error, but the test only cares that postReputationUpdate was
+        # invoked with the right tuple shape — capture that and swallow.
+        original_w3 = poster._w3
+        with contextlib.suppress(Exception):
+            poster._submit(_signed_update())  # type: ignore[arg-type]
+        assert "v" in captured, f"v{version} did not call postReputationUpdate"
+        assert len(captured["v"]) == expected_len, (
+            f"v{version} sent {len(captured['v'])}-field tuple, want {expected_len}"
+        )
+        poster._w3 = original_w3
+
+
+def _v1_selector() -> str:
+    # V1 ReputationData layout — 7 fields (no componentsHash).
+    sig = (
+        "postReputationUpdate(address,uint8,"
+        "(int256,uint256,uint256,uint256,uint256,uint256,uint8),bytes)"
+    )
+    return "0x" + keccak(sig.encode())[:4].hex()
+
+
+def _v2_selector() -> str:
     # V2 ReputationData layout (post-WS3.A — adds componentsHash bytes32).
     sig = (
         "postReputationUpdate(address,uint8,"

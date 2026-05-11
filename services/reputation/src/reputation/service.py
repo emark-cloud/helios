@@ -199,6 +199,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         signer_pk=cfg.signer_pk,
         anchor_address=cfg.anchor_address,
         chain_id=cfg.kite_chain_id,
+        typehash_version=cfg.typehash_version,
     )
     engine = ReputationEngine(
         goldsky=goldsky,

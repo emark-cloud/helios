@@ -49,12 +49,15 @@ def test_dry_run_records_allocator_post() -> None:
 def test_live_encoding_carries_allocator_actor_type() -> None:
     """The encoded calldata must put `actorType=1` in BOTH the top-level
     arg and the nested struct field — the contract recovers EIP-712
-    against the struct-internal copy."""
+    against the struct-internal copy. Exercised against the v2 anchor
+    ABI (8-field struct) here; the v1 equivalent is covered in
+    `test_anchor.test_v1_live_encoding_uses_v1_selector`."""
     poster = AnchorPoster(
         rpc_url="http://127.0.0.1:1",  # never dialled
         signer_pk=_PK,
         anchor_address=_ANCHOR,
         chain_id=2368,
+        typehash_version="2",
     )
     poster._ensure_live()
     assert poster._contract is not None

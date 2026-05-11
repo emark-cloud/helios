@@ -10,6 +10,25 @@ to sign updates. `ReputationAnchor.postReputationUpdate` recovers the
 EIP-712 signature against `reputationSigner`, so caller and signer must
 agree. In Phase 1 e2e (Track A) we set both to the deployer key. In
 Track B / production we set both to a dedicated `REPUTATION_SIGNER_PK`.
+
+Two on-chain shapes coexist (see `signer.py` typehash_version):
+
+- **v1** (Phase 1, on-chain at 0x51c07adf… on Kite testnet): 7-field
+  `ReputationData` struct (no `componentsHash`). Function selector
+  `0xcc177986`. This is the registry-bound anchor.
+- **v2** (Phase 2 WS3.A onwards): 8-field struct with `componentsHash`.
+  Function selector `0x2dab51f6`. Deployed as a sidecar at
+  0x735680a3… on Kite testnet; not registry-bound until a Phase-5/6
+  mainnet cutover (`docs/reputation-v1-v2-cutover.md`).
+
+The shared `helios_contracts_abi.abis.IReputationAnchor_ABI` reflects
+the **v2** shape because the Foundry artifacts mirror the current
+source. To stay compatible with v1-shaped anchors (where the registries
+are pinned via `address immutable reputationAnchor`, so we cannot
+swap the deployed anchor out), we keep an in-file v1 ABI fragment and
+branch on `typehash_version` when building the call. Engines pointed
+at the v1 anchor sign v1 typehashes AND submit v1-shaped calldata;
+engines pointed at v2 use the shared ABI as-is.
 """
 
 from __future__ import annotations
@@ -28,6 +47,37 @@ from web3 import Web3
 from web3.types import TxReceipt
 
 from reputation.signer import SignedUpdate
+
+# v1 ABI fragment — the 7-field ReputationData struct (no componentsHash)
+# that the on-chain v1 anchor at 0x51c07adf… on Kite testnet expects.
+# Function selector resolves to 0xcc177986. Keep the rest of the v1 ABI
+# minimal: we only call `postReputationUpdate` from this module.
+_IREPUTATION_ANCHOR_V1_ABI: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "postReputationUpdate",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "actor", "type": "address"},
+            {"name": "actorType", "type": "uint8"},
+            {
+                "name": "data",
+                "type": "tuple",
+                "components": [
+                    {"name": "currentScore", "type": "int256"},
+                    {"name": "lastUpdateBlock", "type": "uint256"},
+                    {"name": "totalAttestedTrades", "type": "uint256"},
+                    {"name": "totalRealizedPnL", "type": "uint256"},
+                    {"name": "maxDrawdownBps", "type": "uint256"},
+                    {"name": "proofValidityRateBps", "type": "uint256"},
+                    {"name": "actorType", "type": "uint8"},
+                ],
+            },
+            {"name": "signerSignature", "type": "bytes"},
+        ],
+        "outputs": [],
+    }
+]
 
 # Cap for the in-memory `pending` ring. The reputation engine ticks every
 # few minutes and the anchor records one entry per submit; 4096 keeps
@@ -55,11 +105,15 @@ class AnchorPoster:
         signer_pk: str,
         anchor_address: str,
         chain_id: int,
+        typehash_version: str = "1",
     ) -> None:
+        if typehash_version not in {"1", "2"}:
+            raise ValueError(f"unsupported typehash version: {typehash_version!r}")
         self._rpc_url = rpc_url
         self._signer_pk = signer_pk
         self._anchor = anchor_address
         self._chain_id = chain_id
+        self._typehash_version = typehash_version
         self._live = bool(rpc_url and signer_pk and anchor_address)
         self.pending: deque[PostedUpdate] = deque(maxlen=_PENDING_RING_CAP)
         # Serialize `_submit`. Phase-3 review MEDIUM: `_submit` reads the
@@ -132,9 +186,16 @@ class AnchorPoster:
             # Don't let the raised value (which may include the malformed key
             # material) propagate up into structlog or a stack trace.
             raise RuntimeError(f"invalid REPUTATION_SIGNER_PK: {type(exc).__name__}") from None
+        # Pick the ABI that matches the on-chain struct shape. v1 anchor
+        # (registry-bound on Kite testnet) has a 7-field ReputationData;
+        # v2 anchor (post-WS3.A) adds componentsHash. The function selector
+        # differs between the two, so sending v2-shaped calldata to a v1
+        # anchor fails with `('execution reverted', 'no data')` (unknown
+        # selector → fallback revert).
+        abi = _IREPUTATION_ANCHOR_V1_ABI if self._typehash_version == "1" else IReputationAnchor_ABI
         self._contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self._anchor),
-            abi=IReputationAnchor_ABI,
+            abi=abi,
         )
 
     def _submit(self, signed: SignedUpdate) -> tuple[str, int]:
@@ -144,18 +205,14 @@ class AnchorPoster:
         assert self._contract is not None
 
         u = signed.update
-        # ReputationData struct (V2 schema, post-WS3.A — adds componentsHash):
-        #   (currentScore, lastUpdateBlock, totalAttestedTrades,
-        #    totalRealizedPnL, maxDrawdownBps, proofValidityRateBps,
-        #    actorType, componentsHash). web3 takes a tuple in field order;
-        # actorType is *also* a top-level arg per the function signature
-        # (the duplicated field in the struct is what gets signed in the
-        # EIP-712 typed payload). componentsHash is right-padded to bytes32.
-        components_hash = u.components_hash if u.components_hash else b""
-        if len(components_hash) > 32:
-            raise ValueError("components_hash exceeds 32 bytes")
-        components_hash_b32 = components_hash.rjust(32, b"\x00")
-        data_tuple = (
+        # ReputationData tuple shape follows the anchor's on-chain struct:
+        # v1 = 7 fields (currentScore, lastUpdateBlock, totalAttestedTrades,
+        #   totalRealizedPnL, maxDrawdownBps, proofValidityRateBps, actorType)
+        # v2 = same + componentsHash (8th field, bytes32, right-padded).
+        # actorType is duplicated as a top-level arg because that's the
+        # function signature shape — the struct copy is what gets signed
+        # in the EIP-712 typed payload.
+        data_tuple: tuple[Any, ...] = (
             int(u.current_score),
             int(u.last_update_block),
             int(u.total_attested_trades),
@@ -163,8 +220,12 @@ class AnchorPoster:
             int(u.max_drawdown_bps),
             int(u.proof_validity_rate_bps),
             int(u.actor_type),
-            components_hash_b32,
         )
+        if self._typehash_version == "2":
+            components_hash = u.components_hash if u.components_hash else b""
+            if len(components_hash) > 32:
+                raise ValueError("components_hash exceeds 32 bytes")
+            data_tuple = (*data_tuple, components_hash.rjust(32, b"\x00"))
         fn = self._contract.functions.postReputationUpdate(
             Web3.to_checksum_address(u.actor),
             int(u.actor_type),
