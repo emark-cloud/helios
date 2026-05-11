@@ -62,6 +62,16 @@ Make the deployed strategy services fire `TradeAttested` events on every bar whe
 
 **Out of scope (future work, filed below):** wiring the other 6 vaults (`variant2`/`variant3` per class), and bullet-proofing the strategy → committed-anchor-root alignment so it's >99% match instead of ~95%.
 
+### WS10 — Cross-chain (LayerZero V2) verification
+
+Phase 5 shipped the cross-chain Solidity primitives (`contracts/src/HeliosOApp.sol`, deploy + peer-wire scripts, the `measure_xchain_latency.py` harness) and unit-level test coverage (`contracts/test/HeliosOApp.t.sol` 6/6 forge tests pass, `services/sentinel/tests/test_phase5_xchain.py` covers the allocator cascade with a mocked LZ endpoint). What never happened: `DeployPhase5Execution.s.sol` was never broadcast on any chain, no `setPeer` call has landed, and the Kite-side OApp has no deploy script (the existing one is Base/Arb-only, hardcodes `reputationAnchor=address(0)`). WS10 deploys the missing infrastructure and proves a real LayerZero V2 message round-trip against testnet.
+
+Live tracking + evidence log in `docs/phase5-xchain-verification.md`. Pre-check (2026-05-11) confirmed Kite testnet IS on LZ V2 (EndpointV2 `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32`, EID `40415`), so the full 3-chain round-trip is viable. Detailed plan in `/home/emark/.claude/plans/dazzling-spinning-quokka.md`. Eight sub-steps: baseline existing tests → user-action faucet on Base/Arb → write `DeployKiteHeliosOApp.s.sol` → broadcast on three chains → wire peers bidirectionally → trigger a `sendReputationUpdate` from Base → confirm `ReputationMessageReceived` on Kite via `measure_xchain_latency.py` → commit deployment JSONs + docs + `CLAUDE.md` Phase 5 address block.
+
+**Acceptance**: a single GUID traceable from `ReputationMessageSent` on a source chain to `ReputationMessageReceived` on Kite within 60s, plus regression on the existing unit suite.
+
+**Out of scope (follow-ups after WS10.7 passes):** wiring `services/reputation/` to call `sendReputationUpdate` on the destination OApp after each trade attestation (the engine currently writes only to the local anchor); deploying Phase-5 strategy vault proxies on Base/Arb (DeployPhase5Execution ships the impl but not the proxies); Goldsky deploy for `subgraph.base-sepolia.yaml` / `subgraph.arbitrum-sepolia.yaml`; frontend cross-chain card env wiring on Vercel.
+
 ### WS6 — Phase 6 acceptance + tag (gated on everything)
 - Cold-judge dry run: 5-step `/judge` checklist completes in under 5 minutes, including independent ZK verify.
 - Slither/Mythril clean (or every finding documented).
