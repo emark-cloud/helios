@@ -232,12 +232,33 @@ class AnchorPoster:
             data_tuple,
             signed.signature,
         )
+        # Override web3's default gas estimate with a 50% buffer. The
+        # Kite testnet RPC under-estimates `postReputationUpdate` by
+        # ~15-25% — the inner `strategyRegistry.updateReputation` callout
+        # plus its event emission lands at ~125k gas, while estimateGas
+        # reports ~100k (first-write cold-storage SSTOREs aren't fully
+        # accounted for, particularly when prev.lastUpdateBlock was 0).
+        # Half the actors per tick hit OutOfGas under the default; adding
+        # headroom eliminates the failure mode without risking real
+        # over-spend (gas is refunded for unused units).
+        from_addr = self._account.address
+        try:
+            estimated = self._contract.functions.postReputationUpdate(
+                Web3.to_checksum_address(u.actor),
+                int(u.actor_type),
+                data_tuple,
+                signed.signature,
+            ).estimate_gas({"from": from_addr})
+        except Exception:
+            estimated = 200_000  # fallback when estimateGas itself trips
+        gas_limit = max(int(estimated * 3 // 2), 200_000)
         tx = fn.build_transaction(
             {
-                "from": self._account.address,
-                "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
+                "from": from_addr,
+                "nonce": self._w3.eth.get_transaction_count(from_addr, "pending"),
                 "chainId": self._chain_id,
                 "gasPrice": self._w3.eth.gas_price,
+                "gas": gas_limit,
             }
         )
         signed_tx = self._account.sign_transaction(tx)
