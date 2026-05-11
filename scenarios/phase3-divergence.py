@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time as _time
 from dataclasses import dataclass
 
 from helios_allocator.runtime import (
@@ -71,6 +72,10 @@ class StubRow:
             current_allocations_usd=c.current_allocations_usd,
             reputation_score_e4=round(c.reputation_score * 10_000),
             trades_attested=c.trades_attested,
+            # WS9 live-NAV filter rejects rows whose navOracle has gone
+            # silent. The scenario harness doesn't run a navOracle, so
+            # backfill a fresh timestamp here.
+            last_nav_update_ts=int(_time.time()),
         )
 
 
