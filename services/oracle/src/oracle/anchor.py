@@ -33,7 +33,8 @@ from helios_contracts_abi.abis import IOracleAnchor_ABI
 from web3 import Web3
 from web3.types import TxReceipt
 
-from oracle.state import SnapshotStore
+from oracle.commit_mirror import CommitMirror
+from oracle.state import Snapshot, SnapshotStore
 from oracle.yield_state import YieldStore
 
 # `pending` holds one CommitRecord per minute-bar (price) or per
@@ -277,6 +278,17 @@ class AnchorPoster:
         return tx_hash.hex(), int(receipt["blockNumber"])
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedCommit:
+    """Internal: payload plus the side-data needed to update the
+    CommitMirror after a successful on-chain submit."""
+
+    payload: CommitPayload
+    snapshots_newest_first: list[Snapshot]
+    root_int: int
+    window_end_ms: int
+
+
 @dataclass
 class PriceAnchorScheduler:
     """Drives `AnchorPoster.post(price)` every N snapshot bars.
@@ -284,12 +296,20 @@ class PriceAnchorScheduler:
     Phase 2 cadence: commit per `interval_bars` bars (default 50) per
     asset. The scheduler keeps a per-asset `last_committed_ts` so each
     new commit window is anchored to the previous one's `windowEnd`.
+
+    `mirror`, when provided, is updated after each successful commit
+    with the exact `(snapshots, root, window_end)` triple the contract
+    received. HTTP handlers serve from the mirror so strategies see the
+    same window the anchor verified, eliminating the
+    `UnknownOracleRoot()` race between live snapshot state and the
+    most-recent committed root.
     """
 
     store: SnapshotStore
     poster: AnchorPoster
     interval_bars: int = 50
     chain_depth: int = 16  # how many bars feed into the Poseidon root
+    mirror: CommitMirror | None = None
 
     _last_window_end: dict[str, int] = field(default_factory=dict)
     _bar_counter: dict[str, int] = field(default_factory=dict)
@@ -297,22 +317,24 @@ class PriceAnchorScheduler:
 
     def on_bar(self, asset: str) -> CommitRecord | None:
         """Sync entry point — convenient for tests + scenario replay."""
-        payload = self._prepare(asset)
-        if payload is None:
+        prepared = self._prepare(asset)
+        if prepared is None:
             return None
-        rec = self.poster.post(payload)
+        rec = self.poster.post(prepared.payload)
         self._sync_nonce(rec)
+        self._record_mirror(asset, rec, prepared)
         return rec
 
     async def on_bar_async(self, asset: str) -> CommitRecord | None:
         """Async entry point. Used in production from `Poller._on_snapshot`
         so the up-to-30s receipt wait runs on a worker thread, not the
         event loop. Same payload-building semantics as `on_bar`."""
-        payload = self._prepare(asset)
-        if payload is None:
+        prepared = self._prepare(asset)
+        if prepared is None:
             return None
-        rec = await self.poster.post_async(payload)
+        rec = await self.poster.post_async(prepared.payload)
         self._sync_nonce(rec)
+        self._record_mirror(asset, rec, prepared)
         return rec
 
     def _sync_nonce(self, rec: CommitRecord) -> None:
@@ -327,7 +349,21 @@ class PriceAnchorScheduler:
         if rec.submitted:
             self._nonce = rec.nonce + 1
 
-    def _prepare(self, asset: str) -> CommitPayload | None:
+    def _record_mirror(self, asset: str, rec: CommitRecord, prepared: _PreparedCommit) -> None:
+        """Mirror the committed window if (a) we were given a mirror and
+        (b) the on-chain submit actually mined. Dry-run posts don't
+        write — strategies that read from the mirror should see only
+        windows the contract has accepted."""
+        if self.mirror is None or not rec.submitted:
+            return
+        self.mirror.record(
+            asset,
+            prepared.snapshots_newest_first,
+            prepared.root_int,
+            prepared.window_end_ms,
+        )
+
+    def _prepare(self, asset: str) -> _PreparedCommit | None:
         c = self._bar_counter.get(asset, 0) + 1
         self._bar_counter[asset] = c
         if c < self.interval_bars:
@@ -360,7 +396,12 @@ class PriceAnchorScheduler:
         )
         self._nonce += 1
         self._last_window_end[asset] = window_end
-        return payload
+        return _PreparedCommit(
+            payload=payload,
+            snapshots_newest_first=snaps,
+            root_int=root_int,
+            window_end_ms=window_end,
+        )
 
 
 @dataclass

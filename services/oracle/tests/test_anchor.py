@@ -32,6 +32,7 @@ from oracle.anchor import (
     YieldAnchorScheduler,
     sign_commit,
 )
+from oracle.commit_mirror import CommitMirror
 from oracle.signer import LocalSigner
 from oracle.state import SnapshotStore
 from oracle.yield_state import YieldStore
@@ -435,3 +436,94 @@ def test_multichain_post_isolates_mirror_failure_from_canonical() -> None:
     mirror_rec: CommitRecord = multi.mirror_records[0]
     assert mirror_rec.submitted is False
     assert "base sepolia rpc dead" in mirror_rec.error
+
+
+def test_commit_mirror_pins_window_to_each_successful_commit() -> None:
+    """Regression for the on-chain `UnknownOracleRoot()` race: HTTP
+    `/snapshots/recent` + `/snapshots/root` MUST serve from the mirror
+    so strategy and anchor see the same window. Even with cadence=1,
+    the live ring can advance between strategy fetch and submit; the
+    mirror captures the exact `(snapshots, root, window_end)` triple
+    the anchor verified, removing the race.
+    """
+    mirror = CommitMirror()
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=_CHAIN_ID
+    )
+    # Dry-run poster — `rec.submitted` is False, so the mirror MUST stay
+    # empty even after on_bar() emits a record. Strategies should not
+    # trust un-submitted roots.
+    sched = PriceAnchorScheduler(
+        store=store, poster=poster, interval_bars=2, chain_depth=2, mirror=mirror
+    )
+    for i in range(2):
+        store.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 * (i + 1), source="t")
+        sched.on_bar("KITE/USDT")
+    assert mirror.get("KITE/USDT") is None, "dry-run commits must not populate mirror"
+
+    # Now switch the poster to "live-like" — return submitted=True from
+    # _submit so the mirror records. We don't care about the real
+    # signature; the scheduler treats `rec.submitted` as the trigger.
+    poster.rpc_url = "http://stub"  # type: ignore[misc]
+    poster.signer_pk = _TEST_PK  # type: ignore[misc]
+    poster.anchor_address = _ANCHOR_ADDR  # type: ignore[misc]
+    poster._ensure_live = lambda: None  # type: ignore[assignment]
+    poster._read_onchain_nonce = lambda: 0  # type: ignore[assignment, method-assign]
+    poster._submit = lambda _s: ("0x" + "aa" * 32, 1)  # type: ignore[assignment]
+
+    # Two fresh bars → another commit. With live poster, the mirror
+    # MUST now hold this window.
+    for i in range(2):
+        store.append(
+            "KITE/USDT", price_e18=10**18 + 100 + i, timestamp_ms=3000 + i * 1000, source="t"
+        )
+        sched.on_bar("KITE/USDT")
+    committed = mirror.get("KITE/USDT")
+    assert committed is not None
+    assert committed.window_end_ms == 4000  # newest timestamp in the committed window
+    assert len(committed.snapshots) == 2  # chain_depth=2
+    # snapshots are newest-first (mirrors SnapshotStore.recent ordering)
+    assert committed.snapshots[0].timestamp_ms == 4000
+    assert committed.snapshots[1].timestamp_ms == 3000
+    # And the root in the mirror must equal the root the poseidon chain
+    # produced — strategies will recompute and compare on-chain.
+    expected_root = store.chain_root("KITE/USDT", 2)
+    assert committed.root == expected_root
+
+
+def test_commit_mirror_overwrites_previous_window() -> None:
+    """The mirror only retains the most-recent committed window. After a
+    new successful commit, strategies fetching from the mirror see the
+    new window — older windows are intentionally discarded (the anchor
+    only ever cares about the latest root for freshness checks)."""
+    mirror = CommitMirror()
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    poster._ensure_live = lambda: None  # type: ignore[assignment]
+    poster._read_onchain_nonce = lambda: 0  # type: ignore[assignment, method-assign]
+    poster._submit = lambda _s: ("0x" + "bb" * 32, 1)  # type: ignore[assignment]
+    sched = PriceAnchorScheduler(
+        store=store, poster=poster, interval_bars=2, chain_depth=2, mirror=mirror
+    )
+
+    for i in range(2):
+        store.append("KITE/USDT", price_e18=10**18 + i, timestamp_ms=1000 * (i + 1), source="t")
+        sched.on_bar("KITE/USDT")
+    first = mirror.get("KITE/USDT")
+    assert first is not None and first.window_end_ms == 2000
+
+    for i in range(2):
+        store.append(
+            "KITE/USDT", price_e18=10**18 + 100 + i, timestamp_ms=3000 + i * 1000, source="t"
+        )
+        sched.on_bar("KITE/USDT")
+    second = mirror.get("KITE/USDT")
+    assert second is not None and second.window_end_ms == 4000
+    assert second.root != first.root

@@ -28,6 +28,7 @@ from oracle.anchor import (
     PriceAnchorScheduler,
     YieldAnchorScheduler,
 )
+from oracle.commit_mirror import CommitMirror
 from oracle.poller import Poller, YieldPoller
 from oracle.router_mirror import PairSpec, RouterPriceMirror
 from oracle.signer import LocalSigner
@@ -263,11 +264,18 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     price_poster = MultiChainAnchorPoster(canonical=price_canonical, mirrors=price_mirrors)
     yield_poster = MultiChainAnchorPoster(canonical=yield_canonical, mirrors=yield_mirrors)
 
+    # CommitMirror snaps the committed window so HTTP `/snapshots/recent`
+    # and `/snapshots/root` serve exactly what the on-chain anchor saw —
+    # otherwise strategies fetching the live ring race the next commit
+    # and submit a root the anchor never signed (UnknownOracleRoot
+    # revert on `executeWithProof`).
+    commit_mirror = CommitMirror()
     price_scheduler = PriceAnchorScheduler(
         store=store,
         poster=price_poster,  # type: ignore[arg-type]
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
+        mirror=commit_mirror,
     )
     yield_scheduler = YieldAnchorScheduler(
         store=yield_store,
@@ -333,11 +341,21 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         asset = _resolve_asset(asset)
         if asset not in assets:
             raise HTTPException(status_code=404, detail=f"asset not tracked: {asset}")
-        snaps = store.recent(asset, n)
+        # Prefer the committed mirror so strategies fetch a window the
+        # on-chain anchor has actually signed. Live-ring fallback covers
+        # cold start before any commit has landed for the asset.
+        committed = commit_mirror.get(asset)
+        if committed is not None and len(committed.snapshots) >= n:
+            snaps = committed.snapshots[:n]
+            source_view = "committed"
+        else:
+            snaps = store.recent(asset, n)
+            source_view = "live"
         return {
             "asset": asset,
             "n": len(snaps),
             "signer": signer.signer_address,
+            "view": source_view,
             "snapshots": [
                 {
                     "asset": s.asset,
@@ -362,8 +380,21 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         # Poseidon root is a BN254 field element. Serialize as decimal
         # string (canonical for circuits) and as 32-byte hex (canonical
         # for `OraclePriceAnchor.commit(bytes32, ...)`).
-        chain_root = store.chain_root(asset, n)
-        head_ts = store.head_timestamp_ms(asset)
+        # Prefer the most-recent committed root over the live-ring
+        # recomputation so the strategy sees a root the on-chain anchor
+        # has actually accepted. Mirror only serves when its chain depth
+        # is ≥ the requested `n`; otherwise fall back to live-ring
+        # computation (cold-start, mismatched depths during a config
+        # transition).
+        committed = commit_mirror.get(asset)
+        if committed is not None and len(committed.snapshots) >= n:
+            chain_root = committed.root
+            head_ts: int | None = committed.window_end_ms
+            source_view = "committed"
+        else:
+            chain_root = store.chain_root(asset, n)
+            head_ts = store.head_timestamp_ms(asset)
+            source_view = "live"
         return {
             "asset": asset,
             "n": n,
@@ -372,6 +403,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "head_timestamp_ms": head_ts,
             "signer": signer.signer_address,
             "hash": "poseidon",
+            "view": source_view,
         }
 
     @router.get("/yield/markets")
