@@ -152,9 +152,9 @@ class AllocatorLoop:
                 eligible = rows
             else:
                 eligible = [
-                    r for r in rows
-                    if r.last_nav_update_ts > 0
-                    and ts - r.last_nav_update_ts <= budget
+                    r
+                    for r in rows
+                    if r.last_nav_update_ts > 0 and ts - r.last_nav_update_ts <= budget
                 ]
             dropped = len(rows) - len(eligible)
             self._candidates = [to_candidate(r) for r in eligible]
@@ -173,9 +173,7 @@ class AllocatorLoop:
         # Concurrently look up `lastNAVTimestamp` for any row the subgraph
         # didn't already supply. Bounded fan-out: at most ~20 strategies
         # in the testnet directory, one eth_call each, ~50 ms apiece.
-        targets = [
-            (i, r) for i, r in enumerate(rows) if r.last_nav_update_ts == 0
-        ]
+        targets = [(i, r) for i, r in enumerate(rows) if r.last_nav_update_ts == 0]
         if not targets:
             return rows
         ts_results = await asyncio.gather(

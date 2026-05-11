@@ -212,11 +212,13 @@ async def test_stale_nav_strategies_dropped_from_candidates() -> None:
     never_sid = "0x" + "33" * 20  # never NAV-reported
 
     now = now_ts()
-    goldsky = _StubGoldsky([
-        _row(fresh_sid, nav_ts=now - 60),         # 1 min ago → fresh
-        _row(stale_sid, nav_ts=now - 24 * 3600),  # 24 hr ago → stale
-        _row(never_sid, nav_ts=0),                # never NAV-reported
-    ])
+    goldsky = _StubGoldsky(
+        [
+            _row(fresh_sid, nav_ts=now - 60),  # 1 min ago → fresh
+            _row(stale_sid, nav_ts=now - 24 * 3600),  # 24 hr ago → stale
+            _row(never_sid, nav_ts=0),  # never NAV-reported
+        ]
+    )
     loop = AllocatorLoop(
         store=store,
         allocator=_AlwaysFirstAllocator(),
