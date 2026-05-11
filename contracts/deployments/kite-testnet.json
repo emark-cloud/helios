@@ -54,7 +54,10 @@
     "phase6VaultYieldRotationVariant3": "0x76a50fe4c5585a13be311eca135d0ab8f39b434d",
     "tradeAttestationVerifierPrevTimelock": "0x3698f60a6761bfdd1511b4c68d000d55ff8fff81",
     "heliosOApp": "0x7bad5250a1c0b286bc5128bb1d7c19320341c830",
-    "heliosOAppPrev": "0x9d93f3f2254d7d6f6f4208938b7ce7f9e33c43b3"
+    "heliosOAppPrev": "0x9d93f3f2254d7d6f6f4208938b7ce7f9e33c43b3",
+    "reputationAnchorV2Bis": "0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D",
+    "strategyRegistryV3": "0xe6c2cfCa8fd59f4b6fCF0b5F83A515aBB7498D35",
+    "allocatorRegistryV2": "0xb673e6F8f11fb416B47f5d9C0a36400bF9485A06"
   },
   "lzLocalEid": 40415,
   "lzKiteEndpoint": "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32",
