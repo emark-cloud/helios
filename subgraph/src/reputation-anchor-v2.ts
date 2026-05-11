@@ -3,6 +3,7 @@ import {
   ReputationPosted,
   CrossChainReputationPosted,
   ComponentsAnchored,
+  CrossChainTradeTick,
 } from "../generated/ReputationAnchorV2/ReputationAnchorV2";
 import {
   ComponentsAnchor,
@@ -64,6 +65,30 @@ export function handleCrossChainReputationPostedV2(event: CrossChainReputationPo
   msg.sentAt = BigInt.zero();
   msg.receivedAt = event.block.timestamp;
   msg.save();
+}
+
+// WS11 — cross-chain batch trade tick. Counter-only; bumps the
+// strategy's totalAttestedTrades without writing the score. Mirrored
+// from `ReputationAnchorV2.postCrossChainTradeTick`.
+export function handleCrossChainTradeTick(event: CrossChainTradeTick): void {
+  const actor = event.params.actor as Bytes;
+  const newTotal = event.params.newTotalAttestedTrades;
+  const s = getOrCreateStrategy(actor, event.block.timestamp);
+  s.totalAttestedTrades = newTotal.toI32();
+  s.save();
+
+  const snapshot = new ReputationSnapshot(logEventId(event));
+  snapshot.actor = actor;
+  snapshot.actorType = "STRATEGY";
+  snapshot.score = s.currentReputation;
+  snapshot.totalAttestedTrades = newTotal;
+  snapshot.totalRealizedPnL = BigInt.zero();
+  snapshot.maxDrawdownBps = 0;
+  snapshot.proofValidityRateBps = 0;
+  snapshot.timestamp = event.block.timestamp;
+  snapshot.blockNumber = event.block.number;
+  snapshot.source = "V2_xchain_tick";
+  snapshot.save();
 }
 
 // Paired 1:1 with `ReputationPosted` on V2. The audit page joins

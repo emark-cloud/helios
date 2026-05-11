@@ -564,9 +564,12 @@ dataSources:
     name: HeliosOApp
     network: kite-ai-testnet
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      # WS11.6 — new Kite OApp bound to v2-bis anchor (deploy block 21310436).
+      # Predecessor WS10 null-anchor OApp 0x7Bad5250… stays parked; legacy
+      # 0x9D93F3f2… (V1-anchor bound) likewise parked.
+      address: "0x9845c0C697964464dCAF2602b4e516CaEA98E51E"
       abi: HeliosOApp
-      startBlock: 0
+      startBlock: 21310436
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -684,9 +687,9 @@ dataSources:
     name: StrategyVaultMomentumP6
     network: kite-ai-testnet
     source:
-      address: "0x29b5d20fe7005ab81b3b919385003399e6397622"
+      address: "0xa44ef042840c8c4f1a174daf66389efeb8375a5a"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -711,9 +714,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6
     network: kite-ai-testnet
     source:
-      address: "0xf825727ea1d19066e6b06bcc928a658ee1e7516f"
+      address: "0x1717640c4f9cd9f84b028bc8dfdcea3fb0572c6a"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -738,9 +741,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6
     network: kite-ai-testnet
     source:
-      address: "0x2c765493f3899d2236d172b5c9c7c9473bd71765"
+      address: "0x2aff8735ed89451d359205dc6a80ae625e6f6e47"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -769,9 +772,9 @@ dataSources:
     name: StrategyVaultMomentumP6V2
     network: kite-ai-testnet
     source:
-      address: "0xdcb2d64f6f2500ca899d89f885fa6738df4d4a3e"
+      address: "0x7a18727375065b29526d816b713fad99cd247006"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -796,9 +799,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6V2
     network: kite-ai-testnet
     source:
-      address: "0xa863b0372f28f368119cbf4ae2b46730e5d009f5"
+      address: "0x4509c3e7b5e418c0701cf4d0145c570bac2f8fca"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -823,9 +826,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6V2
     network: kite-ai-testnet
     source:
-      address: "0x6734ce8189eeb801f595e5c0a7b4239221f08d93"
+      address: "0x7ed482adcc6951bc2058dd45cc26d15b3d585deb"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -854,9 +857,9 @@ dataSources:
     name: StrategyVaultMomentumP6V3
     network: kite-ai-testnet
     source:
-      address: "0x24dc209dab31887f20ecf7eae626f4e8fa46d570"
+      address: "0xecfeb975789cf058865830f985ba18299d8e1dca"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -881,9 +884,9 @@ dataSources:
     name: StrategyVaultMeanReversionP6V3
     network: kite-ai-testnet
     source:
-      address: "0xf44051d85f1a2f31a249d5f4136176c083f09dd3"
+      address: "0x125b10809e3c6d70c51bf6385ed3cfb1c771d0f5"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -908,9 +911,9 @@ dataSources:
     name: StrategyVaultYieldRotationP6V3
     network: kite-ai-testnet
     source:
-      address: "0x92c15c4f20641191dd9b464ec446cc7d7ac616c5"
+      address: "0x76a50fe4c5585a13be311eca135d0ab8f39b434d"
       abi: StrategyVault
-      startBlock: 21262307
+      startBlock: 21285000
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -934,3 +937,103 @@ dataSources:
         - event: YieldRotationAttested(indexed address,indexed address,indexed bytes32,bytes32,uint256,uint256,uint256,bytes32,uint64,uint64)
           handler: handleYieldRotationAttested
 
+
+  # ── WS11 V1→V2 ReputationAnchor cutover datasources ───────────
+  #
+  # docs/reputation-v1-v2-cutover.md Path A landed 2026-05-11:
+  #   - ReputationAnchorV2Bis (fresh anchor; supersedes legacy
+  #     V2 0x735680a3… which is foot-gunned by setRegistries(V1,V1))
+  #   - StrategyRegistry V3 (anchor → v2-bis; supersedes V1
+  #     0x3A0f5B94… + WS9 SR-v2 0x7E707C8A…)
+  #   - AllocatorRegistry V2 (anchor → v2-bis; supersedes V1
+  #     0xbfeba025…)
+  # Constructor + initial wiring landed in blocks 21309821-21309824.
+  # Re-registration of 9 production strategies + 1 allocator at
+  # block 21310122-21310133 (WS11.4 migration broadcast).
+  - kind: ethereum
+    name: StrategyRegistryV3
+    network: kite-ai-testnet
+    source:
+      address: "0xe6c2cfCa8fd59f4b6fCF0b5F83A515aBB7498D35"
+      abi: StrategyRegistry
+      startBlock: 21309821
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-registry.ts
+      entities:
+        - Strategy
+        - ParamsRotation
+      abis:
+        - name: StrategyRegistry
+          file: ./abis/StrategyRegistry.json
+      eventHandlers:
+        - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
+          handler: handleStrategyRegistered
+        - event: StrategyDeactivated(indexed address)
+          handler: handleStrategyDeactivated
+        - event: ReputationUpdated(indexed address,int256,int256)
+          handler: handleStrategyReputationUpdated
+        - event: ParamsRotated(indexed address,bytes32,bytes32)
+          handler: handleParamsRotated
+        - event: MarketAllowlistRootSet(indexed bytes32,bytes32)
+          handler: handleMarketAllowlistRootSet
+        - event: ParamsHashCommitted(indexed address,bytes32)
+          handler: handleParamsHashCommitted
+        - event: ParamsRotationInitiated(indexed address,bytes32,bytes32,uint64)
+          handler: handleParamsRotationInitiated
+        - event: ParamsRotationCancelled(indexed address,bytes32)
+          handler: handleParamsRotationCancelled
+
+  - kind: ethereum
+    name: AllocatorRegistryV2
+    network: kite-ai-testnet
+    source:
+      address: "0xb673e6F8f11fb416B47f5d9C0a36400bF9485A06"
+      abi: AllocatorRegistry
+      startBlock: 21309823
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/allocator-registry.ts
+      entities:
+        - Allocator
+      abis:
+        - name: AllocatorRegistry
+          file: ./abis/AllocatorRegistry.json
+      eventHandlers:
+        - event: AllocatorRegistered(indexed address,string,indexed address,indexed address,bytes32,uint16,uint256)
+          handler: handleAllocatorRegistered
+        - event: AllocatorDeactivated(indexed address)
+          handler: handleAllocatorDeactivated
+        - event: AllocatorReputationUpdated(indexed address,int256,int256)
+          handler: handleAllocatorReputationUpdated
+
+  - kind: ethereum
+    name: ReputationAnchorV2Bis
+    network: kite-ai-testnet
+    source:
+      address: "0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D"
+      abi: ReputationAnchorV2
+      startBlock: 21309821
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/reputation-anchor-v2.ts
+      entities:
+        - ReputationSnapshot
+      abis:
+        - name: ReputationAnchorV2
+          file: ./abis/ReputationAnchorV2.json
+      eventHandlers:
+        - event: ReputationPosted(indexed address,indexed uint8,int256,uint256)
+          handler: handleReputationPostedV2
+        - event: ComponentsAnchored(indexed address,bytes32)
+          handler: handleComponentsAnchored
+        - event: CrossChainReputationPosted(indexed address,indexed uint8,uint32,int256)
+          handler: handleCrossChainReputationPostedV2
+        - event: CrossChainTradeTick(indexed address,uint256)
+          handler: handleCrossChainTradeTick
