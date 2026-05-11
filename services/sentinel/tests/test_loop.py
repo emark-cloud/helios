@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time as _time
+
 import pytest
 from helios_allocator.runtime import (
     AllocationState,
@@ -20,8 +22,6 @@ def _candidate_to_row(c: StrategyCandidate) -> StrategyDirectoryRow:
     """PR5: loop now caches `StrategyDirectoryRow` so `/v1/strategies` can read
     from the same payload. Existing test fixtures still construct candidates;
     map them back to rows so the stub can satisfy `fetch_directory`."""
-    import time as _time
-
     return StrategyDirectoryRow(
         strategy_id=c.strategy_id,
         declared_class=c.declared_class,

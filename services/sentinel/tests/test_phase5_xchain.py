@@ -32,6 +32,7 @@ exactly the surface the engine's score-update path lands on once
 from __future__ import annotations
 
 import os
+import time as _time
 
 import pytest
 from helios_allocator.runtime import (
@@ -76,8 +77,6 @@ def _row(
     stake_usd: int = 5_000,
     trades: int = 100,
 ) -> StrategyDirectoryRow:
-    import time as _time
-
     return StrategyDirectoryRow(
         strategy_id=sid,
         declared_class=declared_class,
