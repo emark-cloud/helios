@@ -263,8 +263,8 @@ class MomentumRuntime:
             self._executor.build_plan(
                 proof=_proof_to_bytes(proof.proof),
                 public_inputs=[int(s) for s in proof.public_signals],
-                token_in=intent.asset_in,
-                token_out=intent.asset_out,
+                token_in=self._universe[self._asset_idx[intent.asset_in]],
+                token_out=self._universe[self._asset_idx[intent.asset_out]],
                 amount_in=int(request.inputs["amount_in"]),
                 min_amount_out=int(request.inputs["min_amount_out"]),
                 deadline_unix=int(time.time()) + 300,
