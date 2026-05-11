@@ -25,7 +25,6 @@
     "services:sentinel": "uv run --package helios-sentinel python -m sentinel",
     "services:reputation": "uv run --package helios-reputation python -m reputation",
     "services:oracle": "uv run --package helios-oracle python -m oracle",
-    "services:bot": "uv run --package helios-bot python -m bot",
     "services:prover": "pnpm --filter @helios/prover dev"
   },
   "devDependencies": {

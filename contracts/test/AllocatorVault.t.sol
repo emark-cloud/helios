@@ -173,7 +173,7 @@ contract AllocatorVaultTest is Test {
         });
         // The strategy vault needs the AllocatorVault address as its allocator
         // peer. We may not yet know that address before deployment in the real
-        // case (paired in DeployPhase1.s.sol), but in tests we already do.
+        // case (paired in the deploy script), but in tests we already do.
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,
             baseAsset: usdc,

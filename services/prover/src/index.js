@@ -38,10 +38,9 @@ const DEFAULT_MAX_CONCURRENT = 4;
 
 // Registered circuit classes. Adding a class requires (a) committed wasm/zkey
 // under circuits/build/<class>/, (b) a generated <Class>Verifier.sol deployed
-// via DeployPhase1.s.sol / DeployPhase2.s.sol, and (c) registration on
+// via a contracts/script entrypoint, and (c) registration on
 // TradeAttestationVerifier.
 const REGISTERED_CLASSES = [
-  "hello",
   "momentum_v1",
   "mean_reversion_v1",
   "yield_rotation_v1",

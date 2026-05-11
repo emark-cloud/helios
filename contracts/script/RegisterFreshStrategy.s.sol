@@ -21,8 +21,8 @@ import { ClassIds } from "../src/ClassIds.sol";
 ///         sentinel bootstrap pool checks (`trades_attested <
 ///         min_attested_trades`) before allocating cold-start capital.
 ///
-///         Inputs match RegisterPhase2Strategies.s.sol so the same
-///         env wiring in scripts/e2e-scenario-phase2.sh applies.
+///         Standalone — invoked with the same OPERATOR_PK / OUT_LABEL
+///         env wiring as the other contracts/script entrypoints.
 contract RegisterFreshStrategy is Script {
     bytes32 internal constant CLASS_MOM = ClassIds.MOMENTUM_V1;
 
@@ -120,8 +120,7 @@ contract RegisterFreshStrategy is Script {
         console2.log("merged into:", file);
     }
 
-    /// @dev Same merge strategy as DeployPhase2 / RegisterPhase2Strategies
-    ///      — read existing addresses, copy every key forward, append
+    /// @dev Read existing addresses, copy every key forward, append
     ///      `strategyVaultMomentumVariant3`. Top-level metadata
     ///      preserved; stamps `phase2CFreshDeployedAt`.
     function _patchJson(string memory file, address freshVault) internal {

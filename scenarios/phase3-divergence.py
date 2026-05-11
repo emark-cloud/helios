@@ -20,8 +20,7 @@ subgraph. The two allocators compose entirely through the SDK's
 `AllocatorRuntime` (`packages/allocator-sdk`); same code paths the
 live services run, just driven via stub Goldsky + dry-run on-chain
 runner so it ships in CI under a few seconds. Real on-chain
-divergence runs against the deploy in `scripts/e2e-phase3.sh` once
-`DeployPhase3` lands on a refreshed testnet pin.
+divergence is covered by the live Kite-testnet deploy.
 
 Exit codes:
   0 — all four assertions passed

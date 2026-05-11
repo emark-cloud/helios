@@ -43,7 +43,7 @@ Current phase: **Phase 6 — Polish + submission** (Phases 0–5 complete as of 
 
 ### SX — Service skeletons
 - [x] FastAPI scaffold template (`services/_template/`) with structlog, pydantic v2, SQLAlchemy, pytest
-- [x] `services/sentinel`, `services/reputation`, `services/oracle`, `services/bot` initialized from the template with health endpoints only
+- [x] `services/sentinel`, `services/reputation`, `services/oracle` initialized from the template with health endpoints only
 - [x] `services/prover/` Node.js scaffold with snarkjs + express, `POST /prove` stub that echoes the request
 - [x] Postgres schema v0: `users`, `strategies`, `allocators`, `allocations`, `trades`, `nav_snapshots`, `reputation_snapshots`, `events` tables
 - [x] Alembic (or equivalent) migrations set up
@@ -560,7 +560,7 @@ Pre-cutover the testnet stack used `MockSwapRouter` with admin-set prices, so de
 
 Cuts taken 2026-05-05 to deliver a working demo faster and let the operator (emark) use the app end-to-end without service-side detours. Each item lands in `Helios.md §17` (post-hackathon roadmap) so the trajectory stays explicit.
 
-- **Telegram bot (`services/bot/`, `@helios_market_bot`).** The 0:50–1:30 and 1:30–2:10 demo beats are carried by the dashboard activity rail (`/dashboard` already streams `SentinelEvent`s over WS). Restoring the bot revives `services/bot/`, the token provisioning flow, the DESIGN.md §15 message templates as bot output, and the `/dashboard` opt-in step. Roadmap: post-hackathon Phase 1 (Months 1–3).
+- **Telegram bot (`@helios_market_bot`).** The 0:50–1:30 and 1:30–2:10 demo beats are carried by the dashboard activity rail (`/dashboard` already streams `SentinelEvent`s over WS). The `services/bot/` scaffold was removed in the v0.5 cleanup; restoring it means re-scaffolding from `services/_template/` plus the token provisioning flow, the DESIGN.md §15 message templates as bot output, and the `/dashboard` opt-in step. Roadmap: post-hackathon Phase 1 (Months 1–3).
 - **x402 paid services (Choice G).** Pieverse facilitator + per-service pricing curves + `X-Payment` middleware across prover/oracle/reputation. Strong agent-economy demo polish but not in the headline 3-min script. Roadmap: post-hackathon Phase 1.
 - **Helix regime-adaptive fee + correlation-aware greedy.** AllocatorSDK still exposes the hooks (`pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`) so any third party can build a correlation/regime allocator from day one — Helix v1 just doesn't use them. Helix-lite still produces visibly different allocations from Sentinel via fee weighting + greedy pick over reputation. Roadmap: post-hackathon Phase 1.
 - **`/allocators` side-by-side comparison mode (select 2+).** Per-allocator detail pages + the directory list cover the marketplace narrative; the side-by-side compare is polish.

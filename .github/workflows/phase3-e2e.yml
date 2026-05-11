@@ -17,7 +17,6 @@ on:
       - 'frontend/src/app/onboard/**'
       - 'subgraph/**'
       - 'scenarios/phase3-divergence.py'
-      - 'scripts/e2e-phase3.sh'
       - '.github/workflows/phase3-e2e.yml'
 
 concurrency:
@@ -42,5 +41,5 @@ jobs:
       - name: uv sync
         run: uv sync --all-packages --all-extras
 
-      - name: Run Phase 3 e2e
-        run: ./scripts/e2e-phase3.sh
+      - name: Run Phase 3 divergence scenario
+        run: uv run --package helios-sentinel python scenarios/phase3-divergence.py

@@ -94,8 +94,6 @@ For "alert if /health 5xx" we use a tiny cron probe rather than a full Prometheu
 
 Replace `admin@example.com` with the on-call inbox; `mail` is provided by `mailutils` (installed by `bootstrap.sh`). PM2 logs flow to `/srv/helios/logs/stack.{out,err}.log` — rotated by Ubuntu's default `logrotate.d` config.
 
-> **Telegram admin channel** is deferred with the rest of `services/bot/` (see TODO.md "Deferred"). Email digest is sufficient for v1.
-
 ## Postgres backups + restore
 
 `postgres-backup.sh` runs `pg_dump` against the `postgres` compose service and writes a gzipped, mode-600 dump to `/srv/helios/backups/postgres/helios-<UTC-timestamp>.sql.gz`. The most recent 14 dumps are retained.
@@ -145,7 +143,6 @@ Variables that must be set:
 | `GOLDSKY_API_KEY` | subgraph deploys | Only needed when running `pnpm --filter subgraph deploy` from the workstation. |
 | `PROVER_AUTH_TOKEN` | services/prover + reference strategies | Bearer token gating `POST /prove`. Empty disables auth (local dev only). VPS deploys must set a random secret. |
 | `CORS_ALLOWED_ORIGINS` | services | Comma-separated list of public frontend hosts; `*` is rejected when paired with credentials. |
-| `TELEGRAM_BOT_TOKEN` | services/bot | Deferred (post-hackathon). |
 
 Sanity check from a fresh checkout:
 

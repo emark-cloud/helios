@@ -18,13 +18,13 @@ import {
 } from "../src/verifiers/YieldRotationV1VerifierAdapter.sol";
 
 /// @title DeployVerifiersOnly
-/// @notice Minimal companion to `DeployPhase2.s.sol` that redeploys ONLY
-///         the per-class Groth16 verifiers + adapters and rotates the
-///         existing `TradeAttestationVerifier` class map to the new
-///         adapters. Anchors (`ReputationAnchorV2`, `OraclePriceAnchor`,
-///         `OracleYieldAnchor`) and registries are intentionally NOT
-///         touched — running `DeployPhase2` would orphan them and force
-///         every off-chain service to be reconfigured.
+/// @notice Redeploys ONLY the per-class Groth16 verifiers + adapters
+///         and rotates the existing `TradeAttestationVerifier` class
+///         map to the new adapters. Anchors (`ReputationAnchorV2`,
+///         `OraclePriceAnchor`, `OracleYieldAnchor`) and registries
+///         are intentionally NOT touched — re-running a full deploy
+///         would orphan them and force every off-chain service to be
+///         reconfigured.
 ///
 ///         Use case: phase2-followup priority-2 regenerated the circuit
 ///         VKs (`64580f8` range checks, `6b8dee6` YR block_window_start

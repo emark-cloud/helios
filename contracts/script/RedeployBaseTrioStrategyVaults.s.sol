@@ -19,8 +19,8 @@ import { ClassIds } from "../src/ClassIds.sol";
 ///         expects. UUPS-upgrading them would corrupt storage. The only
 ///         safe path is fresh proxies.
 ///
-///         This script is the base-trio analogue of
-///         `RegisterPhase2Strategies.s.sol` — same impl
+///         This script is the base-trio analogue of the retired
+///         RegisterPhase2Strategies script — same impl
 ///         (`StrategyVault(priceAnchor, yieldAnchor)`, constructor
 ///         immutables → Phase-3 oracle anchors), one new proxy per class,
 ///         each with its own paramsHash so the cohort accounting still

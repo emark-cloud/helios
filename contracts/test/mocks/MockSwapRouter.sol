@@ -13,7 +13,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 ///         fixed admin-set price for each (tokenIn, tokenOut) pair.
 ///
 ///         When Algebra Integral lands on Kite testnet, swap this router for
-///         the real one in DeployPhase1.s.sol and StrategyVault.allowedRouter
+///         the real one in the deploy script and StrategyVault.allowedRouter
 ///         — no other code changes.
 contract MockSwapRouter is Ownable {
     using SafeERC20 for IERC20;

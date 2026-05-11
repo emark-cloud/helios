@@ -1,8 +1,9 @@
 """Smoke tests for `AllocatorGoldsky` directory parsing.
 
-Live HTTP integration runs in the Phase 3 e2e (`scripts/e2e-phase3.sh`).
-Here we only need: the offline-tolerant path returns []; the parse
-+ candidate-mapping logic produces the expected shape.
+Live HTTP integration runs against the live Goldsky endpoint via the
+deployed allocator services. Here we only need: the offline-tolerant
+path returns []; the parse + candidate-mapping logic produces the
+expected shape.
 """
 
 from __future__ import annotations

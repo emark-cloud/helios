@@ -4,34 +4,26 @@ repository: https://github.com/helios-market/helios
 schema:
   file: ./schema.graphql
 
-# Phase 1 datasources for Kite testnet.
+# Datasources for Kite testnet (chainId 2368). Addresses are bound from
+# `contracts/deployments/kite-testnet.json`; when redeploying, regenerate
+# from the deployments file and bump startBlock to the first block of
+# the relevant deploy broadcast under `contracts/broadcast/`.
 #
-# Addresses bound 2026-04-27 from `contracts/deployments/kite-testnet.json`
-# (Track B sign-off — chainId 2368, deployer
-# 0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25). startBlock = 21074384, the
-# first block of the deploy broadcast (per
-# `contracts/broadcast/DeployPhase1.s.sol/2368/run-latest.json`). When
-# redeploying, regenerate from the deployments file and bump startBlock.
+# History (kept for chain-replay context; the Phase-1/2 deploy scripts
+# themselves were retired in the v0.5 cleanup):
+#   Phase 1 (2026-04-27, startBlock 21074384) — three Phase-1
+#     StrategyVaults (momentum, mean_reversion, yield_rotation) bound
+#     under keccak class IDs.
+#   Phase 2 (2026-05-05, startBlock 21201220) — ReputationAnchorV2,
+#     OraclePriceAnchor, OracleYieldAnchor, plus six second-/third-variant
+#     StrategyVaults (two per Poseidon class) for §8.2 cohort math.
+#     Phase-1 vaults stay bound for historical NAV/trade reads but are
+#     stranded by the Phase-2 verifier rotation.
 #
-# StrategyVault datasources bind the three Phase-1 vaults (momentum,
-# mean_reversion, yield_rotation). All three were deployed in the
-# 2026-04-27 Track B run; expanded to all three in the Phase-2 followup
-# (Critical #3) so the reputation engine sees mr + yr trades. Each
-# datasource references the same `./src/strategy-vault.ts` mapping file
-# — graph-codegen produces a per-datasource generated namespace, but
-# the WASM handlers are structurally identical and dispatch on
-# `event.params.strategy`.
-#
-# Phase 2 datasources land 2026-05-05 against the testnet broadcasts
-# in `contracts/broadcast/{DeployPhase2,RegisterPhase2Strategies,
-# RegisterPhase2StrategiesVariant3}.s.sol/2368/run-latest.json`. Phase-2
-# startBlock = 21201220 (DeployPhase2 first block 0x1438144). The
-# additions: `ReputationAnchorV2`, `OraclePriceAnchor`,
-# `OracleYieldAnchor`, plus six second-/third-variant StrategyVaults
-# (two per Poseidon class) so §8.2 cohort math sees ≥2 strategies per
-# class. Phase-1 vaults under keccak class IDs remain bound for
-# historical NAV/trade reads but are stranded by the Phase-2 verifier
-# rotation (no entry in `TradeAttestationVerifier` for keccak classes).
+# StrategyVault datasources reference the same `./src/strategy-vault.ts`
+# mapping file — graph-codegen produces a per-datasource generated
+# namespace, but the WASM handlers are structurally identical and
+# dispatch on `event.params.strategy`.
 #
 # Phase 5 / WS6 — graph-cli 0.83.0 forbids multi-network subgraphs in
 # a single manifest, and Goldsky's multi-chain story is "one subgraph

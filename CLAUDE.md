@@ -34,7 +34,6 @@ Intended layout (being scaffolded in Phase 0; current state may be partial — c
 | `services/reputation/` | Reputation engine. Reads Goldsky → computes scores → signs → posts to `ReputationAnchor`. |
 | `services/prover/` | Node.js HTTP wrapper around snarkjs. Generates Groth16 proofs from trade specs. |
 | `services/oracle/` | Helios-operated price + yield oracle (signs 1-minute snapshots, Poseidon-committed chain). |
-| `services/bot/` | `@helios_market_bot` Telegram bot — text-forward event pings. |
 | `frontend/` | Next.js 14 App Router, TypeScript, Tailwind with CSS-variable design tokens, wagmi v2 + viem. |
 | `reference-strategies/` | The three reference strategy implementations built on `strategy-sdk`. |
 | `subgraph/` | Goldsky subgraph (`subgraph.yaml`, `schema.graphql`, mappings in `src/`). |
@@ -89,7 +88,6 @@ Copy `.env.example` to `.env` and fill in. Required for running the full stack:
 | `DATABASE_URL` | services | Postgres connection string |
 | `GOLDSKY_API_KEY` | subgraph | Required to deploy the subgraph |
 | `GOLDSKY_ENDPOINT` | services, frontend | Read endpoint for the subgraph |
-| `TELEGRAM_BOT_TOKEN` | services/bot | `@helios_market_bot` token |
 | `VERCEL_TOKEN` | deploy scripts | Frontend deploy |
 | `VPS_SSH` | deploy/ | e.g. `user@vps-host` |
 
