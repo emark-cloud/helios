@@ -432,6 +432,83 @@ contract StrategyVaultTest is Test {
         assertEq(vault.allocationOf(allocatorVault), 200e6); // residual principal
     }
 
+    // ── recoverStrandedNAV ──────────────────────────────────────────
+
+    function test_RecoverStrandedNAV_HappyPath() public {
+        // Repro the production scenario: allocator deposits, NAV is
+        // marked up by oracle, allocator defunds → HIGH-#8 clamps the
+        // pull at min(principal, navShare). With principal = navShare =
+        // 1000e6 there's no markup left behind, so we need a *true*
+        // stranded case: mark up THEN pull principal, leaving markup.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        // Strategy gained 200 — vault now holds 1200, NAV 1200.
+        usdc.mint(address(vault), 200e6);
+        _reportNAV(1200e6, uint64(block.timestamp + 1));
+
+        // Allocator pulls principal-equivalent (clamp doesn't bite
+        // because navShare > principal here): pulls 1000, navShare
+        // becomes 200, principal becomes 0.
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 1000e6);
+        assertEq(vault.allocationOf(allocatorVault), 0);
+        assertEq(vault.totalNAV(), 200e6, "200 markup stranded");
+
+        // Owner sweeps.
+        address recipient = address(0xC0FFEE);
+        uint256 balBefore = usdc.balanceOf(recipient);
+        vm.expectEmit(true, true, false, true);
+        emit IStrategyVault.StrandedNAVRecovered(address(vault), recipient, 200e6);
+        vm.prank(owner);
+        vault.recoverStrandedNAV(recipient, 200e6);
+
+        assertEq(usdc.balanceOf(recipient) - balBefore, 200e6);
+        assertEq(vault.totalNAV(), 0);
+    }
+
+    function test_RecoverStrandedNAV_RevertsOnNonOwner() public {
+        vm.expectRevert();
+        vault.recoverStrandedNAV(address(0xCAFE), 1);
+    }
+
+    function test_RecoverStrandedNAV_RevertsOnZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        vault.recoverStrandedNAV(address(0), 1);
+    }
+
+    function test_RecoverStrandedNAV_RevertsOnZeroAmount() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.AmountInMismatch.selector);
+        vault.recoverStrandedNAV(address(0xCAFE), 0);
+    }
+
+    function test_RecoverStrandedNAV_RevertsWhenAllocatorPrincipalNonZero() public {
+        // Stranded sweep is only safe after the allocator is fully
+        // unwound. While principal > 0, the right path is
+        // withdrawToAllocator / distributeRealized, not stranded.
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.AllocationOverdrawn.selector);
+        vault.recoverStrandedNAV(address(0xCAFE), 1);
+    }
+
+    function test_RecoverStrandedNAV_RevertsAboveTotalNAV() public {
+        vm.prank(allocatorVault);
+        vault.allocateFrom(1000e6);
+        usdc.mint(address(vault), 200e6);
+        _reportNAV(1200e6, uint64(block.timestamp + 1));
+        vm.prank(allocatorVault);
+        vault.withdrawToAllocator(allocatorVault, 1000e6);
+        assertEq(vault.totalNAV(), 200e6);
+
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.WithdrawExceedsNAVShare.selector);
+        vault.recoverStrandedNAV(address(0xCAFE), 200e6 + 1);
+    }
+
     // ── distributeRealized ──────────────────────────────────────────
 
     function test_DistributeRealized_NoOpWhenUnderwater() public {

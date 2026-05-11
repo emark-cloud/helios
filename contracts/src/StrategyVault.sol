@@ -399,6 +399,28 @@ contract StrategyVault is
         baseAsset.safeTransfer(msg.sender, amount);
     }
 
+    /// @notice Sweep stranded NAV — residual `_totalNAV` that no
+    ///         allocator can claim. Stranded NAV arises after defund
+    ///         when HIGH-#8's `min(principal, navShare)` clamp leaves
+    ///         markup-above-principal behind. With no allocator records
+    ///         the AllocatorVault can never call `withdrawToAllocator`
+    ///         again, and `_totalNAV > 0` blocks `StrategyRegistry.deactivate`.
+    ///         Owner-only; allocator principal MUST be zero so the
+    ///         strategy operator cannot front-run a healthy allocator's
+    ///         capital. See `docs/phase-3-review.md` HIGH-#8 + the
+    ///         WS9 stranded-NAV postmortem.
+    function recoverStrandedNAV(address to, uint256 amount) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert AmountInMismatch();
+        // Phase 1 single-allocator: if the allocator has principal here,
+        // the right path is withdrawToAllocator, not stranded recovery.
+        if (_allocationOf[allocatorVault] != 0) revert AllocationOverdrawn();
+        if (amount > _totalNAV) revert WithdrawExceedsNAVShare();
+        _totalNAV -= amount;
+        baseAsset.safeTransfer(to, amount);
+        emit StrandedNAVRecovered(address(this), to, amount);
+    }
+
     /// @notice Pay accrued realized PnL (NAV above principal) back to the allocator vault.
     function distributeRealized(address allocator) external onlyAllocatorVault nonReentrant {
         uint256 share = _navOf(allocator);

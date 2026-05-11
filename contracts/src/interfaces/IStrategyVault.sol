@@ -89,6 +89,11 @@ interface IStrategyVault {
         address indexed strategy, address indexed oApp, bytes32 indexed tradeHash
     );
 
+    /// @notice Emitted when the owner sweeps stranded NAV — residual
+    ///         vault balance that the allocator can no longer claim
+    ///         because HIGH-#8's clamp left it behind after defund.
+    event StrandedNAVRecovered(address indexed strategy, address indexed to, uint256 amount);
+
     error InvalidProof();
     error NotOperator();
     error NotRegistry();
