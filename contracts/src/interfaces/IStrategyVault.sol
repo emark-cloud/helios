@@ -79,6 +79,12 @@ interface IStrategyVault {
     ///         tracks Base / Arbitrum execution-chain wiring; Kite
     ///         vaults stay at the zero default.
     event HeliosOAppUpdated(address indexed previous, address indexed current);
+    /// @notice Owner-only `registry` pointer rotation. WS11 V1→V2
+    ///         ReputationAnchor cutover (Phase-6) swaps the vault from
+    ///         the original immutable-anchor registry to a fresh
+    ///         registry whose `reputationAnchor` is the new V2-bis
+    ///         anchor.
+    event RegistryUpdated(address indexed previous, address indexed next);
     /// @notice Emitted when a cross-chain reputation tick was queued on
     ///         the OApp after a successful executeWithProof /
     ///         executeYieldRotationWithProof on a non-canonical chain.

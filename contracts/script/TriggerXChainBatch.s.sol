@@ -49,9 +49,8 @@ contract TriggerXChainBatch is Script {
             CrossChainCodec.ReputationBatchEntry({ seq: nextSeq, strategy: deployer, data: data });
         bytes memory payload = CrossChainCodec.encodeReputationBatch(batch);
 
-        bytes memory options = abi.encodePacked(
-            uint16(3), uint8(1), uint16(17), uint8(1), uint128(250_000)
-        );
+        bytes memory options =
+            abi.encodePacked(uint16(3), uint8(1), uint16(17), uint8(1), uint128(250_000));
 
         IHeliosOApp.MessagingFee memory fee = oapp.quote(dstEid, payload, options);
         console2.log("== batch quote ==");

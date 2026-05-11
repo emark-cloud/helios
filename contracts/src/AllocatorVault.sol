@@ -201,6 +201,18 @@ contract AllocatorVault is
         oracleAnchor = anchor_;
     }
 
+    /// @notice Owner-only `strategyRegistry` pointer rotation. The
+    ///         registry's `reputationAnchor` is immutable, so swapping
+    ///         to a fresh anchor (WS11 V1→V2 cutover) requires
+    ///         redeploying the registry and pointing the vault at it
+    ///         here. No new storage slots — uses the existing
+    ///         `strategyRegistry` field set in `initialize`.
+    function setStrategyRegistry(address newRegistry) external onlyOwner {
+        if (newRegistry == address(0)) revert ZeroAddress();
+        emit StrategyRegistryUpdated(strategyRegistry, newRegistry);
+        strategyRegistry = newRegistry;
+    }
+
     /// @notice Tune the reward cap paid out of strategy stake on a
     ///         successful permissionless finalize. Owner-only. Pass
     ///         `capE6 = 0` to fall back to `DEFAULT_REWARD_CAP_USD_E6`

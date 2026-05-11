@@ -361,6 +361,19 @@ contract StrategyVault is
         emit HeliosOAppUpdated(prev, newOApp);
     }
 
+    /// @notice Owner-only `registry` pointer rotation. The registry's
+    ///         `reputationAnchor` is immutable; swapping to a fresh
+    ///         anchor (WS11 V1→V2 cutover) requires redeploying the
+    ///         registry and pointing each strategy vault at it here.
+    ///         No new storage slots — uses the existing `registry`
+    ///         field set in `initialize`.
+    function setRegistry(address newRegistry) external onlyOwner {
+        if (newRegistry == address(0)) revert ZeroAddress();
+        address prev = registry;
+        registry = newRegistry;
+        emit RegistryUpdated(prev, newRegistry);
+    }
+
     // ── Capital flow (allocator vault entry/exit) ───────────────────
 
     /// @notice Pull base-asset capital in from the paired allocator vault.

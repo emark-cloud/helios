@@ -30,8 +30,7 @@ contract DeployKiteHeliosOApp is Script {
     ///      Source: contracts/deployments/kite-testnet.json @
     ///      addresses.reputationAnchor. Pinned here to keep the broadcast
     ///      script side-effect-free against the JSON read.
-    address internal constant KITE_REPUTATION_ANCHOR =
-        0x51C07aDf596B1e72697a9B8232d061ed006943Dc;
+    address internal constant KITE_REPUTATION_ANCHOR = 0x51C07aDf596B1e72697a9B8232d061ed006943Dc;
 
     /// @dev Matches DeployPhase5Execution constructor arg.
     uint256 internal constant MAX_PENDING = 64;
@@ -66,12 +65,8 @@ contract DeployKiteHeliosOApp is Script {
     function _patchDeploymentJson(address oApp, uint32 localEid, address endpoint) internal {
         string memory file = "./deployments/kite-testnet.json";
         vm.writeJson(vm.toString(uint256(localEid)), file, ".lzLocalEid");
-        vm.writeJson(
-            string.concat('"', vm.toString(endpoint), '"'), file, ".lzKiteEndpoint"
-        );
-        vm.writeJson(
-            string.concat('"', vm.toString(oApp), '"'), file, ".addresses.heliosOApp"
-        );
+        vm.writeJson(string.concat('"', vm.toString(endpoint), '"'), file, ".lzKiteEndpoint");
+        vm.writeJson(string.concat('"', vm.toString(oApp), '"'), file, ".addresses.heliosOApp");
         console2.log("patched:", file);
     }
 }

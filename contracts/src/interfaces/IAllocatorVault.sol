@@ -81,6 +81,11 @@ interface IAllocatorVault {
     event OracleAnchorUpdated(address indexed previous, address indexed next);
     /// @notice Owner-only reward cap rotation, in USDC e6 units.
     event DefundRewardCapUpdated(uint256 previous, uint256 next);
+    /// @notice Owner-only `strategyRegistry` pointer rotation. Used by
+    ///         the WS11 V1→V2 ReputationAnchor cutover (Phase-6) to
+    ///         swap the immutable-registry pointer the vault was
+    ///         initialised against.
+    event StrategyRegistryUpdated(address indexed previous, address indexed next);
 
     error NotAllocator();
     error AllocationOutOfBounds();
