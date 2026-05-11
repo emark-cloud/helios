@@ -38,7 +38,7 @@ import httpx
 #     per `docs/reputation-math.md §"Allocator reputation v1"`).
 _QUERY_ALLOCATOR_STATE = """
 query AllocatorState($windowStart: BigInt!) {
-  allocators(first: 1000) {
+  allocators(first: 1000, where: { stakeAmount_gt: "0" }) {
     id
     stakeAmount
     delegations(first: 1000) {
@@ -59,6 +59,17 @@ query AllocatorState($windowStart: BigInt!) {
   }
 }
 """
+# Filter `stakeAmount_gt: "0"` — the subgraph mapping creates Allocator
+# stubs via `loadOrCreate` for any address that appears in adjacent
+# events (e.g. the deployer EOA referenced as operator), and those stubs
+# have `stakeAmount=0` + `name=""` because `AllocatorRegistered` was
+# never emitted for them. Posting reputation for a stub reverts
+# `AllocatorNotFound()` from `AllocatorRegistry.updateReputation`
+# (the on-chain registry has no entry). Real registered allocators
+# always have non-zero stake per `AllocatorRegistry.register`, so this
+# is a safe proxy. Belt-and-suspenders: `_parse_allocator` also
+# enforces `stake_e18 > 0` for callers that fetch through a different
+# code path.
 
 _QUERY_STRATEGY_STATE = """
 query StrategyState($since: BigInt!) {
@@ -220,6 +231,11 @@ class GoldskyClient:
         data = body.get("data") or {}
         raw: list[dict[str, Any]] = list(data.get("allocators") or [])
         parsed = [_parse_allocator(a, window_start_unix) for a in raw]
+        # Belt-and-suspenders against subgraph stubs that slip past the
+        # query filter (e.g. older indexes with mappings that didn't gate
+        # `loadOrCreate` on `AllocatorRegistered`). Mirrors the same
+        # `stakeAmount > 0` invariant the query enforces.
+        parsed = [s for s in parsed if s.stake_e18 > 0]
         max_stake = max((s.stake_e18 for s in parsed), default=0)
         return [
             AllocatorState(

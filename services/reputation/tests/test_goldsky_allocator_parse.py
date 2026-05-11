@@ -125,3 +125,65 @@ def test_missing_optional_fields_default_safely() -> None:
     assert s.users_at_window_end == 0
     assert s.users_at_window_start == 0
     assert s.breach_total_count == 0
+
+
+import pytest  # noqa: E402  — keep parser tests above un-imports'd
+from reputation.goldsky import AllocatorState, GoldskyClient  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_fetch_allocator_states_drops_zero_stake_stubs() -> None:
+    """Regression: the subgraph mapping can create `Allocator` stubs via
+    `loadOrCreate` from events that reference an address (e.g. the
+    deployer EOA appearing as an `operator` field), leaving
+    `stakeAmount=0` rows that are not actually registered on-chain.
+    Submitting reputation for those reverts `AllocatorNotFound()` on
+    `AllocatorRegistry.updateReputation`. The fetcher must drop them.
+    """
+
+    class _StubResp:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _StubClient:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+            self.calls = 0
+
+        async def post(self, _url: str, json: dict[str, object]) -> _StubResp:
+            self.calls += 1
+            return _StubResp(self._payload)
+
+    payload = {
+        "data": {
+            "allocators": [
+                {  # real allocator — registered, has stake
+                    "id": "0xreal",
+                    "stakeAmount": "5000000000000000000000",
+                    "delegations": [],
+                    "decisions": [],
+                },
+                {  # stub — created by loadOrCreate, never registered on-chain
+                    "id": "0xdeployer",
+                    "stakeAmount": "0",
+                    "delegations": [],
+                    "decisions": [],
+                },
+            ]
+        }
+    }
+    client = GoldskyClient(endpoint="https://stub/", client=_StubClient(payload))  # type: ignore[arg-type]
+    states = await client.fetch_allocator_states(window_start_unix=_WINDOW_START)
+    assert [s.allocator_id for s in states] == ["0xreal"], (
+        "0-stake stub must not reach the engine — it would trigger an "
+        "AllocatorNotFound() revert when the anchor posts to the registry"
+    )
+    assert all(isinstance(s, AllocatorState) for s in states)
