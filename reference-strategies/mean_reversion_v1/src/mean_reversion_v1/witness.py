@@ -102,8 +102,23 @@ def build_mean_reversion_witness(
 
     asset_in_idx = asset_to_universe_idx[intent.asset_in]
     asset_out_idx = asset_to_universe_idx[intent.asset_out]
-    amount_in_e18 = _resolve_amount_in(intent, padded[-1], asset_decimals)
-    min_amount_out_e18 = _min_amount_out(amount_in_e18, intent.max_slippage_bps)
+    amount_in_native = _resolve_amount_in(intent, padded[-1], asset_decimals)
+
+    # Phase-6 cross-decimal slippage: convert amount_in to expected
+    # amount_out at the current oracle price, then apply slippage in
+    # asset_out native units. The circuit pins `pow10_asset_in/out` to
+    # the live `IERC20.decimals()` via StrategyVault, so the operator
+    # can't lie about the conversion factor.
+    pow10_in = 10 ** (asset_decimals or {}).get(intent.asset_in, 18)
+    pow10_out = 10 ** (asset_decimals or {}).get(intent.asset_out, 18)
+    expected_amount_out, min_amount_out_native = _min_amount_out_cross_decimal(
+        amount_in=amount_in_native,
+        last_price_e18=padded[-1],
+        pow10_in=pow10_in,
+        pow10_out=pow10_out,
+        is_long_entry=bool(is_long_entry),
+        max_slippage_bps=intent.max_slippage_bps,
+    )
 
     strategy_vault_field = address_to_field(strategy_vault_address)
     allocator_field = address_to_field(allocator_address)
@@ -123,8 +138,8 @@ def build_mean_reversion_witness(
             allocator_field,
             asset_in_idx,
             asset_out_idx,
-            amount_in_e18,
-            min_amount_out_e18,
+            amount_in_native,
+            min_amount_out_native,
             direction,
             nonce,
         ]
@@ -138,13 +153,16 @@ def build_mean_reversion_witness(
         "allocator_address": str(allocator_field),
         "asset_in_idx": str(asset_in_idx),
         "asset_out_idx": str(asset_out_idx),
-        "amount_in": str(amount_in_e18),
-        "min_amount_out": str(min_amount_out_e18),
+        "amount_in": str(amount_in_native),
+        "min_amount_out": str(min_amount_out_native),
         "trade_direction": str(direction),
         "nonce": str(nonce),
         "block_window_start": str(block_window_start),
         "block_window_end": str(block_window_end),
         "oracle_root": str(oracle_root_field),
+        # Phase-6 cross-decimal slippage public inputs (positions 14+15).
+        "pow10_asset_in": str(pow10_in),
+        "pow10_asset_out": str(pow10_out),
         # Witness — operator-private
         "max_position_size": str(max_position_size_e18),
         "max_slippage_bps": str(max_slippage_bps),
@@ -156,6 +174,7 @@ def build_mean_reversion_witness(
         "is_exit": str(is_exit),
         "is_signal_flip": str(int(is_signal_flip)),
         "is_stop_loss": str(int(is_stop_loss)),
+        "expected_amount_out": str(expected_amount_out),
     }
     return WitnessRequest(
         strategy_class="mean_reversion_v1",
@@ -192,12 +211,42 @@ def _resolve_amount_in(
     raise ValueError("intent must carry amount_in_usd or amount_in_asset")
 
 
-def _min_amount_out(amount_in: int, max_slippage_bps: int) -> int:
-    # Ceiling division — the circuit's slippage constraint is
-    # `min_amount_out * 10000 >= amount_in * (10000 - max_slippage_bps)`,
-    # which floor-division can violate by 1 when the product isn't
-    # exactly divisible by 10000. Ceil keeps it inclusive on the
-    # constraint side (effectively says "you must accept at LEAST
-    # this rounded-up minimum").
-    numerator = amount_in * (10_000 - max_slippage_bps)
-    return (numerator + 9_999) // 10_000
+def _min_amount_out_cross_decimal(
+    *,
+    amount_in: int,
+    last_price_e18: int,
+    pow10_in: int,
+    pow10_out: int,
+    is_long_entry: bool,
+    max_slippage_bps: int,
+) -> tuple[int, int]:
+    """Returns (expected_amount_out, min_amount_out) — both in asset_out
+    native units.
+
+    Mirrors `mean_reversion_v1.circom` Constraints 2a/2b/2c:
+
+      LONG  (USDC → non-USDC asset):
+        expected * pow10_in * price = floor(amount_in * pow10_out * 1e18)
+      SHORT/EXIT (non-USDC asset → USDC):
+        expected * pow10_in * 1e18  = floor(amount_in * pow10_out * price)
+
+    `expected` is pinned to the exact floor by Constraints 2a/2b.
+    `min_amount_out` is `ceil(expected * (10000 - slippage_bps) / 10000)`
+    — the smallest value that still satisfies the circuit's slippage
+    inequality.
+    """
+    ONE_E18 = 10**18
+    if is_long_entry:
+        # USDC → asset
+        num = pow10_out * ONE_E18
+        denom = pow10_in * last_price_e18
+    else:
+        # asset → USDC (SHORT or EXIT)
+        num = pow10_out * last_price_e18
+        denom = pow10_in * ONE_E18
+    if denom == 0:
+        raise ValueError("cross-decimal conversion denominator is zero")
+    expected = (amount_in * num) // denom
+    slip_term = expected * (10_000 - max_slippage_bps)
+    min_amount_out = (slip_term + 9_999) // 10_000
+    return expected, min_amount_out

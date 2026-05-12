@@ -8,19 +8,22 @@ import { IGroth16Verifier } from "../interfaces/ITradeAttestationVerifier.sol";
 ///         dynamic-array `IGroth16Verifier` shape that
 ///         `TradeAttestationVerifier` calls. One adapter per class — the
 ///         constant `_PUBLIC_INPUT_COUNT` matches the circuit's public
-///         signal count (momentum_v1 = 14; mean_reversion_v1 / yield_rotation_v1
-///         get their own adapters with their own counts).
+///         signal count. Bumped 14 → 16 by the Phase-6 cross-decimal
+///         slippage redesign: `pow10_asset_in` and `pow10_asset_out`
+///         join the public-input vector so `StrategyVault.executeWithProof`
+///         can bind them to the live `IERC20.decimals()` of the
+///         universe-asset entries before delegating to the verifier.
 interface ISnarkjsMomentumV1Verifier {
     function verifyProof(
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[14] calldata publicSignals
+        uint256[16] calldata publicSignals
     ) external view returns (bool);
 }
 
 contract MomentumV1VerifierAdapter is IGroth16Verifier {
-    uint256 private constant _PUBLIC_INPUT_COUNT = 14;
+    uint256 private constant _PUBLIC_INPUT_COUNT = 16;
 
     ISnarkjsMomentumV1Verifier public immutable inner;
 
@@ -39,7 +42,7 @@ contract MomentumV1VerifierAdapter is IGroth16Verifier {
         if (publicInputs.length != _PUBLIC_INPUT_COUNT) {
             revert WrongPublicInputCount(publicInputs.length, _PUBLIC_INPUT_COUNT);
         }
-        uint256[14] memory fixedInputs;
+        uint256[16] memory fixedInputs;
         for (uint256 i = 0; i < _PUBLIC_INPUT_COUNT; i++) {
             fixedInputs[i] = publicInputs[i];
         }

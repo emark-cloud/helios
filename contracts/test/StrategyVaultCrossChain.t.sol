@@ -231,7 +231,10 @@ contract StrategyVaultCrossChainTest is Test {
     }
 
     function _validInputs() internal view returns (uint256[] memory pi) {
-        pi = new uint256[](14);
+        // PI_LENGTH bumped to 16 by Phase-6 cross-decimal Constraint 2;
+        // slots 14/15 are pow10_asset_in / pow10_asset_out, bound to
+        // `IERC20Metadata(token).decimals()` by StrategyVault.
+        pi = new uint256[](16);
         pi[0] = uint256(keccak256("trade-cx-1"));
         pi[1] = uint256(CLASS);
         pi[2] = uint256(uint160(address(vault)));
@@ -246,6 +249,8 @@ contract StrategyVaultCrossChainTest is Test {
         pi[11] = block.number;
         pi[12] = block.number + 10;
         pi[13] = uint256(keccak256("oracle-root-cx-1"));
+        pi[14] = 10 ** uint256(usdc.decimals());
+        pi[15] = 10 ** uint256(eth.decimals());
     }
 }
 

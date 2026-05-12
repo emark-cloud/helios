@@ -614,21 +614,15 @@ contract StrategyVaultTest is Test {
 
     function _validInputs() internal view returns (uint256[] memory pi) {
         // Layout matches StrategyVault.PI_*:
-        //  [0] trade_hash
-        //  [1] declared_class
-        //  [2] strategy_vault
-        //  [3] params_hash
-        //  [4] allocator
-        //  [5] asset_in_idx
-        //  [6] asset_out_idx
-        //  [7] amount_in
-        //  [8] min_amount_out
-        //  [9] direction
-        //  [10] nonce
-        //  [11] block_window_start
-        //  [12] block_window_end
-        //  [13] oracle_root
-        pi = new uint256[](14);
+        //  [0]  trade_hash         [8]  min_amount_out
+        //  [1]  declared_class     [9]  direction
+        //  [2]  strategy_vault     [10] nonce
+        //  [3]  params_hash        [11] block_window_start
+        //  [4]  allocator          [12] block_window_end
+        //  [5]  asset_in_idx       [13] oracle_root
+        //  [6]  asset_out_idx      [14] pow10_asset_in   (Phase-6)
+        //  [7]  amount_in          [15] pow10_asset_out  (Phase-6)
+        pi = new uint256[](16);
         pi[0] = uint256(keccak256("trade-1"));
         pi[1] = uint256(CLASS);
         pi[2] = uint256(uint160(address(vault)));
@@ -643,6 +637,11 @@ contract StrategyVaultTest is Test {
         pi[11] = block.number; // window_start
         pi[12] = block.number + 10; // window_end
         pi[13] = uint256(keccak256("oracle-root-1"));
+        // The test mocks both ERC-20s with OZ ERC20's default
+        // decimals() = 18. PI_POW10 must equal 10^decimals or
+        // _validateAndVerify reverts Pow10AssetIn/Out Mismatch.
+        pi[14] = 10 ** uint256(usdc.decimals());
+        pi[15] = 10 ** uint256(eth.decimals());
     }
 
     function test_ExecuteWithProof_OnlyOperator() public {

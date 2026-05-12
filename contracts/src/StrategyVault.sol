@@ -18,6 +18,7 @@ import {
     ReentrancyGuardTransient
 } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -68,7 +69,14 @@ contract StrategyVault is
     uint256 internal constant PI_BLOCK_WINDOW_START = 11;
     uint256 internal constant PI_BLOCK_WINDOW_END = 12;
     uint256 internal constant PI_ORACLE_ROOT = 13;
-    uint256 internal constant PI_LENGTH = 14;
+    // pow10 of the trade's asset_in / asset_out — bound on-chain to
+    // `10 ** IERC20Metadata(token).decimals()` before delegating to
+    // the verifier, so the operator's witness cannot claim a
+    // different decimal scaling than the actual ERC-20 metadata.
+    // Added by Phase-6 cross-decimal slippage redesign.
+    uint256 internal constant PI_POW10_IN = 14;
+    uint256 internal constant PI_POW10_OUT = 15;
+    uint256 internal constant PI_LENGTH = 16;
 
     // Yield-rotation public-input layout. Distinct from the swap layout
     // above — rotations move capital between yield-bearing markets and
@@ -185,6 +193,14 @@ contract StrategyVault is
     error UnknownYieldOracleRoot();
     error AllowlistRootMismatch();
     error ParamsHashNotCommitted();
+    /// @dev publicInputs[PI_POW10_IN] doesn't match
+    ///      `10 ** IERC20Metadata(assetIn).decimals()`. Pinning the
+    ///      operator-supplied `pow10` to the live ERC-20 metadata is
+    ///      what makes the circuit's cross-decimal slippage check
+    ///      honest — the operator cannot lie about the swap's
+    ///      native-unit conversion factor.
+    error Pow10AssetInMismatch();
+    error Pow10AssetOutMismatch();
 
     /// @dev Selector for `IERC20.approve(address,uint256)`. Hardcoded so the
     ///      whitelist is independent of compile-time IERC20 metadata changes.
@@ -564,6 +580,22 @@ contract StrategyVault is
         bytes32 tradeHash = bytes32(publicInputs[PI_TRADE_HASH]);
         if (_seenTradeHash[tradeHash]) revert TradeAlreadySettled();
         _seenTradeHash[tradeHash] = true;
+
+        // Bind the operator-supplied pow10_asset_in / pow10_asset_out
+        // to the live ERC-20 metadata of the trade's asset_in /
+        // asset_out. The circuit's new cross-decimal slippage check
+        // (`expected_out × pow10_in × denom = amount_in × pow10_out ×
+        // num`) is only honest if pow10_in/out are pinned to chain
+        // truth — otherwise the operator could claim arbitrary
+        // decimals and slip past the slippage cap.
+        {
+            address pow10AssetIn = _manifest.assetUniverse[publicInputs[PI_ASSET_IN]];
+            address pow10AssetOut = _manifest.assetUniverse[publicInputs[PI_ASSET_OUT]];
+            uint256 expectedPow10In = 10 ** IERC20Metadata(pow10AssetIn).decimals();
+            uint256 expectedPow10Out = 10 ** IERC20Metadata(pow10AssetOut).decimals();
+            if (publicInputs[PI_POW10_IN] != expectedPow10In) revert Pow10AssetInMismatch();
+            if (publicInputs[PI_POW10_OUT] != expectedPow10Out) revert Pow10AssetOutMismatch();
+        }
 
         if (!ITradeAttestationVerifier(verifier)
                 .verify(_manifest.declaredClass, proof, publicInputs)) {

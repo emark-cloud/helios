@@ -34,7 +34,14 @@ function asField(n) {
   const stop_loss_price = "0";
   const params_hash = ph([max_position_size, max_slippage_bps, signal_threshold, stop_loss_price]);
 
-  const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  // Prices are oracle e18-scaled (1 USD = 1e18 in price_e18 terms).
+  // Cross-decimal Constraint 2 requires `price * pow10_in × …` to fit
+  // under BN254; raw small-int prices (1000..1075) made
+  // expected_amount_out blow Num2Bits(96).
+  const E18 = 10n ** 18n;
+  const price_observations = Array.from({ length: 16 }, (_, i) =>
+    ((BigInt(1000 + i * 5)) * E18).toString()
+  );
   const oracle_root = chained(price_observations);
 
   const declared_class = asField("0x1234");
@@ -43,11 +50,28 @@ function asField(n) {
   const asset_in_idx = "0";
   const asset_out_idx = "3";
   const amount_in = "1000000000000000000";
-  const min_amount_out = "995000000000000000";
   const trade_direction = "1";
   const nonce = "42";
   const block_window_start = "100";
   const block_window_end = "150";
+
+  // Phase-6 cross-decimal slippage. Fixture sticks with same-decimals
+  // tokens (both 18-dec) to keep the fixture math readable, but the
+  // path-aware circuit still runs through the multiplexer. Last bar =
+  // price_observations[15] = 1075 (raw); for LONG this gives
+  // expected = amount_in * pow10_out * 1e18 / (pow10_in * 1075).
+  const pow10_asset_in = (10n ** 18n).toString();
+  const pow10_asset_out = (10n ** 18n).toString();
+  const ONE_E18 = 10n ** 18n;
+  const last_price = BigInt(price_observations[15]);
+  // LONG: expected = floor(amount_in * pow10_out * 1e18 / (pow10_in * price))
+  const expected_amount_out = (
+    (BigInt(amount_in) * BigInt(pow10_asset_out) * ONE_E18) /
+    (BigInt(pow10_asset_in) * last_price)
+  ).toString();
+  // ceil(expected * (10000 - slippage) / 10000)
+  const slipNum = BigInt(expected_amount_out) * (10000n - BigInt(max_slippage_bps));
+  const min_amount_out = ((slipNum + 9999n) / 10000n).toString();
 
   const trade_hash = ph([
     strategy_vault,
@@ -77,6 +101,8 @@ function asField(n) {
     block_window_start,
     block_window_end,
     oracle_root,
+    pow10_asset_in,
+    pow10_asset_out,
     max_position_size,
     max_slippage_bps,
     signal_threshold,
@@ -88,6 +114,7 @@ function asField(n) {
     is_signal_flip: "0",
     is_stop_loss: "0",
     was_long: "1",
+    expected_amount_out,
   };
 
   console.log("generating proof…");

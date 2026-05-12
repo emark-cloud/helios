@@ -123,9 +123,20 @@ def test_amount_in_usd_scaled_to_e18() -> None:
 
 
 def test_min_amount_out_respects_slippage() -> None:
+    # Cross-decimal slippage (Phase-6 Constraint 2). Default fixture is
+    # LONG USDC→WETH at $2000 / WETH, both 18-dec when asset_decimals
+    # is unset. expected_weth = $1000 / $2000 = 0.5 WETH = 5e17 wei.
+    # min_amount_out = ceil(0.5e18 * 9900 / 10000) = 4.95e17 wei.
     req = _build(intent=_intent(amount_in_usd=1000.0, max_slippage_bps=100))
-    expected = (1000 * 10**18) * (10_000 - 100) // 10_000
-    assert int(req.inputs["min_amount_out"]) == expected
+    pow10_in = 10**18
+    pow10_out = 10**18
+    amount_in = 1000 * 10**18
+    price = 2000 * 10**18
+    # LONG: expected * pow10_in * price = amount_in * pow10_out * 1e18.
+    expected = (amount_in * pow10_out * 10**18) // (pow10_in * price)
+    min_out = (expected * 9_900 + 9_999) // 10_000
+    assert int(req.inputs["expected_amount_out"]) == expected
+    assert int(req.inputs["min_amount_out"]) == min_out
 
 
 def test_window_over_100_blocks_rejected() -> None:
@@ -222,11 +233,22 @@ def test_fixture_round_trip() -> None:
     """Cross-check against the on-chain fixture
     (`circuits/scripts/gen-fixture-mr.js` knobs):
     strategy_vault=0xbeef00, allocator=0xa11ca7, declared_class=0x5678,
-    15 bars of 1000 then last bar 700, n_sigma_x100=200. The witness's
-    three Poseidon outputs must equal the fixture's publicSignals[0]
-    (trade_hash), publicSignals[3] (params_hash), publicSignals[13]
-    (oracle_root).
+    15 bars of 1000e18 then last bar 700e18, n_sigma_x100=200. The
+    witness's three Poseidon outputs must equal the fixture's
+    publicSignals at the matching slots, and pow10/min_amount_out must
+    match the cross-decimal computation the fixture script performs.
+    Prices are e18-scaled to stay consistent with the production
+    oracle's price_e18 convention (and to keep the cross-decimal
+    expected_amount_out inside Num2Bits(96)).
     """
+    import json
+    from pathlib import Path
+
+    fixture = json.loads(
+        Path("contracts/test/fixtures/mean_reversion_v1.json").read_text()
+    )
+    pub = fixture["publicSignals"]
+    e18 = 10**18
     req = build_mean_reversion_witness(
         intent=TradeIntent(
             asset_in="USDC",
@@ -237,32 +259,29 @@ def test_fixture_round_trip() -> None:
         ),
         asset_to_universe_idx=_ASSET_IDX,
         asset_universe_addresses=_UNIVERSE_ADDRS,
-        price_observations_e18=[1000] * 15 + [700],
+        price_observations_e18=[1000 * e18] * 15 + [700 * e18],
         declared_class_field=0x5678,
         strategy_vault_address="0xbeef00",
         allocator_address="0xa11ca7",
         nonce=42,
         block_window_start=100,
         block_window_end=150,
-        max_position_size_e18=5 * 10**18,
+        max_position_size_e18=5 * e18,
         max_slippage_bps=50,
         n_sigma_x100=200,
         stop_loss_price_e18=0,
         is_signal_flip=False,
         is_stop_loss=False,
     )
-    assert (
-        int(req.inputs["params_hash"])
-        == 12441673086156183748057805468196993645378568675500367430807514580524230758459
-    )
-    assert (
-        int(req.inputs["oracle_root"])
-        == 15960622218484124943527498354244336609744278190070709384187159996542471155407
-    )
-    assert (
-        int(req.inputs["trade_hash"])
-        == 17790372904353956429098291626594131965871939508489099441957090224480872231583
-    )
+    # publicSignals layout matches `circuits/momentum_v1.circom` /
+    # `mean_reversion_v1.circom` `public[...]` order — same 16 slots.
+    assert int(req.inputs["trade_hash"]) == int(pub[0])
+    assert int(req.inputs["params_hash"]) == int(pub[3])
+    assert int(req.inputs["oracle_root"]) == int(pub[13])
+    assert int(req.inputs["pow10_asset_in"]) == int(pub[14])
+    assert int(req.inputs["pow10_asset_out"]) == int(pub[15])
+    assert int(req.inputs["amount_in"]) == int(pub[7])
+    assert int(req.inputs["min_amount_out"]) == int(pub[8])
 
 
 # ── Multi-decimal mode (Phase-6 real-P&L) ────────────────────────────
@@ -307,11 +326,21 @@ def test_multi_decimal_falls_back_to_legacy_for_unknown_asset() -> None:
 
 
 def test_multi_decimal_min_amount_out_respects_slippage() -> None:
+    # USDC (6-dec) → WETH (18-dec) LONG. amount_in is 1000 USDC =
+    # 1e9 wei in 6-dec; price = $2000 / WETH; expected_weth =
+    # ($1000 / $2000) WETH = 0.5 WETH = 5e17 wei in 18-dec.
     req = _build(
         intent=_intent(amount_in_usd=1000.0, max_slippage_bps=100),
         asset_decimals={"USDC": 6, "WETH": 18},
     )
     expected_in = 1000 * 10**6
-    expected_min_out = expected_in * 9_900 // 10_000
+    pow10_in = 10**6
+    pow10_out = 10**18
+    price = 2000 * 10**18
+    expected_weth = (expected_in * pow10_out * 10**18) // (pow10_in * price)
+    expected_min_out = (expected_weth * 9_900 + 9_999) // 10_000
     assert int(req.inputs["amount_in"]) == expected_in
+    assert int(req.inputs["expected_amount_out"]) == expected_weth
     assert int(req.inputs["min_amount_out"]) == expected_min_out
+    assert req.inputs["pow10_asset_in"] == str(pow10_in)
+    assert req.inputs["pow10_asset_out"] == str(pow10_out)

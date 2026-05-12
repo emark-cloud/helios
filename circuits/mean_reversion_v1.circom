@@ -48,6 +48,18 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     signal input block_window_start;
     signal input block_window_end;
     signal input oracle_root;
+    // pow10 of the trade's asset_in / asset_out (i.e. 10^decimals).
+    // Phase-6 multi-asset universe added cross-decimal swap pairs
+    // (USDC↔mWBTC/mWETH/mSOL with 18/8/18/9 decimals); the
+    // pre-Phase-6 Constraint 2 enforced a same-unit slippage bound
+    // (`min_out × 10000 ≥ amount_in × (10000 - slippage)`), which is
+    // structurally wrong when amount_in and min_amount_out are
+    // denominated in different native units. These two public inputs
+    // let the on-chain `StrategyVault.executeWithProof` bind the
+    // witness's claimed decimals to the actual `IERC20.decimals()`
+    // of the universe-asset entries — the operator cannot lie.
+    signal input pow10_asset_in;
+    signal input pow10_asset_out;
 
     // ── Witness (private) ───────────────────────────────────────────
     signal input max_position_size;
@@ -62,6 +74,14 @@ template MeanReversionV1(UNIVERSE_SIZE) {
 
     signal input is_signal_flip;
     signal input is_stop_loss;
+
+    // expected_amount_out: the slippage-free swap result in asset_out
+    // native units at the current oracle price. The operator commits
+    // it as a witness; Constraint 2 pins it to the exact floor of the
+    // cross-decimal conversion derived from `price_observations[15]`
+    // and `pow10_asset_in/out`, then enforces slippage in native
+    // units against `min_amount_out`.
+    signal input expected_amount_out;
 
     // ── Constraint A: params_hash binds operator-declared parameters ─
     component paramsPoseidon = Poseidon(4);
@@ -121,15 +141,19 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     sameIdx.out === 0;
 
     // HIGH #13 — explicit width on amount fields before they enter
-    // any quadratic constraint. 128 bits keeps the slippage product
-    // (`amount_in × (10000 - max_slippage_bps)`) well below BN254 so
-    // a near-field-size witness can no longer wrap the multiplication
-    // and still pass GreaterEqThan(160).
-    component amountInBits = Num2Bits(128);
+    // any quadratic constraint. Tightened from 128 → 96 bits as part
+    // of the Phase-6 cross-decimal slippage redesign: the new
+    // Constraint 2 has products of up to `amount_in × pow10_out ×
+    // price = 96 + 60 + 96 = 252 bits`, which leaves a 2-bit margin
+    // under BN254 (~2^254). At 128 bits the same product reached
+    // 284 bits and could wrap the field, fraudulently passing the
+    // LessEqThan check. 96 bits still covers any realistic balance
+    // (2^96 ≈ 7.9e28 wei, i.e. ~$79B in 18-dec USDC equivalent).
+    component amountInBits = Num2Bits(96);
     amountInBits.in <== amount_in;
-    component minOutBits = Num2Bits(128);
+    component minOutBits = Num2Bits(96);
     minOutBits.in <== min_amount_out;
-    component maxPosBits = Num2Bits(128);
+    component maxPosBits = Num2Bits(96);
     maxPosBits.in <== max_position_size;
 
     // ── Constraint 0: amount_in > 0 ─────────────────────────────────
@@ -138,20 +162,115 @@ template MeanReversionV1(UNIVERSE_SIZE) {
     // reputation calc). Mirrors yield_rotation_v1.circom Constraint 7.
     signal amount_in_minus_one;
     amount_in_minus_one <== amount_in - 1;
-    component amountInPositive = Num2Bits(128);
+    component amountInPositive = Num2Bits(96);
     amountInPositive.in <== amount_in_minus_one;
 
     // ── Constraint 1: amount_in <= max_position_size ────────────────
-    component sizeOk = LessEqThan(128);
+    component sizeOk = LessEqThan(96);
     sizeOk.in[0] <== amount_in;
     sizeOk.in[1] <== max_position_size;
     sizeOk.out === 1;
 
-    // ── Constraint 2: slippage bound ────────────────────────────────
+    // ── Constraint 2: cross-decimal slippage bound ──────────────────
+    // Phase-6 multi-asset universe: amount_in and min_amount_out are
+    // in different native units (e.g. 18-dec mUSDC ↔ 8-dec mWBTC).
+    // The pre-Phase-6 same-unit check (`min_out × 10000 ≥
+    // amount_in × (10000 - slippage)`) is structurally wrong here —
+    // a 180 mUSDC→mWBTC swap yields ~222 900 wei mWBTC, not 1.79e20.
+    //
+    // New shape: pin `expected_amount_out` to the slippage-free swap
+    // result at the current oracle price (Constraints 2a/2b), then
+    // bound `min_amount_out` against that expected value with the
+    // operator-declared slippage tolerance (Constraint 2c).
+    //
+    // Conversion derivation (price_e18 = USD price of the non-USDC
+    // asset, scaled 1e18; pow10_in/out = 10^decimals of the leg):
+    //   LONG  (USDC→asset):
+    //     expected_out × pow10_in × price = amount_in × pow10_out × 1e18
+    //   SHORT/EXIT (asset→USDC):
+    //     expected_out × pow10_in × 1e18  = amount_in × pow10_out × price
+    // The two cases share shape; we multiplex `num` / `denom` on
+    // `is_long_entry` (which is forced to {0,1} by the entry-exclusivity
+    // constraints further down).
+    //
+    // Bit budget (worst case, BN254 ≈ 2^254):
+    //   amount_in: 96 (Path B widening), pow10: 60 (max 10^18),
+    //   price: 96, expected: 96, 10000: 14, 1e18-constant: 60.
+    //   Max product:
+    //     amount_in × pow10_out × price  = 96+60+96 = 252 bits.
+    //     expected × pow10_in × price    = 96+60+96 = 252 bits.
+    //   Both stay under 254 — 2-bit margin. Bumping any of these
+    //   ceilings requires re-checking the multiplication fits.
+    component pow10InBits = Num2Bits(60);
+    pow10InBits.in <== pow10_asset_in;
+    component pow10OutBits = Num2Bits(60);
+    pow10OutBits.in <== pow10_asset_out;
+    component expectedBits = Num2Bits(96);
+    expectedBits.in <== expected_amount_out;
+
+    signal price_last;
+    price_last <== price_observations[15];
+
+    signal pow10_in_x_price;
+    pow10_in_x_price <== pow10_asset_in * price_last;        // 60+96 = 156 bits
+    signal pow10_in_x_e18;
+    pow10_in_x_e18 <== pow10_asset_in * 1000000000000000000; // 60+60 = 120 bits
+    signal pow10_out_x_price;
+    pow10_out_x_price <== pow10_asset_out * price_last;      // 60+96 = 156 bits
+    signal pow10_out_x_e18;
+    pow10_out_x_e18 <== pow10_asset_out * 1000000000000000000;
+
+    // Direction multiplexer. `is_long_entry` ∈ {0,1} (asserted by the
+    // entry-exclusivity constraints later in the circuit). For SHORT
+    // and EXIT, asset_in is the non-USDC asset and asset_out is USDC.
+    signal not_long;
+    not_long <== 1 - is_long_entry;
+    // R1CS allows at most one multiplication per <== ; split each
+    // multiplexer arm into its own intermediate signal then sum.
+    signal num_long_term;
+    num_long_term <== is_long_entry * pow10_out_x_e18;
+    signal num_short_term;
+    num_short_term <== not_long * pow10_out_x_price;
+    signal num;
+    num <== num_long_term + num_short_term;
+
+    signal denom_long_term;
+    denom_long_term <== is_long_entry * pow10_in_x_price;
+    signal denom_short_term;
+    denom_short_term <== not_long * pow10_in_x_e18;
+    signal denom;
+    denom <== denom_long_term + denom_short_term;
+
+    // ── Constraint 2a: floor(amount_in × num / denom) ≥ expected_out ─
+    // (expected × denom ≤ amount_in × num)
+    signal expected_times_denom;
+    expected_times_denom <== expected_amount_out * denom;     // 96+156 = 252 bits
+    signal amount_in_times_num;
+    amount_in_times_num <== amount_in * num;                  // 96+156 = 252 bits
+    component floorOk = LessEqThan(252);
+    floorOk.in[0] <== expected_times_denom;
+    floorOk.in[1] <== amount_in_times_num;
+    floorOk.out === 1;
+
+    // ── Constraint 2b: expected_out ≥ floor(amount_in × num / denom) ─
+    // ((expected+1) × denom > amount_in × num) — pins expected to the
+    // exact floor; together with 2a it's a tight equality up to one
+    // wei of asset_out granularity.
+    signal expected_plus_one;
+    expected_plus_one <== expected_amount_out + 1;
+    signal expected_plus_one_times_denom;
+    expected_plus_one_times_denom <== expected_plus_one * denom;
+    component ceilOk = GreaterThan(252);
+    ceilOk.in[0] <== expected_plus_one_times_denom;
+    ceilOk.in[1] <== amount_in_times_num;
+    ceilOk.out === 1;
+
+    // ── Constraint 2c: native-unit slippage on min_amount_out ────────
+    // min_amount_out × 10000 ≥ expected_amount_out × (10000 - slippage)
     signal slipLhs;
     signal slipRhs;
     slipLhs <== min_amount_out * 10000;
-    slipRhs <== amount_in * (10000 - max_slippage_bps);
+    slipRhs <== expected_amount_out * (10000 - max_slippage_bps);
     component slipOk = GreaterEqThan(160);
     slipOk.in[0] <== slipLhs;
     slipOk.in[1] <== slipRhs;
@@ -312,5 +431,7 @@ component main { public [
     nonce,
     block_window_start,
     block_window_end,
-    oracle_root
+    oracle_root,
+    pow10_asset_in,
+    pow10_asset_out
 ] } = MeanReversionV1(8);

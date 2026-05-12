@@ -45,8 +45,11 @@ function asField(n) {
   ]);
 
   // Long entry: 15 bars at 1000, last bar at 700 (~3.87σ down ⇒ accepts).
-  const price_observations = Array(15).fill(asField(1000));
-  price_observations.push(asField(700));
+  // Prices are oracle e18-scaled so the cross-decimal Constraint 2's
+  // `amount_in × pow10_out × price` product stays under Num2Bits(96).
+  const E18 = 10n ** 18n;
+  const price_observations = Array(15).fill((1000n * E18).toString());
+  price_observations.push((700n * E18).toString());
   const oracle_root = chained(price_observations);
 
   const declared_class = asField("0x5678");
@@ -55,11 +58,24 @@ function asField(n) {
   const asset_in_idx = "0";
   const asset_out_idx = "3";
   const amount_in = "1000000000000000000";
-  const min_amount_out = "995000000000000000";
   const trade_direction = "1"; // long entry
   const nonce = "42";
   const block_window_start = "100";
   const block_window_end = "150";
+
+  // Phase-6 cross-decimal slippage. Same-decimals tokens here (both
+  // 18-dec) for fixture readability; the multiplexed Constraint 2
+  // still exercises the LONG arm. price_observations[15] = 700.
+  const pow10_asset_in = (10n ** 18n).toString();
+  const pow10_asset_out = (10n ** 18n).toString();
+  const ONE_E18 = 10n ** 18n;
+  const last_price = BigInt(price_observations[15]);
+  const expected_amount_out = (
+    (BigInt(amount_in) * BigInt(pow10_asset_out) * ONE_E18) /
+    (BigInt(pow10_asset_in) * last_price)
+  ).toString();
+  const slipNum = BigInt(expected_amount_out) * (10000n - BigInt(max_slippage_bps));
+  const min_amount_out = ((slipNum + 9999n) / 10000n).toString();
 
   const trade_hash = ph([
     strategy_vault,
@@ -89,6 +105,8 @@ function asField(n) {
     block_window_start,
     block_window_end,
     oracle_root,
+    pow10_asset_in,
+    pow10_asset_out,
     max_position_size,
     max_slippage_bps,
     signal_threshold,
@@ -99,6 +117,7 @@ function asField(n) {
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
+    expected_amount_out,
   };
 
   console.log("generating mean_reversion_v1 proof…");

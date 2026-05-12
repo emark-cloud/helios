@@ -61,26 +61,50 @@ function tradeHashOf(input) {
   ]);
 }
 
-// 15 bars at `base`, last bar at `outlier`. Returns price observations as
-// strings. With base=1000 and outlier=700 (or 1300), the last bar is ~3.87σ
-// from the mean, comfortably above a 2.00σ (signal_threshold = 200) gate.
+// 15 bars at `base`, last bar at `outlier`. Returns price observations
+// as strings. With base=1000 and outlier=700 (or 1300), the last bar is
+// ~3.87σ from the mean, comfortably above a 2.00σ
+// (signal_threshold = 200) gate. Prices are e18-scaled so the
+// cross-decimal Constraint 2's `amount_in * pow10_out * price`
+// product stays inside Num2Bits(96).
+const E18 = 10n ** 18n;
 function buildSeries(base, outlier) {
-  const prices = Array(15).fill(asField(base));
-  prices.push(asField(outlier));
+  const prices = Array(15).fill((BigInt(base) * E18).toString());
+  prices.push((BigInt(outlier) * E18).toString());
   return prices;
 }
 
-// Variance-rich series: 8 bars at 800, 7 bars at 1200, last bar = `last`.
-// The early-bar oscillation gives the stddev real heft (~205 in dev16
-// terms), so a `last` close to the cluster mean (1040) sits at sub-σ
-// distance — the regime where mean-re-cross and "insufficient deviation"
-// cases live. With last=1040 the series is exactly at mean.
+// Variance-rich series: 8 bars at 800e18, 7 bars at 1200e18, last bar
+// = `last` e18-scaled. With last=1040 the series is exactly at the mean.
 function buildVarianceSeries(last) {
   const prices = [];
-  for (let i = 0; i < 8; i++) prices.push(asField(800));
-  for (let i = 0; i < 7; i++) prices.push(asField(1200));
-  prices.push(asField(last));
+  for (let i = 0; i < 8; i++) prices.push((800n * E18).toString());
+  for (let i = 0; i < 7; i++) prices.push((1200n * E18).toString());
+  prices.push((BigInt(last) * E18).toString());
   return prices;
+}
+
+// Recompute cross-decimal slippage fields when price_observations or
+// direction change. Multiplexes on `is_long_entry`.
+function recomputeSlippageFields(input) {
+  const isLong = input.is_long_entry === "1";
+  const lastPrice = BigInt(input.price_observations[15]);
+  const pow10In = BigInt(input.pow10_asset_in);
+  const pow10Out = BigInt(input.pow10_asset_out);
+  let num;
+  let denom;
+  if (isLong) {
+    num = pow10Out * E18;
+    denom = pow10In * lastPrice;
+  } else {
+    num = pow10Out * lastPrice;
+    denom = pow10In * E18;
+  }
+  const expected = (BigInt(input.amount_in) * num) / denom;
+  const slipBps = 10000n - BigInt(input.max_slippage_bps);
+  const minOut = (expected * slipBps + 9999n) / 10000n;
+  input.expected_amount_out = expected.toString();
+  input.min_amount_out = minOut.toString();
 }
 
 function buildLongEntryInput() {
@@ -99,6 +123,11 @@ function buildLongEntryInput() {
   const price_observations = buildSeries(1000, 700);
   const oracle_root = chainedPoseidon(price_observations);
 
+  // Cross-decimal slippage (Phase-6). Both legs at 18 decimals here so
+  // pow10_in == pow10_out; the LONG arm of Constraint 2 reduces to
+  // expected = amount_in * 1e18 / price.
+  const pow10_asset_in = E18.toString();
+  const pow10_asset_out = E18.toString();
   const base = {
     declared_class: asField("0x5678"),
     strategy_vault: asField("0xbeef00"),
@@ -107,12 +136,14 @@ function buildLongEntryInput() {
     asset_in_idx: "0",
     asset_out_idx: "3",
     amount_in: "1000000000000000000",
-    min_amount_out: "995000000000000000",
+    min_amount_out: "0",
     trade_direction: "1", // long entry
     nonce: "42",
     block_window_start: "100",
     block_window_end: "150",
     oracle_root,
+    pow10_asset_in,
+    pow10_asset_out,
     max_position_size,
     max_slippage_bps,
     signal_threshold,
@@ -123,7 +154,9 @@ function buildLongEntryInput() {
     is_exit: "0",
     is_signal_flip: "0",
     is_stop_loss: "0",
+    expected_amount_out: "0",
   };
+  recomputeSlippageFields(base);
   base.trade_hash = tradeHashOf(base);
   return base;
 }
@@ -136,6 +169,7 @@ function buildShortEntryInput() {
   input.trade_direction = "2"; // short entry
   input.is_long_entry = "0";
   input.is_short_entry = "1";
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -152,6 +186,7 @@ function buildExitFlipInput() {
   input.is_exit = "1";
   input.is_signal_flip = "1";
   input.is_stop_loss = "0";
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -167,9 +202,11 @@ function buildExitStopLossInput() {
   input.is_exit = "1";
   input.is_signal_flip = "0";
   input.is_stop_loss = "1";
-  // stop ≥ last_price ⇒ stop_loss_price = 800 satisfies (800 ≥ 700).
-  input.stop_loss_price = "800";
+  // stop ≥ last_price ⇒ stop_loss_price = 800e18 satisfies (800e18 ≥
+  // 700e18).
+  input.stop_loss_price = (800n * E18).toString();
   input.params_hash = paramsHashOf(input);
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -334,20 +371,23 @@ test("mean_reversion_v1: self-swap rejected", async () => {
 });
 
 // docs/circuit-specs.md §2.6 gap — bit-width-edge: amount_in /
-// min_amount_out / max_position_size at exactly 2^128 − 1 still
-// satisfy Num2Bits(128) (Constraint A.2 / B.2 reused from §1.3).
-// max_slippage_bps pinned to 0 collapses Constraint 2 to
-// min_amount_out ≥ amount_in.
-test("mean_reversion_v1: amounts at 2^128 − 1 boundary accepted", async () => {
+// min_amount_out / max_position_size at the Num2Bits ceiling must
+// satisfy Constraint A.2 / B.2. Tightened to 96 by Phase-6
+// cross-decimal Constraint 2 (amount_in × pow10_out × price reaches
+// 252 bits at 96-bit ceiling — BN254 wraps any wider witness).
+// max_slippage_bps pinned to 0 collapses Constraint 2c to
+// min_amount_out ≥ expected_amount_out, which the recompute helper
+// satisfies given e18-scaled prices.
+test("mean_reversion_v1: amounts at 2^96 − 1 boundary accepted", async () => {
   const fs = require("node:fs");
   const out = "/tmp/helios_meanrev_witness.wtns";
-  const max128 = ((1n << 128n) - 1n).toString();
+  const max96 = ((1n << 96n) - 1n).toString();
   const input = buildLongEntryInput();
   input.max_slippage_bps = "0";
-  input.max_position_size = max128;
-  input.amount_in = max128;
-  input.min_amount_out = max128;
+  input.max_position_size = max96;
+  input.amount_in = max96;
   input.params_hash = paramsHashOf(input);
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   await snarkjs.wtns.calculate(input, WASM, out);
   assert.ok(fs.statSync(out).size > 0);

@@ -73,9 +73,29 @@ function buildValidInput() {
     stop_loss_price,
   });
 
-  // Monotonically rising bars: 1000, 1005, ..., 1075. Total 7.5% rise.
-  const price_observations = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  // Monotonically rising bars: 1000e18 ... 1075e18 (7.5% rise). Prices
+  // are oracle e18-scaled so the cross-decimal Constraint 2's
+  // `amount_in * pow10_out * price` product stays inside Num2Bits(96).
+  const E18 = 10n ** 18n;
+  const price_observations = Array.from({ length: 16 }, (_, i) =>
+    (BigInt(1000 + i * 5) * E18).toString(),
+  );
   const oracle_root = chainedPoseidon(price_observations);
+
+  // Phase-6 cross-decimal slippage. Both legs at 18 decimals here so
+  // pow10_in == pow10_out and the LONG arm of Constraint 2 reduces to
+  // expected = amount_in * 1e18 / price.
+  const pow10_asset_in = E18.toString();
+  const pow10_asset_out = E18.toString();
+  const amount_in = "1000000000000000000"; // 1e18 wei (= $1 in 18-dec USDC)
+  const last_price = BigInt(price_observations[15]);
+  const expected_amount_out = (
+    (BigInt(amount_in) * BigInt(pow10_asset_out) * E18) /
+    (BigInt(pow10_asset_in) * last_price)
+  ).toString();
+  // ceil(expected * (10000 - slippage) / 10000)
+  const slipNum = BigInt(expected_amount_out) * (10000n - BigInt(max_slippage_bps));
+  const min_amount_out = ((slipNum + 9999n) / 10000n).toString();
 
   const base = {
     declared_class: asField("0x1234"),
@@ -84,14 +104,15 @@ function buildValidInput() {
     allocator_address: asField("0xa11ca7"),
     asset_in_idx: "0",
     asset_out_idx: "3",
-    amount_in: "1000000000000000000",
-    // amount_in * (10000 - 50) / 10000 = 0.995 * 1e18.
-    min_amount_out: "995000000000000000",
+    amount_in,
+    min_amount_out,
     trade_direction: "1", // long entry
     nonce: "42",
     block_window_start: "100",
     block_window_end: "150",
     oracle_root,
+    pow10_asset_in,
+    pow10_asset_out,
     max_position_size,
     max_slippage_bps,
     signal_threshold,
@@ -106,15 +127,46 @@ function buildValidInput() {
     // Bound only when is_signal_flip = 1; default to 1 here (the long-side
     // case used by the existing exit tests).
     was_long: "1",
+    expected_amount_out,
   };
   base.trade_hash = tradeHashOf(base);
   return base;
 }
 
+// Recompute the cross-decimal slippage fields after `price_observations`
+// or direction changes. The new Constraint 2 multiplexes on
+// `is_long_entry`, so SHORT/EXIT pulls a different `expected_amount_out`
+// than LONG.
+function recomputeSlippageFields(input) {
+  const E18 = 10n ** 18n;
+  const isLong = input.is_long_entry === "1";
+  const lastPrice = BigInt(input.price_observations[15]);
+  const pow10In = BigInt(input.pow10_asset_in);
+  const pow10Out = BigInt(input.pow10_asset_out);
+  let num;
+  let denom;
+  if (isLong) {
+    num = pow10Out * E18;
+    denom = pow10In * lastPrice;
+  } else {
+    num = pow10Out * lastPrice;
+    denom = pow10In * E18;
+  }
+  const expected = (BigInt(input.amount_in) * num) / denom;
+  const slipBps = 10000n - BigInt(input.max_slippage_bps);
+  const minOut = (expected * slipBps + 9999n) / 10000n;
+  input.expected_amount_out = expected.toString();
+  input.min_amount_out = minOut.toString();
+}
+
 function buildValidExitInput() {
   const input = buildValidInput();
-  // Falling series → signal-flip exit.
-  const falling = Array.from({ length: 16 }, (_, i) => asField(1075 - i * 5));
+  // Falling series → signal-flip exit. e18-scaled to keep Constraint 2
+  // within Num2Bits(96).
+  const E18 = 10n ** 18n;
+  const falling = Array.from({ length: 16 }, (_, i) =>
+    (BigInt(1075 - i * 5) * E18).toString(),
+  );
   input.price_observations = falling;
   input.oracle_root = chainedPoseidon(falling);
   input.trade_direction = "0";
@@ -123,6 +175,7 @@ function buildValidExitInput() {
   input.is_exit = "1";
   input.is_signal_flip = "1";
   input.is_stop_loss = "0";
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -136,9 +189,11 @@ function buildValidStopLossInput() {
   input.is_exit = "1";
   input.is_signal_flip = "0";
   input.is_stop_loss = "1";
-  // Last observation is 1075; stop_loss_price >= 1075 satisfies (stop - last) >= 0.
-  input.stop_loss_price = "1080";
+  // Last bar in buildValidInput is 1075e18; stop_loss_price ≥ 1075e18
+  // satisfies (stop - last) ≥ 0. e18-scale here too.
+  input.stop_loss_price = (1080n * 10n ** 18n).toString();
   input.params_hash = paramsHashOf(input);
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   return input;
 }
@@ -278,7 +333,11 @@ test("momentum_v1: short signal-flip exit accepted on rising prices", async () =
   const fs = require("node:fs");
   const input = buildValidInput();
   // Rising series — would trigger a flip exit for a SHORT position.
-  const rising = Array.from({ length: 16 }, (_, i) => asField(1000 + i * 5));
+  // e18-scaled to stay within the cross-decimal Constraint 2 bit budget.
+  const E18 = 10n ** 18n;
+  const rising = Array.from({ length: 16 }, (_, i) =>
+    (BigInt(1000 + i * 5) * E18).toString(),
+  );
   input.price_observations = rising;
   input.oracle_root = chainedPoseidon(rising);
   input.trade_direction = "0";
@@ -288,6 +347,7 @@ test("momentum_v1: short signal-flip exit accepted on rising prices", async () =
   input.is_signal_flip = "1";
   input.is_stop_loss = "0";
   input.was_long = "0"; // unwinding a short
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   const out = "/tmp/helios_momentum_witness.wtns";
   await snarkjs.wtns.calculate(input, WASM, out);
@@ -313,20 +373,24 @@ test("momentum_v1: self-swap rejected", async () => {
 });
 
 // docs/circuit-specs.md §1.6 gap — bit-width-edge: amount_in,
-// min_amount_out, max_position_size all at exactly 2^128 − 1 must
-// still satisfy Num2Bits(128) (Constraint A.2 / B.2). max_slippage_bps
-// pinned to 0 so the slippage bound collapses to min_amount_out ≥
-// amount_in. Sub-160-bit slipRhs (~142 bits) keeps Constraint 2 happy.
-test("momentum_v1: amounts at 2^128 − 1 boundary accepted", async () => {
+// min_amount_out, max_position_size at the Num2Bits ceiling must
+// still satisfy Constraint A.2 / B.2. Tightened from 128 → 96 bits
+// by the Phase-6 cross-decimal Constraint 2 (the new
+// `amount_in × pow10_out × price` product hits 252 bits at the
+// 96-bit ceiling — adding any wider witness wraps BN254).
+// `max_slippage_bps` pinned to 0 so the native-unit slippage check
+// collapses to min_amount_out ≥ expected_amount_out, which the
+// recompute helper handles given e18-scaled prices.
+test("momentum_v1: amounts at 2^96 − 1 boundary accepted", async () => {
   const fs = require("node:fs");
   const out = "/tmp/helios_momentum_witness.wtns";
-  const max128 = ((1n << 128n) - 1n).toString();
+  const max96 = ((1n << 96n) - 1n).toString();
   const input = buildValidInput();
   input.max_slippage_bps = "0";
-  input.max_position_size = max128;
-  input.amount_in = max128;
-  input.min_amount_out = max128;
+  input.max_position_size = max96;
+  input.amount_in = max96;
   input.params_hash = paramsHashOf(input);
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   await snarkjs.wtns.calculate(input, WASM, out);
   assert.ok(fs.statSync(out).size > 0);
@@ -339,13 +403,17 @@ test("momentum_v1: valid short entry on falling prices", async () => {
   const fs = require("node:fs");
   const out = "/tmp/helios_momentum_witness.wtns";
   const input = buildValidInput();
-  const falling = Array.from({ length: 16 }, (_, i) => asField(1075 - i * 5));
+  const E18 = 10n ** 18n;
+  const falling = Array.from({ length: 16 }, (_, i) =>
+    (BigInt(1075 - i * 5) * E18).toString(),
+  );
   input.price_observations = falling;
   input.oracle_root = chainedPoseidon(falling);
   input.trade_direction = "2";
   input.is_long_entry = "0";
   input.is_short_entry = "1";
   input.is_exit = "0";
+  recomputeSlippageFields(input);
   input.trade_hash = tradeHashOf(input);
   await snarkjs.wtns.calculate(input, WASM, out);
   assert.ok(fs.statSync(out).size > 0);
