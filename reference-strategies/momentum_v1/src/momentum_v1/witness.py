@@ -283,5 +283,3 @@ def _min_amount_out_cross_decimal(
     slip_term = expected * (10_000 - max_slippage_bps)
     min_amount_out = (slip_term + 9_999) // 10_000
     return expected, min_amount_out
-
-

@@ -48,8 +48,7 @@ contract CompleteCutoverFinish is Script {
         vm.startBroadcast(pk);
         YieldRotationV1Verifier yr = new YieldRotationV1Verifier();
         a.yieldRotationVerifier = address(yr);
-        a.yieldRotationVerifierAdapter =
-            address(new YieldRotationV1VerifierAdapter(address(yr)));
+        a.yieldRotationVerifierAdapter = address(new YieldRotationV1VerifierAdapter(address(yr)));
 
         TradeAttestationVerifier tav = TradeAttestationVerifier(newTAV);
         tav.registerVerifier(CLASS_MOM, newMomAdapter);

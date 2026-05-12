@@ -202,9 +202,7 @@ def test_fixture_round_trip() -> None:
     import json
     from pathlib import Path
 
-    fixture = json.loads(
-        Path("contracts/test/fixtures/momentum_v1.json").read_text()
-    )
+    fixture = json.loads(Path("contracts/test/fixtures/momentum_v1.json").read_text())
     pub = fixture["publicSignals"]
     e18 = 10**18
     req = build_momentum_witness(
