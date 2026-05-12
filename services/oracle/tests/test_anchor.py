@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from itertools import pairwise
 
 from eth_account import Account
 from eth_account.messages import encode_typed_data
@@ -191,7 +192,7 @@ def test_price_scheduler_chains_globally_across_assets() -> None:
 
     # Each commit's windowStart must be >= the prior commit's windowEnd,
     # regardless of asset. Otherwise the contract reverts.
-    for prev, curr in zip(records, records[1:], strict=False):
+    for prev, curr in pairwise(records):
         assert curr.window_start >= prev.window_end, (
             f"non-monotonic across assets: {prev} → {curr}"
         )
