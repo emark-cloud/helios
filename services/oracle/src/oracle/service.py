@@ -473,6 +473,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.yield_anchor_poster = yield_poster  # type: ignore[attr-defined]
     app.state.yield_anchor_scheduler = yield_scheduler  # type: ignore[attr-defined]
     app.state.router_mirror = router_mirror  # type: ignore[attr-defined]
+    app.state.commit_mirror = commit_mirror  # type: ignore[attr-defined]
     return app
 
 

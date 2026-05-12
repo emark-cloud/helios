@@ -125,3 +125,92 @@ async def test_alias_resolves_to_canonical_snapshots() -> None:
         root_a = await client.get("/v1/snapshots/root", params={"asset": "WETH", "n": 3})
         assert root_c.status_code == 200 and root_a.status_code == 200
         assert root_c.json()["root_bytes32"] == root_a.json()["root_bytes32"]
+
+
+@pytest.mark.asyncio
+async def test_endpoints_serve_committed_view_when_mirror_populated() -> None:
+    """When `CommitMirror` has a window for the asset and it covers the
+    requested `n`, both `/snapshots/recent` and `/snapshots/root` must
+    return that window verbatim (`view=committed`). This guarantees
+    strategy + on-chain anchor see the same Poseidon root, which is what
+    the mirror was introduced to fix (`UnknownOracleRoot()` reverts on
+    every trade when the live ring advanced between fetch and submit)."""
+    settings = Settings()  # type: ignore[call-arg]
+    app = build_app(settings)
+    poller = app.state.poller
+    commit_mirror = app.state.commit_mirror
+    store = app.state.store
+
+    # Tick the poller so the live ring has a few snapshots, then pin a
+    # deliberately-different window into the mirror so we can tell which
+    # source the handler chose.
+    for _ in range(3):
+        await poller.tick_once()
+
+    live = store.recent("ETH/USDT", 3)
+    assert len(live) == 3, "preconditions: poller must have filled the live ring"
+
+    # Build the committed window by reversing the live one — both timestamps
+    # and price ordering differ, so a `view=committed` response will be
+    # visibly different from `view=live`. (Mirror stores newest-first like
+    # the live ring; we reverse to fabricate a distinct window.)
+    committed_snaps = list(reversed(live))
+    fake_root = 0xFEEDFACE_DEAD_BEEF
+    commit_mirror.record(
+        "ETH/USDT",
+        committed_snaps,
+        fake_root,
+        window_end_ms=committed_snaps[0].timestamp_ms,
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        recent = await client.get("/v1/snapshots/recent", params={"asset": "ETH/USDT", "n": 3})
+        assert recent.status_code == 200
+        body = recent.json()
+        assert body["view"] == "committed"
+        assert [s["timestamp_ms"] for s in body["snapshots"]] == [
+            s.timestamp_ms for s in committed_snaps
+        ]
+
+        root = await client.get("/v1/snapshots/root", params={"asset": "ETH/USDT", "n": 3})
+        rbody = root.json()
+        assert rbody["view"] == "committed"
+        assert int(rbody["root"]) == fake_root
+        assert int(rbody["root_bytes32"], 16) == fake_root
+
+
+@pytest.mark.asyncio
+async def test_endpoints_fall_back_to_live_when_mirror_too_shallow() -> None:
+    """If the committed window covers fewer snapshots than the caller
+    requested, the handler must fall through to the live ring rather
+    than silently serve a short window. Otherwise a strategy with
+    `LOOKBACK_BARS=16` could be fed a 3-snapshot committed slice and
+    compute a root over the wrong window."""
+    settings = Settings()  # type: ignore[call-arg]
+    app = build_app(settings)
+    poller = app.state.poller
+    commit_mirror = app.state.commit_mirror
+    store = app.state.store
+
+    for _ in range(3):
+        await poller.tick_once()
+
+    # Record a committed window with only 1 snapshot; live ring has 3.
+    one = store.recent("KITE/USDT", 1)
+    assert len(one) == 1
+    commit_mirror.record("KITE/USDT", one, root=0xDEAD, window_end_ms=one[0].timestamp_ms)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # n=3 > committed depth 1 → fall back to live.
+        recent = await client.get("/v1/snapshots/recent", params={"asset": "KITE/USDT", "n": 3})
+        body = recent.json()
+        assert body["view"] == "live"
+        assert body["n"] == 3
+
+        root = await client.get("/v1/snapshots/root", params={"asset": "KITE/USDT", "n": 3})
+        rbody = root.json()
+        assert rbody["view"] == "live"
+        # The mirror's fake root must not leak through when we fell back.
+        assert int(rbody["root"]) != 0xDEAD
