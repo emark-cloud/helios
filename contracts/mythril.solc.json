@@ -1,0 +1,18 @@
+{
+  "remappings": [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@layerzerolabs/oapp-evm/=lib/layerzero-v2/packages/layerzero-v2/evm/oapp/contracts/",
+    "@layerzerolabs/lz-evm-protocol-v2/=lib/layerzero-v2/packages/layerzero-v2/evm/protocol/",
+    "@layerzerolabs/lz-evm-messagelib-v2/=lib/layerzero-v2/packages/layerzero-v2/evm/messagelib/",
+    "@layerzerolabs/oapp-evm-test/=lib/layerzero-v2/packages/layerzero-v2/evm/oapp/test/",
+    "solady/=lib/solady/src/"
+  ],
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "viaIR": true,
+  "evmVersion": "cancun"
+}

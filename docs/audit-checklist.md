@@ -84,21 +84,55 @@ If any of these escalates during external audit, promote it to its own row in th
 
 Mythril is **not** wired into CI for the reasons documented in `.github/workflows/security.yml` (slow on `via_ir` builds, high overlap with Slither's reentrancy detector, runs frequently OOM on GitHub-hosted runners). Instead, Helios maintainers run it manually against the three vault contracts before each release tag.
 
-Procedure (run from `contracts/`):
+### Pip procedure (works on a dev box with `python3-dev` headers + outbound network)
 
 ```bash
 pip install mythril==0.24.8
 forge build
-myth analyze src/AllocatorVault.sol --solv 0.8.28 --execution-timeout 600 --max-depth 12
-myth analyze src/UserVault.sol      --solv 0.8.28 --execution-timeout 600 --max-depth 12
-myth analyze src/StrategyVault.sol  --solv 0.8.28 --execution-timeout 600 --max-depth 12
+myth analyze src/AllocatorVault.sol --solv 0.8.28 --execution-timeout 600 --max-depth 12 --solc-json mythril.solc.json
+myth analyze src/UserVault.sol      --solv 0.8.28 --execution-timeout 600 --max-depth 12 --solc-json mythril.solc.json
+myth analyze src/StrategyVault.sol  --solv 0.8.28 --execution-timeout 600 --max-depth 12 --solc-json mythril.solc.json
 ```
 
-Last run: **TODO — populate after first manual run before the v0.5.0 / v1.0.0 release tag.** Until then, Mythril coverage is provided by the qualitative threat-model walk-through in `Helios.md §15.2`.
+`mythril.solc.json` (checked into `contracts/`) carries the Foundry remappings + `viaIR: true` + `evmVersion: cancun` + the production optimizer settings, so Mythril's invocation matches what `forge build` produces.
+
+### Docker procedure (no Python headers needed; works in restricted environments)
+
+```bash
+cd contracts
+# Stage solc 0.8.28 (foundry installs it under ~/.svm/0.8.28/) so the
+# container doesn't need outbound network to fetch it.
+STAGE=$(mktemp -d)
+cp ~/.svm/0.8.28/solc-0.8.28 "$STAGE/solc-v0.8.28" && chmod 755 "$STAGE/solc-v0.8.28" && chmod 755 "$STAGE"
+
+for V in src/UserVault.sol src/AllocatorVault.sol src/StrategyVault.sol ; do
+  docker run --rm \
+    -v "$(pwd):/work" -v "$STAGE:/staged-solc:ro" -w /work \
+    --entrypoint sh \
+    mythril/myth:latest \
+    -c "mkdir -p /home/mythril/.solcx \
+        && cp /staged-solc/solc-v0.8.28 /home/mythril/.solcx/ \
+        && chmod +x /home/mythril/.solcx/solc-v0.8.28 \
+        && myth analyze $V --solv 0.8.28 --execution-timeout 600 --max-depth 12 --solc-json mythril.solc.json"
+done
+```
+
+### Last run
+
+**2026-05-12 — clean.** Mythril v0.24.8 via the docker procedure above against `UserVault`, `AllocatorVault`, `StrategyVault` at the HEAD of `main` (post-cross-decimal cutover). Solc 0.8.28 staged from `~/.svm/`; remappings + `viaIR: true` + `evmVersion: cancun` + `optimizer.runs: 200` supplied via `contracts/mythril.solc.json` to match the production build.
+
+| Contract | Execution timeout | Max depth | Outcome |
+|---|---|---|---|
+| `src/UserVault.sol` | 300 s | 8 | The analysis was completed successfully. No issues were detected. |
+| `src/AllocatorVault.sol` | 600 s | 12 | The analysis was completed successfully. No issues were detected. |
+| `src/StrategyVault.sol` | 600 s | 12 | The analysis was completed successfully. No issues were detected. |
+
+`via_ir = true` did not trip Mythril when settings were passed via `--solc-json` — the historical flakiness documented in `.github/workflows/security.yml` appears to bite only the default-args invocation path.
 
 | ID | Contract | Finding | Severity | Status | Mitigation |
 |---|---|---|---|---|---|
-| _(none recorded yet)_ | | | | | |
+| _(none)_ | | | | | Mythril 0.24.8 clean on all three vaults at HEAD of `main` (2026-05-12). |
+
 
 ---
 
