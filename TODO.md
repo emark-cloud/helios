@@ -481,18 +481,18 @@ Pre-cutover the testnet stack used `MockSwapRouter` with admin-set prices, so de
 ### FE — Judge + audit surfaces
 - [ ] `/judge` complete per `DESIGN.md §9.8` — press-kit styling, no marketing copy
 - [ ] `/audit/[strategy]` complete per `DESIGN.md §9.7` — forensic, document-like, celebrated ZK treatment
-- [ ] Live transaction counts pulled from subgraph on every render
-- [ ] `scripts/verify-trade.js` — standalone Groth16 re-verification, copy-pasteable command from `/judge`
+- [x] Live transaction counts pulled from subgraph on every render — `LandingStatsBand` wired on `/` and `/judge` (30s refresh against Goldsky `helios/v0.7.0`); verified 2026-05-12.
+- [x] `scripts/verify-trade.js` — standalone Groth16 re-verification, copy-pasteable command from `/judge` (WS1.A, task #1).
 
 ### CX — Security passes
-- [ ] Slither run clean (or all findings triaged + documented)
-- [ ] Mythril run clean
-- [ ] Circuit unit tests for every class cover: zero inputs, max inputs, boundary conditions, every invariant branch
-- [ ] Internal threat model walkthrough against `Helios.md §15.2` — every row has a test or a documented mitigation
+- [x] Slither run clean (or all findings triaged + documented) — 9 High / 27 Medium / 57 Low / 227 Informational triaged in `docs/audit-checklist.md`; CI in `.github/workflows/security.yml`.
+- [x] Mythril run clean — v0.24.8 (docker) against `UserVault` (300s/depth-8), `AllocatorVault` + `StrategyVault` (600s/depth-12) at HEAD `5e199f7` (2026-05-12). All three: "no issues detected." Procedure + table in `docs/audit-checklist.md`; build settings in `contracts/mythril.solc.json`.
+- [x] Circuit unit tests for every class cover: zero inputs, max inputs, boundary conditions, every invariant branch (tasks #11 + #13).
+- [x] Internal threat model walkthrough against `Helios.md §15.2` — every row has a test or a documented mitigation. `docs/threat-model.md` §2 maps 14 / 14 rows to test paths + line refs (Mitigated 10 / Accepted 4 / TODO 0).
 
 ### OP — Deploy hardening
 - [ ] PM2 ecosystem file for all services with auto-restart, log rotation
-- [ ] Nginx reverse proxy with rate limiting on public endpoints — **set explicit per-route values** (added 2026-05-05 — judging-criteria audit, criterion A "scoped keys, rate limits"). Read endpoints (e.g. `/v1/strategies`, `/v1/allocators`, `/v1/scores`): 100 req/min per IP. Write endpoints (e.g. `/v1/onboard`, allocator command surfaces): 10 req/min per IP. Document the values in `deploy/README.md` so judges can see the rate-limit story without reading nginx config.
+- [x] Nginx reverse proxy with rate limiting on public endpoints — **explicit per-route values landed** in `deploy/nginx/helios.conf` (verified 2026-05-12). Read endpoints: 100 r/min per IP (`helios_read`, burst 20). Write endpoints: 10 r/min per IP (`helios_write`, burst 2–3). Prover: 5 r/min per IP (`helios_prover`, burst 1). Tripping a limit returns HTTP 429 (`limit_req_status 429`). Method-based splitting via `$request_method` map. Documented in `deploy/README.md` "Rate limits".
 - [ ] Health-check endpoints monitored; alerting via PM2 logs + email digest (Telegram admin channel deferred with the bot — see Deferred §)
 - [ ] Postgres backups + restore runbook
 - [ ] Secrets in VPS env only, never committed
