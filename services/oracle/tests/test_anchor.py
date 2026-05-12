@@ -193,9 +193,7 @@ def test_price_scheduler_chains_globally_across_assets() -> None:
     # Each commit's windowStart must be >= the prior commit's windowEnd,
     # regardless of asset. Otherwise the contract reverts.
     for prev, curr in pairwise(records):
-        assert curr.window_start >= prev.window_end, (
-            f"non-monotonic across assets: {prev} → {curr}"
-        )
+        assert curr.window_start >= prev.window_end, f"non-monotonic across assets: {prev} → {curr}"
     # And every window must be non-empty.
     for r in records:
         assert r.window_end > r.window_start
