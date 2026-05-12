@@ -218,6 +218,10 @@ class MeanReversionRuntime:
                 # raw-tokenIn encoding so `amount_in` matches the on-chain
                 # swap amount across mixed-decimal universes.
                 asset_decimals=self._cfg.asset_decimals,
+                # Clamp `amount_in` to the vault's exact integer balance
+                # so the swap's `safeTransferFrom` cannot revert on a
+                # float-roundtrip drift from `seed_strategy_capital`.
+                base_asset_balance_raw=self._strategy._base_asset_balance_wei,
             )
         except ValueError as exc:
             _log.warning("mean_reversion.witness.invalid", asset=asset, err=str(exc))

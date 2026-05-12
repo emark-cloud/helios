@@ -69,9 +69,16 @@ def build_momentum_witness(
     is_stop_loss: bool,
     was_long: bool = True,
     asset_decimals: dict[str, int] | None = None,
+    base_asset_balance_raw: int | None = None,
 ) -> WitnessRequest:
     """Pure helper — no I/O. Tests construct the same payload to assert
-    on shape + invariants."""
+    on shape + invariants.
+
+    `base_asset_balance_raw` clamps `amount_in` to the vault's actual
+    on-chain integer balance. See `mean_reversion_v1.witness` docstring
+    for the float-roundtrip drift this guards against (TradeCallFailed(1)
+    from `StrategyVault` when `safeTransferFrom` reverts on a few-K-wei
+    overshoot)."""
     if len(asset_universe_addresses) != UNIVERSE_SIZE:
         raise ValueError(f"asset_universe must be {UNIVERSE_SIZE} entries")
     if (
@@ -103,6 +110,8 @@ def build_momentum_witness(
     asset_in_idx = asset_to_universe_idx[intent.asset_in]
     asset_out_idx = asset_to_universe_idx[intent.asset_out]
     amount_in_native = _resolve_amount_in(intent, padded[-1], asset_decimals)
+    if base_asset_balance_raw is not None and amount_in_native > base_asset_balance_raw:
+        amount_in_native = base_asset_balance_raw
 
     # Phase-6 cross-decimal slippage: convert amount_in to expected
     # amount_out at the current oracle price, then apply slippage in

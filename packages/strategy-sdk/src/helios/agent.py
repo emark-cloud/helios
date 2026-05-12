@@ -54,6 +54,16 @@ class StrategyAgent(ABC):
             raise RuntimeError(f"{type(self).__name__}.declared_class must be set on the subclass.")
         self._positions: dict[str, Position] = {}
         self._available_capital_usd: float = 0.0
+        # Raw on-chain balance of the base asset (mUSDC) held by the
+        # strategy's vault, in the asset's native units. Set alongside
+        # `_available_capital_usd` by `seed_strategy_capital` so witness
+        # builders can clamp `amount_in` to an integer the vault can
+        # actually fund. Going through the USD float layer alone is
+        # lossy: `int(raw/1e18 * 1e18)` can drift by a few thousand
+        # wei (float64 ulp at ~4.5e19 is ~4096 wei), and
+        # `safeTransferFrom` then reverts inside the swap, surfacing as
+        # `TradeCallFailed(1)` from `StrategyVault`. `None` = unset.
+        self._base_asset_balance_wei: int | None = None
         # PR4: track mark-to-market NAV alongside free cash so sizing
         # helpers can scale to the strategy's full footprint, not just
         # the unspent cash slice. The backtest engine refreshes this
@@ -181,6 +191,12 @@ class StrategyAgent(ABC):
 
     def _set_nav(self, usd: float) -> None:
         self._nav_usd = usd
+
+    def _set_base_asset_balance_wei(self, wei: int) -> None:
+        """Record the exact integer balance the vault holds. Witness
+        builders read this to clamp `amount_in` so `safeTransferFrom`
+        cannot revert on a few-thousand-wei float roundtrip drift."""
+        self._base_asset_balance_wei = wei
 
     def _set_position(
         self, asset: str, qty: float, avg_entry_price: float, direction: Direction

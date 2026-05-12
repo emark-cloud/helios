@@ -68,9 +68,18 @@ def build_mean_reversion_witness(
     is_signal_flip: bool,
     is_stop_loss: bool,
     asset_decimals: dict[str, int] | None = None,
+    base_asset_balance_raw: int | None = None,
 ) -> WitnessRequest:
     """Pure helper — no I/O. Tests construct the same payload to assert
-    on shape + invariants."""
+    on shape + invariants.
+
+    `base_asset_balance_raw` is the integer balance the vault holds of
+    the trade's `asset_in`. When provided, `amount_in` is clamped to it
+    so the on-chain `safeTransferFrom` cannot revert on a float-roundtrip
+    drift inside `_resolve_amount_in` (intent.amount_in_usd → float →
+    int can overshoot the actual vault balance by a few thousand wei
+    at ~4.5e19 — float64 ulp territory; `StrategyVault` then surfaces
+    that revert as `TradeCallFailed(1)`)."""
     if len(asset_universe_addresses) != UNIVERSE_SIZE:
         raise ValueError(f"asset_universe must be {UNIVERSE_SIZE} entries")
     if (
@@ -103,6 +112,8 @@ def build_mean_reversion_witness(
     asset_in_idx = asset_to_universe_idx[intent.asset_in]
     asset_out_idx = asset_to_universe_idx[intent.asset_out]
     amount_in_native = _resolve_amount_in(intent, padded[-1], asset_decimals)
+    if base_asset_balance_raw is not None and amount_in_native > base_asset_balance_raw:
+        amount_in_native = base_asset_balance_raw
 
     # Phase-6 cross-decimal slippage: convert amount_in to expected
     # amount_out at the current oracle price, then apply slippage in

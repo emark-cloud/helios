@@ -73,4 +73,9 @@ def seed_strategy_capital(
     usd = raw / (10**base_asset_decimals)
     strategy._set_capital(usd)
     strategy._set_nav(usd)
+    # Keep the exact integer alongside the float so witness builders
+    # can clamp `amount_in` to a value the vault can actually fund.
+    # See `StrategyAgent._set_base_asset_balance_wei` for the why.
+    if hasattr(strategy, "_set_base_asset_balance_wei"):
+        strategy._set_base_asset_balance_wei(raw)
     return usd
