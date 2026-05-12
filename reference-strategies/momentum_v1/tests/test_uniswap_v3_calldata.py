@@ -101,8 +101,11 @@ def test_build_plan_picks_uniswap_path_when_venue_is_v3() -> None:
         min_amount_out=990_000,
         deadline_unix=1_777_500_000,
     )
-    assert len(plan.trades) == 1
-    selector = plan.trades[0].data[:4]
+    # Plan is [approve(router, amountIn), exactInputSingle(...)] — vault
+    # rejects swaps without a paired approve to the allowed router.
+    assert len(plan.trades) == 2
+    assert plan.trades[0].data[:4] == keccak(b"approve(address,uint256)")[:4]
+    selector = plan.trades[1].data[:4]
     expected = keccak(
         b"exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"
     )[:4]
@@ -126,7 +129,8 @@ def test_build_plan_picks_algebra_path_by_default() -> None:
         min_amount_out=990_000,
         deadline_unix=1_777_500_000,
     )
-    selector = plan.trades[0].data[:4]
+    assert plan.trades[0].data[:4] == keccak(b"approve(address,uint256)")[:4]
+    selector = plan.trades[1].data[:4]
     expected = keccak(
         b"exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))"
     )[:4]

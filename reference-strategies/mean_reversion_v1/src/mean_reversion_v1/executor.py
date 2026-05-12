@@ -38,6 +38,14 @@ _EXACT_INPUT_SINGLE_SELECTOR = keccak(
     b"exactInputSingle((address,address,address,uint256,uint256,uint256,uint160))"
 )[:4]
 
+# IERC20.approve(address,uint256) — vault gates each trade call on selector,
+# and the router needs an allowance before transferFrom inside the swap.
+_APPROVE_SELECTOR = keccak(b"approve(address,uint256)")[:4]
+
+
+def _build_approve_calldata(spender: str, amount: int) -> bytes:
+    return _APPROVE_SELECTOR + _addr_word(spender) + amount.to_bytes(32, "big")
+
 
 @dataclass(frozen=True, slots=True)
 class TradeCall:
@@ -160,10 +168,14 @@ class TradeExecutor:
             amount_out_minimum=min_amount_out,
             deadline_unix=deadline_unix,
         )
+        approve_data = _build_approve_calldata(self._router, amount_in)
         return ExecutionPlan(
             proof=proof,
             public_inputs=list(public_inputs),
-            trades=[TradeCall(target=self._router, value=0, data=swap_data)],
+            trades=[
+                TradeCall(target=token_in, value=0, data=approve_data),
+                TradeCall(target=self._router, value=0, data=swap_data),
+            ],
         )
 
     # ── Submission ────────────────────────────────────────────
