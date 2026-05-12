@@ -162,6 +162,46 @@ def test_price_scheduler_advances_window_monotonically() -> None:
     assert rec2.nonce == 1
 
 
+def test_price_scheduler_chains_globally_across_assets() -> None:
+    """Regression: with N assets sharing one anchor, consecutive
+    same-bar commits must chain through a *single global* monotonic
+    counter (the contract's `_commits[last].windowEnd`), not per-asset
+    state. Before the fix, asset B's `windowStart` was its own oldest
+    snapshot ts, which sat before asset A's just-committed `windowEnd`,
+    so A succeeded and B reverted `NonMonotonicWindow()` on chain — and
+    the strategy proving against B's root saw `UnknownOracleRoot()`."""
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=_CHAIN_ID
+    )
+    sched = PriceAnchorScheduler(store=store, poster=poster, interval_bars=1, chain_depth=2)
+
+    # Bar 1: all four assets carry the SAME newest_ts (real-world bar
+    # boundary alignment) and overlapping oldest_ts windows.
+    assets = ["KITE/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    for a in assets:
+        store.append(a, price_e18=10**18, timestamp_ms=1000, source="t")
+        store.append(a, price_e18=10**18, timestamp_ms=2000, source="t")
+
+    records = []
+    for a in assets:
+        r = sched.on_bar(a)
+        assert r is not None, f"{a} dropped a bar"
+        records.append(r)
+
+    # Each commit's windowStart must be >= the prior commit's windowEnd,
+    # regardless of asset. Otherwise the contract reverts.
+    for prev, curr in zip(records, records[1:], strict=False):
+        assert curr.window_start >= prev.window_end, (
+            f"non-monotonic across assets: {prev} → {curr}"
+        )
+    # And every window must be non-empty.
+    for r in records:
+        assert r.window_end > r.window_start
+    # Nonces still strictly increase.
+    assert [r.nonce for r in records] == [0, 1, 2, 3]
+
+
 def test_live_post_uses_onchain_nonce_overriding_payload() -> None:
     """In live mode, the poster MUST read `nonce()` from the anchor
     instead of trusting the scheduler-tracked nonce. Without this,

@@ -294,8 +294,19 @@ class PriceAnchorScheduler:
     """Drives `AnchorPoster.post(price)` every N snapshot bars.
 
     Phase 2 cadence: commit per `interval_bars` bars (default 50) per
-    asset. The scheduler keeps a per-asset `last_committed_ts` so each
-    new commit window is anchored to the previous one's `windowEnd`.
+    asset. The scheduler keeps a single **global** `_last_window_end_ms`
+    because the on-chain `OraclePriceAnchor` enforces a single global
+    `windowStart >= _commits[last].windowEnd` chain (no per-asset
+    state). With multiple assets sharing one anchor, each new commit —
+    regardless of asset — must start at or after the previously
+    committed window's end, else the contract reverts
+    `NonMonotonicWindow()`.
+
+    Window numbers are bookkeeping only — the contract does NOT bind
+    `windowStart`/`windowEnd` to the Poseidon `root`, so it is safe to
+    nudge them up to satisfy monotonicity. Strategies prove against
+    `root` (verified via `isKnownRoot`) and read `head_timestamp_ms`
+    from snapshot data, not from `windowEnd`.
 
     `mirror`, when provided, is updated after each successful commit
     with the exact `(snapshots, root, window_end)` triple the contract
@@ -311,7 +322,7 @@ class PriceAnchorScheduler:
     chain_depth: int = 16  # how many bars feed into the Poseidon root
     mirror: CommitMirror | None = None
 
-    _last_window_end: dict[str, int] = field(default_factory=dict)
+    _last_window_end_ms: int = 0
     _bar_counter: dict[str, int] = field(default_factory=dict)
     _nonce: int = 0
 
@@ -378,14 +389,15 @@ class PriceAnchorScheduler:
             return None
         oldest_ts = snaps[-1].timestamp_ms
         newest_ts = snaps[0].timestamp_ms
-        prev_end = self._last_window_end.get(asset)
-        # Each commit's window must be strictly after the previous; nudge
-        # `windowStart` past `prev_end` if the snapshots overlap (the
-        # contract enforces `ws >= prev.we`).
-        window_start = max(oldest_ts, prev_end if prev_end is not None else 0)
-        window_end = newest_ts
-        if window_end <= window_start:
-            return None  # not enough fresh ticks yet
+        # The on-chain anchor's `_commits` array is a single global chain
+        # (`windowStart >= _commits[last].windowEnd`), so the off-chain
+        # scheduler must track ONE counter across all assets, not one
+        # per asset. Bump `window_end` strictly past `window_start` so
+        # consecutive same-bar commits (BTC, ETH, SOL, KITE all carrying
+        # the same `newest_ts`) get distinct slots in the chain and all
+        # land, instead of all but the first reverting `NonMonotonicWindow`.
+        window_start = max(oldest_ts, self._last_window_end_ms)
+        window_end = max(newest_ts, window_start + 1)
 
         payload = CommitPayload(
             kind="price",
@@ -395,7 +407,7 @@ class PriceAnchorScheduler:
             nonce=self._nonce,
         )
         self._nonce += 1
-        self._last_window_end[asset] = window_end
+        self._last_window_end_ms = window_end
         return _PreparedCommit(
             payload=payload,
             snapshots_newest_first=snaps,
@@ -413,7 +425,7 @@ class YieldAnchorScheduler:
     interval_bars: int = 50
     chain_depth: int = 16
 
-    _last_window_end: dict[str, int] = field(default_factory=dict)
+    _last_window_end_ms: int = 0
     _bar_counter: dict[str, int] = field(default_factory=dict)
     _nonce: int = 0
 
@@ -450,11 +462,10 @@ class YieldAnchorScheduler:
             return None
         oldest_ts = snaps[-1].timestamp_ms
         newest_ts = snaps[0].timestamp_ms
-        prev_end = self._last_window_end.get(market_id)
-        window_start = max(oldest_ts, prev_end if prev_end is not None else 0)
-        window_end = newest_ts
-        if window_end <= window_start:
-            return None
+        # Single global counter — see PriceAnchorScheduler._prepare for the
+        # reasoning. OracleYieldAnchor enforces the same monotonic check.
+        window_start = max(oldest_ts, self._last_window_end_ms)
+        window_end = max(newest_ts, window_start + 1)
 
         payload = CommitPayload(
             kind="yield",
@@ -464,7 +475,7 @@ class YieldAnchorScheduler:
             nonce=self._nonce,
         )
         self._nonce += 1
-        self._last_window_end[market_id] = window_end
+        self._last_window_end_ms = window_end
         return payload
 
 
