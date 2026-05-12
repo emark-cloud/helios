@@ -331,13 +331,14 @@ contract StrategyVault is
     ///         `proposeVerifierChange` machinery and has no in-place
     ///         rotation path.
     ///
-    ///         Guarded by `reinitializer(2)`: callable exactly once per
-    ///         proxy after the original `initialize` (which leaves
-    ///         `_initialized = 1`). A future verifier rotation would ship a
-    ///         new impl with `reinitializer(3)`. The owner already holds
-    ///         UUPS upgrade authority, so this setter does not widen the
+    ///         Bumped `reinitializer(2)` → `reinitializer(3)` for the
+    ///         Phase-6 cross-decimal cutover: each proxy is being
+    ///         re-pointed at a fresh `TradeAttestationVerifier` deployed
+    ///         with `CHANGE_DELAY = 0` so the new 16-PI verifier+adapter
+    ///         can be registered instantly. The owner already holds UUPS
+    ///         upgrade authority, so this setter does not widen the
     ///         trust model.
-    function migrateVerifier(address newVerifier) external onlyOwner reinitializer(2) {
+    function migrateVerifier(address newVerifier) external onlyOwner reinitializer(3) {
         if (newVerifier == address(0)) revert ZeroAddress();
         address old = verifier;
         verifier = newVerifier;
