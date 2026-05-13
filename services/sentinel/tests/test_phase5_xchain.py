@@ -140,11 +140,35 @@ def _build(
     return loop, store, onchain, goldsky
 
 
-def _allocate_amounts(onchain: AllocatorOnChain) -> dict[str, int]:
+def _allocate_amounts(
+    onchain: AllocatorOnChain,
+    store: AllocatorStore | None = None,
+    user_address: str | None = None,
+) -> dict[str, int]:
+    """Read the per-strategy capital the allocator selected this cycle.
+
+    Pre-CXR Phase-1, this returned every strategy's allocation from
+    `onchain.pending` because every target was submitted as
+    `allocateToStrategy`. With chain-aware deferral the local-chain
+    targets still land in `onchain.pending` but remote targets are
+    held back in `CROSS_CHAIN_ALLOCATION_DEFERRED` events — both are
+    real allocator decisions for ranking-math purposes, so merging
+    them gives the right semantic "what would the allocator do".
+    """
     out: dict[str, int] = {}
     for c in onchain.pending:
         if c.method == "allocateToStrategy" and c.strategy is not None:
             out[c.strategy] = int(c.amount)
+    if store is not None and user_address is not None:
+        for ev in store.recent_events(user_address, 50):
+            if ev.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED" and ev.strategy_id is not None:
+                # Deferred amounts are emitted as positive ints in the
+                # event. Don't overwrite if the strategy already
+                # appears (an alloc + a deferral on the same id
+                # shouldn't happen in this fixture, but keep the
+                # invariant explicit so the test fails loudly if it
+                # ever does).
+                out.setdefault(ev.strategy_id, int(ev.amount_usd))
     return out
 
 
@@ -169,7 +193,7 @@ async def test_cross_chain_rep_tick_shifts_allocation() -> None:
     user_a = store_a.upsert_user(_meta())
     user_a.delegated_capital_usd = 10_000
     await loop_a.tick_once(now=1_000)
-    control = _allocate_amounts(onchain_a)
+    control = _allocate_amounts(onchain_a, store_a, user_a.meta.user_address)
     assert s_base_a.strategy_id in control and s_kite_a.strategy_id in control
     # Equal scores ⇒ within 1% of each other.
     diff_control = abs(control[s_base_a.strategy_id] - control[s_kite_a.strategy_id])
@@ -186,7 +210,7 @@ async def test_cross_chain_rep_tick_shifts_allocation() -> None:
     user_b = store_b.upsert_user(_meta())
     user_b.delegated_capital_usd = 10_000
     await loop_b.tick_once(now=1_000)
-    treated = _allocate_amounts(onchain_b)
+    treated = _allocate_amounts(onchain_b, store_b, user_b.meta.user_address)
 
     # The bumped strategy gets strictly more capital than its sibling.
     assert treated[s_base_b.strategy_id] > treated[s_kite_b.strategy_id], (
@@ -246,9 +270,19 @@ async def test_cross_chain_suppression_leaves_allocation_flat() -> None:
 async def test_three_chain_class_dispatch_keys_on_chain_id() -> None:
     """Phase-5 sanity: with one candidate per (class, chain) tuple,
     the allocator selects across all three chains under a permissive
-    meta-strategy. This is the unit-level proxy for the multi-chain
-    e2e — it confirms the candidate-filter path treats `chain_id` as
-    a pass-through filter rather than a hard pin to Kite."""
+    meta-strategy.
+
+    Post-CXR Phase 1 (chain-aware allocation): the loop knows the
+    on-chain AllocatorVault only signs for the local chain. Remote
+    strategies are still ranked + selected (the candidate set is
+    chain-blind) but the on-chain submission for any remote target is
+    held back as `CROSS_CHAIN_ALLOCATION_DEFERRED` until the CXR-0a +
+    CXR-0b pipe lands. The right assertion is therefore: across both
+    submission paths (`allocateToStrategy` and the deferral event),
+    each of the three chains must be represented. The original
+    "≥2 distinct chains in onchain.pending" check is too strict — the
+    deferral path doesn't enter `onchain.pending` by design.
+    """
     s_kite = _row(
         "0x" + "11" * 20,
         chain_id=_KITE_CHAIN_ID,
@@ -278,16 +312,35 @@ async def test_three_chain_class_dispatch_keys_on_chain_id() -> None:
         s_base.strategy_id: _BASE_SEPOLIA_CHAIN_ID,
         s_arb.strategy_id: _ARBITRUM_SEPOLIA_CHAIN_ID,
     }
-    seen_chains = {
+    # Same-chain (Kite) strategies enter `onchain.pending` as
+    # allocateToStrategy calls.
+    submitted_chains = {
         chain_by_sid[c.strategy]
         for c in onchain.pending
         if c.method == "allocateToStrategy" and c.strategy in chain_by_sid
     }
-    # The allocator may not allocate to all 3 in a single tick (it caps
-    # by max_strategies_count + per-strategy share), but it MUST be
-    # capable of selecting from at least 2 distinct chains — anything
-    # less suggests a hidden Kite-only filter still in the path.
-    assert len(seen_chains) >= 2, f"chain dispatch missing: only allocated to {seen_chains}"
+    # Remote-chain strategies surface as deferral events in the store.
+    deferred_chains: set[int] = set()
+    for ev in store.recent_events(user.meta.user_address, 50):
+        if ev.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED" and ev.strategy_id in chain_by_sid:
+            deferred_chains.add(chain_by_sid[ev.strategy_id])
+
+    # Pre-CXR-0a/0b expectation: Kite submits, Base + Arb defer.
+    assert submitted_chains == {_KITE_CHAIN_ID}, (
+        f"local AllocatorVault submission should cover Kite only; got {submitted_chains}"
+    )
+    assert deferred_chains == {_BASE_SEPOLIA_CHAIN_ID, _ARBITRUM_SEPOLIA_CHAIN_ID}, (
+        "remote strategies should defer with CROSS_CHAIN_ALLOCATION_DEFERRED; "
+        f"got {deferred_chains}"
+    )
+    # Union spans all three — the candidate set must NOT be silently
+    # filtered to Kite. Drift here means a hidden Kite-only filter is
+    # back in the candidate path.
+    assert submitted_chains | deferred_chains == {
+        _KITE_CHAIN_ID,
+        _BASE_SEPOLIA_CHAIN_ID,
+        _ARBITRUM_SEPOLIA_CHAIN_ID,
+    }
 
 
 @pytest.mark.asyncio

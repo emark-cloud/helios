@@ -34,6 +34,7 @@ from helios_allocator.runtime import (
     AllocatorStore,
     LoopConfig,
 )
+from helios_allocator.runtime.goldsky import MultiChainAllocatorGoldsky
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
@@ -92,6 +93,23 @@ class Settings(BaseServiceSettings):
     chain_watch_checkpoint_path: str = Field(
         default="", validation_alias="SENTINEL_CHAIN_WATCH_CHECKPOINT_PATH"
     )
+    # CXR-4 (2026-05-13) — per-chain Goldsky endpoints for §12.1 venue
+    # routing. When at least one of these is set, Sentinel fans out
+    # `fetch_directory()` across (Kite, Base, Arb) and surfaces every
+    # chain's strategies in the candidate set + `/v1/strategies`. The
+    # loop then defers any allocation whose target chain ≠
+    # `kite_chain_id` (emits `CROSS_CHAIN_ALLOCATION_DEFERRED` instead
+    # of submitting `allocateToStrategy` on Kite's vault, which would
+    # revert `StrategyNotRegistered`). Once CXR-0a/0b lands on-chain
+    # the loop flips to real cross-chain submission. Both blank →
+    # Sentinel behaves exactly as before (Kite-only directory).
+    goldsky_endpoint_base: str = Field(default="", validation_alias="GOLDSKY_ENDPOINT_BASE")
+    goldsky_endpoint_arbitrum: str = Field(default="", validation_alias="GOLDSKY_ENDPOINT_ARBITRUM")
+    # Chain ids for the per-chain endpoints above. Defaults match the
+    # CXR-3 testnet deployment (Base Sepolia / Arbitrum Sepolia). Live
+    # mainnet promotion is a stretch; if exercised, override both.
+    base_chain_id: int = Field(default=84_532, validation_alias="BASE_SEPOLIA_CHAIN_ID")
+    arbitrum_chain_id: int = Field(default=421_614, validation_alias="ARBITRUM_SEPOLIA_CHAIN_ID")
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -104,9 +122,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # `docs/phase-3-review.md` for the multi-replica migration note.
     nonce_store = NonceStore()
     allocator = SentinelAllocator()
-    goldsky = AllocatorGoldsky(
-        endpoint=cfg.goldsky_endpoint, chain_id=cfg.kite_chain_id, client=http_client
-    )
+    goldsky = _build_goldsky(cfg, http_client)
     onchain = AllocatorOnChain(
         rpc_url=cfg.kite_rpc_url,
         operator_pk=cfg.operator_pk,
@@ -153,6 +169,40 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+def _build_goldsky(
+    cfg: Settings,
+    http_client: httpx.AsyncClient,
+) -> AllocatorGoldsky | MultiChainAllocatorGoldsky:
+    """Pick the right Goldsky shape from configured endpoints.
+
+    Kite-only (the default before CXR-4): return the original
+    `AllocatorGoldsky` so the loop behaves byte-for-byte the same in
+    production until the per-chain endpoints get filled in.
+
+    At least one of `GOLDSKY_ENDPOINT_BASE` / `GOLDSKY_ENDPOINT_ARBITRUM`
+    set: return a `MultiChainAllocatorGoldsky` that fans out across all
+    configured chains. The Kite endpoint is always included (anchor
+    chain), then the optional Base + Arbitrum endpoints. Empty entries
+    are dropped by `MultiChainAllocatorGoldsky.from_endpoints` so a
+    partial fan-out (e.g. Base configured but Arb not yet) works.
+    """
+    remote_endpoints = (cfg.goldsky_endpoint_base, cfg.goldsky_endpoint_arbitrum)
+    if not any(remote_endpoints):
+        return AllocatorGoldsky(
+            endpoint=cfg.goldsky_endpoint,
+            chain_id=cfg.kite_chain_id,
+            client=http_client,
+        )
+    return MultiChainAllocatorGoldsky.from_endpoints(
+        {
+            cfg.kite_chain_id: cfg.goldsky_endpoint,
+            cfg.base_chain_id: cfg.goldsky_endpoint_base,
+            cfg.arbitrum_chain_id: cfg.goldsky_endpoint_arbitrum,
+        },
+        client=http_client,
+    )
+
+
 def _build_chain_watcher(cfg: Settings, store) -> ChainWatcher:
     """Compose a `ChainWatcher` from environment-driven settings.
 
@@ -187,7 +237,7 @@ def _make_router(
     store: AllocatorStore,
     loop: AllocatorLoop,
     onchain: AllocatorOnChain,
-    goldsky: AllocatorGoldsky,
+    goldsky: AllocatorGoldsky | MultiChainAllocatorGoldsky,
     nonce_store: NonceStore,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")

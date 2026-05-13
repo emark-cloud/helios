@@ -134,6 +134,15 @@ class AllocatorOnChain:
         return self._live
 
     @property
+    def chain_id(self) -> int:
+        """The chain this runner submits transactions on. The decision
+        loop compares this against each `AllocationTarget.chain_id` to
+        decide whether `allocateToStrategy` is the right call or whether
+        the target lives on a remote chain that requires the CXR-0a/0b
+        bridge pipe."""
+        return self._chain_id
+
+    @property
     def allocator_vault(self) -> str:
         return self._allocator_vault
 

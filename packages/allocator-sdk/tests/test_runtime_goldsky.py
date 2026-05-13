@@ -8,9 +8,12 @@ expected shape.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from helios_allocator.runtime.goldsky import (
     AllocatorGoldsky,
+    MultiChainAllocatorGoldsky,
     StrategyDirectoryRow,
     to_candidate,
 )
@@ -115,3 +118,155 @@ def test_to_candidate_scales_e4_to_unit_float() -> None:
     assert candidate.reputation_score == pytest.approx(0.75)
     assert candidate.declared_class == "mean_reversion_v1"
     assert candidate.fee_rate_bps == 500
+
+
+# ── MultiChainAllocatorGoldsky ────────────────────────────────
+
+
+class _FakeSource:
+    """Drop-in stand-in for `AllocatorGoldsky` that returns canned rows
+    or raises on `fetch_directory()`. Keeps the multi-chain fan-out
+    tests offline (the real class is HTTP-bound via httpx)."""
+
+    def __init__(self, chain_id: int, rows: list[StrategyDirectoryRow], *, fail: bool = False):
+        self._chain_id = chain_id
+        self._rows = rows
+        self._fail = fail
+        self.closed = False
+
+    async def fetch_directory(self) -> list[StrategyDirectoryRow]:
+        if self._fail:
+            raise RuntimeError("simulated source failure")
+        return list(self._rows)
+
+    async def fetch_candidates(self) -> list[StrategyCandidate]:
+        return [to_candidate(r) for r in await self.fetch_directory()]
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _row(strategy_id: str, chain_id: int) -> StrategyDirectoryRow:
+    return StrategyDirectoryRow(
+        strategy_id=strategy_id,
+        declared_class="momentum_v1",
+        chain_id=chain_id,
+        operator="0x" + "aa" * 20,
+        fee_rate_bps=1_000,
+        stake_amount_usd=5_000,
+        max_capacity_usd=100_000,
+        current_allocations_usd=0,
+        reputation_score_e4=8_000,
+        trades_attested=10,
+    )
+
+
+@pytest.mark.asyncio
+async def test_multichain_merges_rows_by_strategy_id() -> None:
+    """The fan-out preserves per-chain rows and tags each by source."""
+    kite_row = _row("0x" + "11" * 20, 2368)
+    base_row = _row("0x" + "22" * 20, 84_532)
+    arb_row = _row("0x" + "33" * 20, 421_614)
+
+    mc = MultiChainAllocatorGoldsky(
+        sources=[
+            _FakeSource(2368, [kite_row]),  # type: ignore[list-item]
+            _FakeSource(84_532, [base_row]),  # type: ignore[list-item]
+            _FakeSource(421_614, [arb_row]),  # type: ignore[list-item]
+        ]
+    )
+    merged = await mc.fetch_directory()
+    assert {r.strategy_id for r in merged} == {
+        kite_row.strategy_id,
+        base_row.strategy_id,
+        arb_row.strategy_id,
+    }
+    assert {r.chain_id for r in merged} == {2368, 84_532, 421_614}
+
+
+@pytest.mark.asyncio
+async def test_multichain_drops_cross_chain_pollution() -> None:
+    """A source claiming to be `chain_id=2368` that returns a row with
+    `chain_id=84_532` (e.g., misconfigured subgraph index) gets the
+    rogue row dropped — the source endpoint is the authoritative chain
+    tag. Without this guard a Base entry mis-published on the Kite
+    subgraph would pollute the candidate set."""
+    rogue_kite_row = _row("0x" + "99" * 20, 84_532)  # claims chain 84_532
+    real_kite_row = _row("0x" + "11" * 20, 2368)
+
+    mc = MultiChainAllocatorGoldsky(
+        sources=[
+            _FakeSource(2368, [rogue_kite_row, real_kite_row]),  # type: ignore[list-item]
+        ]
+    )
+    merged = await mc.fetch_directory()
+    assert [r.strategy_id for r in merged] == [real_kite_row.strategy_id]
+
+
+@pytest.mark.asyncio
+async def test_multichain_one_source_failure_doesnt_take_down_others() -> None:
+    """A 5xx from Goldsky on one chain must not blank the candidate
+    set — the loop still rebalances against the chains that responded.
+    Mirrors the offline-tolerant posture of single-source
+    `AllocatorGoldsky.fetch_directory`."""
+    base_row = _row("0x" + "22" * 20, 84_532)
+    mc = MultiChainAllocatorGoldsky(
+        sources=[
+            _FakeSource(2368, [], fail=True),  # type: ignore[list-item]
+            _FakeSource(84_532, [base_row]),  # type: ignore[list-item]
+        ]
+    )
+    merged = await mc.fetch_directory()
+    assert [r.strategy_id for r in merged] == [base_row.strategy_id]
+
+
+@pytest.mark.asyncio
+async def test_multichain_dedups_by_strategy_id_first_seen() -> None:
+    """Belt-and-braces against the theoretical case where two registries
+    happened to assign the same strategy id (unlikely but possible
+    given paramsHash collisions). The first source wins so ordering is
+    deterministic."""
+    duplicate_id = "0x" + "11" * 20
+    mc = MultiChainAllocatorGoldsky(
+        sources=[
+            _FakeSource(2368, [_row(duplicate_id, 2368)]),  # type: ignore[list-item]
+            _FakeSource(84_532, [_row(duplicate_id, 84_532)]),  # type: ignore[list-item]
+        ]
+    )
+    merged = await mc.fetch_directory()
+    assert len(merged) == 1
+    assert merged[0].chain_id == 2368  # first source wins
+
+
+@pytest.mark.asyncio
+async def test_from_endpoints_drops_blank() -> None:
+    """A partial CXR-4 rollout — Base configured but Arbitrum not yet —
+    still gives the loop a working multi-chain client. Empty endpoint
+    strings vanish from the source list rather than tripping httpx
+    on the first request."""
+    mc = MultiChainAllocatorGoldsky.from_endpoints(
+        {
+            2368: "https://example.invalid/kite",
+            84_532: "https://example.invalid/base",
+            421_614: "",  # blank — should be skipped
+        }
+    )
+    # Three sources requested; two with non-blank endpoints survive.
+    # The constructor doesn't HTTP yet — we just inspect the count.
+    assert len(mc._sources) == 2  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_from_endpoints_all_blank_falls_back_to_empty_source() -> None:
+    """Both endpoints blank should not raise — preserves the offline
+    posture so a misconfigured boot returns []."""
+    mc = MultiChainAllocatorGoldsky.from_endpoints({2368: "", 84_532: ""})
+    assert await mc.fetch_directory() == []
+
+
+@pytest.mark.asyncio
+async def test_multichain_aclose_closes_all_sources() -> None:
+    sources: list[Any] = [_FakeSource(2368, []), _FakeSource(84_532, [])]
+    mc = MultiChainAllocatorGoldsky(sources=sources)
+    await mc.aclose()
+    assert all(s.closed for s in sources)

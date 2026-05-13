@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from helios_allocator.runtime.goldsky import (
     AllocatorGoldsky,
+    MultiChainAllocatorGoldsky,
     StrategyDirectoryRow,
     to_candidate,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "AllocatorStore",
     "EventKind",
     "LoopConfig",
+    "MultiChainAllocatorGoldsky",
     "OnChainCall",
     "StrategyDirectoryRow",
     "UserState",

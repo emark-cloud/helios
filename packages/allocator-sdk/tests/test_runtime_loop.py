@@ -307,6 +307,186 @@ async def test_drawdown_breach_defunds_before_rebalance() -> None:
     assert "STRATEGY_DEFUNDED" in kinds
 
 
+def _row_chain(sid: str, chain_id: int, *, nav_ts: int | None = None) -> StrategyDirectoryRow:
+    return StrategyDirectoryRow(
+        strategy_id=sid,
+        declared_class="momentum_v1",
+        chain_id=chain_id,
+        operator="0x" + "cc" * 20,
+        fee_rate_bps=500,
+        stake_amount_usd=10_000,
+        max_capacity_usd=100_000,
+        current_allocations_usd=0,
+        reputation_score_e4=8_000,
+        trades_attested=120,
+        last_nav_update_ts=nav_ts if nav_ts is not None else now_ts(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_remote_chain_allocation_defers_and_skips_onchain_submit() -> None:
+    """Phase-1 chain-aware allocation invariant: a target whose
+    `chain_id` does not match the on-chain runner's chain MUST NOT
+    reach `AllocatorVault.allocateToStrategy`. Instead the loop emits
+    `CROSS_CHAIN_ALLOCATION_DEFERRED` for the operator / dashboard.
+
+    Background: Sentinel's CXR-4 candidate fan-out now sees Base + Arb
+    strategies, but the on-chain `AllocatorVault` only has them
+    registered on their *local* StrategyRegistry — submitting to the
+    Kite vault reverts `StrategyNotRegistered`. The fix lives in
+    `AllocatorLoop._defer_remote_ops`; this test pins the contract so
+    a future refactor can't silently re-introduce the cross-chain
+    revert.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,  # local = Kite testnet
+    )
+    base_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(base_sid, 84_532)])  # Base-Sepolia
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # Critical: zero on-chain calls. The Kite AllocatorVault never sees
+    # the Base strategyId, so the call shape can't even attempt to
+    # revert.
+    assert onchain.pending == []
+
+    # The deferred allocation is visible to the dashboard as a distinct
+    # event kind, and `user.allocations` is not mutated (no fake
+    # capital_deployed mirror — until real capital bridges, it isn't
+    # deployed).
+    events = store.recent_events(user.meta.user_address)
+    deferred = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED"]
+    assert len(deferred) == 1
+    assert deferred[0].strategy_id == base_sid
+    assert deferred[0].amount_usd > 0
+    assert "84532" in deferred[0].reason  # chain id surfaced in reason
+    assert base_sid not in user.allocations
+
+
+@pytest.mark.asyncio
+async def test_remote_chain_deferral_doesnt_block_local_allocation() -> None:
+    """When a tick produces a mixed local + remote target list, the
+    local side still allocates normally and the remote side defers.
+    The mixed-state invariant matters because pre-fix Sentinel would
+    either short-circuit the whole rebalance (skip local too) or
+    submit remote and revert — neither is correct."""
+
+    class _SplitAllocator(BaseAllocator):
+        name = "Split"
+        fee_rate_bps = 0
+        supported_classes = ("momentum_v1",)
+
+        def rank_strategies(
+            self, user: MetaStrategy, candidates: list[StrategyCandidate]
+        ) -> list[float]:
+            return [1.0 for _ in candidates]
+
+        def allocate(
+            self,
+            user: MetaStrategy,
+            ranked: list[StrategyCandidate],
+            capital: int,
+        ) -> list[AllocationTarget]:
+            half = capital // 2
+            return [
+                AllocationTarget(
+                    strategy_id=c.strategy_id,
+                    chain_id=c.chain_id,
+                    capital_usd=half,
+                    weight_bps=5_000,
+                )
+                for c in ranked[:2]
+            ]
+
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    local_sid = "0x" + "11" * 20
+    remote_sid = "0x" + "22" * 20
+    goldsky = _StubGoldsky(
+        [
+            _row_chain(local_sid, 2368),
+            _row_chain(remote_sid, 84_532),
+        ]
+    )
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_SplitAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    submitted = [c.strategy for c in onchain.pending if c.method == "allocateToStrategy"]
+    assert submitted == [local_sid]
+
+    deferred = [
+        e
+        for e in store.recent_events(user.meta.user_address)
+        if e.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED"
+    ]
+    assert [d.strategy_id for d in deferred] == [remote_sid]
+
+
+@pytest.mark.asyncio
+async def test_zero_chain_id_target_is_treated_as_local() -> None:
+    """A target with `chain_id == 0` (legacy un-tagged Goldsky row,
+    test fixture without an explicit chain) must NOT trigger the
+    cross-chain deferral path — otherwise every pre-CXR-4 scenario
+    suddenly behaves differently. Local-or-zero is the local case."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    legacy_sid = "0x" + "33" * 20
+    # `chain_id=0` mimics legacy directory rows.
+    goldsky = _StubGoldsky([_row_chain(legacy_sid, 0)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    methods = [c.method for c in onchain.pending]
+    assert methods == ["allocateToStrategy"]
+    kinds = [e.kind for e in store.recent_events(user.meta.user_address)]
+    assert "CROSS_CHAIN_ALLOCATION_DEFERRED" not in kinds
+
+
 @pytest.mark.asyncio
 async def test_unallocated_strategy_never_emits_defund() -> None:
     """Regression for the legacy-vault defund symptom: after a registry

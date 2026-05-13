@@ -33,6 +33,7 @@ import structlog
 from helios_allocator.base import BaseAllocator
 from helios_allocator.runtime.goldsky import (
     AllocatorGoldsky,
+    MultiChainAllocatorGoldsky,
     StrategyDirectoryRow,
     to_candidate,
 )
@@ -74,7 +75,12 @@ class AllocatorLoop:
         self,
         store: AllocatorStore,
         allocator: BaseAllocator,
-        goldsky: AllocatorGoldsky,
+        # `MultiChainAllocatorGoldsky` is structurally a drop-in
+        # replacement (`fetch_directory`, `fetch_candidates`, `aclose`)
+        # — the loop never touches single-chain-only fields. The union
+        # lets Sentinel/Helix swap a single-endpoint client for a
+        # tri-chain fan-out without changing this contract.
+        goldsky: AllocatorGoldsky | MultiChainAllocatorGoldsky,
         onchain: AllocatorOnChain,
         config: LoopConfig | None = None,
     ) -> None:
@@ -326,23 +332,43 @@ class AllocatorLoop:
         # defunded the loser entirely. Note: rebalance() cannot pull
         # capital back to idle, so any decrease that targets zero
         # capital still takes the per-op defund path below.
+        # Drop remote-chain ops up-front: until the CXR-0a (mUSDC OFT
+        # adapter) and CXR-0b (BridgeReceiver + AllocatorVault impl
+        # upgrade) on-chain pipe lands, the loop has no way to move
+        # capital cross-chain. Each remote op fires a
+        # `CROSS_CHAIN_ALLOCATION_DEFERRED` event so the dashboard can
+        # show "Sentinel wants to allocate $X to mom.base — pending
+        # bridge bring-up" without the local AllocatorVault reverting
+        # `StrategyNotRegistered` on a foreign strategyId. Done before
+        # the rebalance fast-path because `AllocatorVault.rebalance`
+        # iterates the strategies list and would revert on the first
+        # remote one — fast-path is local-only by construction.
+        ops = self._defer_remote_ops(user, ops, target_by_id, ts)
+
         if self._is_pure_redistribution(user, ops, target_by_id):
             # AllocatorVault.rebalance asserts sum(weights_bps) == 10_000.
             # The score-weighted allocator can drop ≤ N USD as rounding
             # remainder so the raw weights occasionally sum to 9_999;
             # absorb the slack onto the largest weight so the contract
             # check passes without changing target ratios materially.
-            weights = [t.weight_bps for t in target]
+            # Iterate `target_by_id` instead of the original `target` list:
+            # `_defer_remote_ops` may have popped remote entries from
+            # `target_by_id` (see its docstring), and those entries must
+            # NOT enter the on-chain `rebalance` call. The original
+            # `target` list is left alone so downstream tx-shape tests
+            # / dashboard fixtures still see the full intended split.
+            local_targets = [t for t in target if t.strategy_id in target_by_id]
+            weights = [t.weight_bps for t in local_targets]
             slack = 10_000 - sum(weights)
             if slack != 0:
                 largest = max(range(len(weights)), key=lambda i: weights[i])
                 weights[largest] += slack
             rebal_call = await self._onchain.rebalance_async(
                 user.meta.user_address,
-                [t.strategy_id for t in target],
+                [t.strategy_id for t in local_targets],
                 weights,
             )
-            for t in target:
+            for t in local_targets:
                 alloc = user.allocations.get(t.strategy_id)
                 if alloc is None:
                     continue
@@ -430,6 +456,76 @@ class AllocatorLoop:
                     )
                 )
         self._emit_rebalance_complete(user, ts)
+
+    def _defer_remote_ops(
+        self,
+        user: UserState,
+        ops: list[tuple[str, int]],
+        target_by_id: dict[str, AllocationTarget],
+        ts: int,
+    ) -> list[tuple[str, int]]:
+        """Strip ops whose target lives on a chain the local
+        `AllocatorOnChain` doesn't sign for and emit a deferral event
+        per stripped op.
+
+        Returns the remaining (local-only) ops list. A target whose
+        `chain_id == 0` (legacy un-tagged Goldsky row, or an untagged
+        AllocationTarget from a test fixture) is treated as local —
+        otherwise pre-CXR-4 tests + scenario runs would all suddenly
+        defer their allocations.
+
+        Side effect: remote entries are popped from `target_by_id` so
+        the rebalance fast-path's weights iteration doesn't include
+        them. The pure-redistribution check uses `target_by_id` itself
+        for the same reason — once an op is stripped, the corresponding
+        target must vanish or `AllocatorVault.rebalance` would revert
+        on the first cross-chain strategyId.
+
+        Same-chain ops fall through unchanged. The deferred remote ops
+        do *not* mutate `user.allocations` — until real capital actually
+        bridges, the dashboard should not show them as deployed. The
+        repeated emission each cycle is intentional: the deferred state
+        is a recurring "still pending" signal, and the loop has no
+        tx_hash to dedup against, so consumers can subscribe to the
+        kind once and surface the live intended allocation.
+        """
+        local = self._onchain.chain_id
+        kept: list[tuple[str, int]] = []
+        for sid, delta in ops:
+            tgt = target_by_id.get(sid)
+            if tgt is None or tgt.chain_id in (0, local):
+                kept.append((sid, delta))
+                continue
+            # Drop the remote target so downstream paths (rebalance
+            # fast-path, _apply_diffs target_by_id lookup for kind
+            # tagging) only see local entries.
+            target_by_id.pop(sid, None)
+            # Only emit on the "add capital" direction. A delta<0 against
+            # a remote strategy would mean we somehow accounted for a
+            # remote allocation locally — currently impossible since we
+            # never write user.allocations for remote targets — but the
+            # invariant is "remote ops are silent on-chain", not "remote
+            # ops are silent in the event log", so we still log the
+            # cycle-time intent.
+            self._store.emit_event(
+                AllocatorEvent(
+                    user_address=user.meta.user_address,
+                    kind="CROSS_CHAIN_ALLOCATION_DEFERRED",
+                    strategy_id=sid,
+                    amount_usd=max(0, delta),
+                    reason=f"chain={tgt.chain_id}; pending CXR-0a/0b bridge",
+                    timestamp=ts,
+                )
+            )
+            _log.info(
+                "allocator.allocation.cross_chain.deferred",
+                user=user.meta.user_address,
+                strategy=sid,
+                amount=delta,
+                dst_chain_id=tgt.chain_id,
+                local_chain_id=local,
+            )
+        return kept
 
     def _is_pure_redistribution(
         self,

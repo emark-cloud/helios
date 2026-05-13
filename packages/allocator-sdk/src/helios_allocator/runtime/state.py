@@ -51,6 +51,19 @@ EventKind = Literal[
     "DEFUND_FINALIZED",
     "DEFUND_CANCELLED",
     "NAV_DIVERGENCE",
+    # Phase-5 §12.1 chain-aware allocation. The loop ranks remote-chain
+    # strategies alongside local ones (multi-chain Goldsky fan-out) but
+    # only submits `allocateToStrategy` on the chain it has an
+    # `AllocatorVault` configured for. Cross-chain allocation requires
+    # the CXR-0a + CXR-0b on-chain pipe (mUSDC OFT adapter +
+    # BridgeReceiver + AllocatorVault impl upgrade) — until those land
+    # the loop emits this event so the dashboard can show the user that
+    # Sentinel *wants* to allocate $X to a remote strategy but the
+    # capital bridge isn't live yet. `strategy_id` is the remote
+    # vault address; `amount_usd` is the intended allocation; `reason`
+    # is the human label for which dst chain (e.g. "base-sepolia",
+    # "arbitrum-sepolia").
+    "CROSS_CHAIN_ALLOCATION_DEFERRED",
 ]
 
 
