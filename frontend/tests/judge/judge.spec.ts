@@ -66,7 +66,7 @@ test.describe("/judge", () => {
     await expect(page.getByText("Deployed addresses")).toBeVisible();
     await expect(page.getByText("User vault")).toBeVisible();
     await expect(page.getByText("Allocator vault")).toBeVisible();
-    await expect(page.getByText("Reputation anchor (V1)")).toBeVisible();
+    await expect(page.getByText("Reputation anchor (V2-bis)")).toBeVisible();
 
     // Verify-yourself command block
     await expect(page.getByText("Verify a trade yourself")).toBeVisible();
