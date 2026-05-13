@@ -23,7 +23,7 @@ StrategyVault.executeWithProof (manifest + verifier + freshness checks)
      ↓
 MockSwapRouter.exactInputSingle (mirrored BTC/ETH/SOL prices)
      ↓
-TradeAttested event (subgraph helios/v0.7.0 indexes immediately)
+TradeAttested event (subgraph helios/v0.7.1 indexes immediately)
 ```
 
 No `executeDirectly` escape hatch was added; every recorded trade carries a valid Groth16 proof of class compliance.
