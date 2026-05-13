@@ -288,10 +288,23 @@ class AnchorPoster:
         # the mempool, producing duplicate-nonce submits.
         with self._submit_lock:
             gas_params = self._gas_params()
+            from_addr = self._account.address
+            # Web3.py's auto-estimate underestimates `commit` on Base
+            # Sepolia (cold-storage SSTOREs land outside the L2 estimate
+            # path), surfacing as `out of gas: gas required exceeds:
+            # ~141k` until the signer EOA has warmed every slot it ever
+            # touches. Mirror the reputation anchor's 50% headroom — gas
+            # is refunded on unused units so there's no real overpay.
+            try:
+                estimated = fn.estimate_gas({"from": from_addr})
+            except Exception:
+                estimated = 200_000
+            gas_limit = max(int(estimated * 3 // 2), 250_000)
             tx_params: dict[str, Any] = {
-                "from": self._account.address,
-                "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
+                "from": from_addr,
+                "nonce": self._w3.eth.get_transaction_count(from_addr, "pending"),
                 "chainId": self.chain_id,
+                "gas": gas_limit,
                 **gas_params,
             }
             tx = fn.build_transaction(tx_params)
