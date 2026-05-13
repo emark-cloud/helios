@@ -21,7 +21,9 @@
     "swapRouter": "0x94cc0aac535ccdb3c01d6787d6413c739ae12bc4",
     "mockSwapRouter": "0xc065af9b57e2666877a9b479ee61b1f249516277",
     "strategyRegistry": "0x2a94DE11521EAF190e451863bEfe0F178f04DF32",
-    "phase6VaultMomentumBase": "0x90e7A456404e73466e71A190dBB5A5A3490776A8",
-    "phase6VaultMeanReversionBase": "0x1e458D57F9fE0CF50F82366c258b05A254d8Fa6f"
+    "phase6VaultMomentumBase": "0x9e14299e6FAeE1C1F352E2F9197D8A080306FE8d",
+    "phase6VaultMeanReversionBase": "0x8b375617589DBC7A90049b0fE07f2Fb4D5A19F08",
+    "phase6VaultMomentumBaseLegacy_morning_shared": "0x90e7A456404e73466e71A190dBB5A5A3490776A8",
+    "phase6VaultMeanReversionBaseLegacy_morning_shared": "0x1e458D57F9fE0CF50F82366c258b05A254d8Fa6f"
   }
 }

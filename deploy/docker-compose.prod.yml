@@ -251,7 +251,12 @@ services:
       STRATEGY_REGISTRY: ${MOMENTUM_BASE_STRATEGY_REGISTRY}
       STRATEGY_VAULT_ADDRESS: ${MOMENTUM_BASE_STRATEGY_VAULT_ADDRESS}
       ALLOCATOR_ADDRESS: ${MOMENTUM_BASE_ALLOCATOR_ADDRESS}
-      NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
+      # Per-class operator/navOracle keys — dedicated EOAs initialized
+      # in the Base vault manifest so paramsHash commits + executeWithProof
+      # sign from the right address (see project_phase6_ws9_dedicated_keys
+      # for the original Kite mitigation).
+      MOMENTUM_OPERATOR_PK: ${MOMENTUM_BASE_OPERATOR_PK}
+      MOMENTUM_NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8015:8005"]
     depends_on: [oracle, prover]
 
@@ -267,7 +272,8 @@ services:
       STRATEGY_REGISTRY: ${MEAN_REV_BASE_STRATEGY_REGISTRY}
       STRATEGY_VAULT_ADDRESS: ${MEAN_REV_BASE_STRATEGY_VAULT_ADDRESS}
       ALLOCATOR_ADDRESS: ${MEAN_REV_BASE_ALLOCATOR_ADDRESS}
-      NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
+      MEAN_REV_OPERATOR_PK: ${MEAN_REV_BASE_OPERATOR_PK}
+      MEAN_REV_NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8016:8006"]
     depends_on: [oracle, prover]
 
