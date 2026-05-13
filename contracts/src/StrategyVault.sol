@@ -406,6 +406,32 @@ contract StrategyVault is
         emit RegistryUpdated(prev, newRegistry);
     }
 
+    /// @notice Owner-only `manifest.operator` rotation. The operator EOA
+    ///         drives the off-chain strategy service that calls
+    ///         `executeWithProof`. `initialize` sets it once; this
+    ///         setter lets ops rotate off a compromised or shared key
+    ///         without redeploying the proxy. No new storage slots —
+    ///         mutates `manifest.operator` in place.
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) revert ZeroAddress();
+        address prev = _manifest.operator;
+        _manifest.operator = newOperator;
+        emit OperatorUpdated(prev, newOperator);
+    }
+
+    /// @notice Owner-only `navOracle` rotation. The navOracle EOA signs
+    ///         the EIP-712 NAV reports consumed by `reportNAV`.
+    ///         `initialize` sets it once; this setter lets ops rotate
+    ///         off a compromised or shared key without redeploying.
+    ///         No new storage slots — mutates the existing `navOracle`
+    ///         field set in `initialize`.
+    function setNavOracle(address newNavOracle) external onlyOwner {
+        if (newNavOracle == address(0)) revert ZeroAddress();
+        address prev = navOracle;
+        navOracle = newNavOracle;
+        emit NavOracleUpdated(prev, newNavOracle);
+    }
+
     // ── Capital flow (allocator vault entry/exit) ───────────────────
 
     /// @notice Pull base-asset capital in from the paired allocator vault.
@@ -1102,6 +1128,8 @@ contract StrategyVault is
 
     event BridgeReceiverUpdated(address indexed previous, address indexed next);
     event OftAdapterUpdated(address indexed previous, address indexed next);
+    event OperatorUpdated(address indexed previous, address indexed next);
+    event NavOracleUpdated(address indexed previous, address indexed next);
     event CrossChainAllocationReceived(
         address indexed user, address indexed allocator, uint256 amount, uint256 newTotalNAV
     );

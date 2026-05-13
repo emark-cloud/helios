@@ -830,6 +830,25 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "event",
+    "name": "BridgeReceiverUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "DefundArmed",
     "inputs": [
       {
@@ -985,6 +1004,25 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "event",
+    "name": "OftAdapterUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "OracleAnchorUpdated",
     "inputs": [
       {
@@ -998,6 +1036,74 @@ IAllocatorVault_ABI = [
         "type": "address",
         "indexed": True,
         "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "RemoteAllocationSent",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategyId",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "dstEid",
+        "type": "uint32",
+        "indexed": True,
+        "internalType": "uint32"
+      },
+      {
+        "name": "remoteVault",
+        "type": "address",
+        "indexed": False,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "RemoteDefundSettled",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "strategyId",
+        "type": "bytes32",
+        "indexed": True,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "srcEid",
+        "type": "uint32",
+        "indexed": True,
+        "internalType": "uint32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
       }
     ],
     "anonymous": False
@@ -1060,6 +1166,25 @@ IAllocatorVault_ABI = [
         "type": "uint256",
         "indexed": False,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "StrategyRegistryUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
       }
     ],
     "anonymous": False
@@ -1565,6 +1690,31 @@ IStrategyVault_ABI = [
   },
   {
     "type": "event",
+    "name": "OrphanedAllocationRecovered",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "RealizedDistributed",
     "inputs": [
       {
@@ -1590,6 +1740,25 @@ IStrategyVault_ABI = [
   },
   {
     "type": "event",
+    "name": "RegistryUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "Slashed",
     "inputs": [
       {
@@ -1609,6 +1778,31 @@ IStrategyVault_ABI = [
         "type": "string",
         "indexed": False,
         "internalType": "string"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "StrandedNAVRecovered",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
       }
     ],
     "anonymous": False

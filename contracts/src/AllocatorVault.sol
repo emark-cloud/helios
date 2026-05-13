@@ -241,6 +241,19 @@ contract AllocatorVault is
         strategyRegistry = newRegistry;
     }
 
+    /// @notice Owner-only `operator` rotation. The operator EOA is the
+    ///         off-chain Sentinel-style allocator service that calls
+    ///         `allocateToStrategy` / `rebalance` / `settleFee`.
+    ///         `initialize` set it once; this setter lets ops rotate
+    ///         off a compromised or shared key without redeploying the
+    ///         proxy. No new storage slots — uses the existing
+    ///         `operator` field set in `initialize`.
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) revert ZeroAddress();
+        emit OperatorUpdated(operator, newOperator);
+        operator = newOperator;
+    }
+
     /// @notice Tune the reward cap paid out of strategy stake on a
     ///         successful permissionless finalize. Owner-only. Pass
     ///         `capE6 = 0` to fall back to `DEFAULT_REWARD_CAP_USD_E6`

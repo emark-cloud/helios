@@ -108,6 +108,55 @@ contract StrategyVaultUpgradeTest is Test {
         assertEq(vault.registry(), address(regV2));
     }
 
+    // ── setOperator + setNavOracle (signer rotation) ───────────────
+
+    event OperatorUpdated(address indexed previous, address indexed next);
+    event NavOracleUpdated(address indexed previous, address indexed next);
+
+    function test_SetOperator_OnlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        vault.setOperator(address(0xBEEF));
+    }
+
+    function test_SetOperator_RejectsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        vault.setOperator(address(0));
+    }
+
+    function test_SetOperator_EmitsAndMutatesManifest() public {
+        address newOp = address(0xC0FFEE);
+        address prev = vault.manifest().operator;
+        vm.expectEmit(true, true, false, false);
+        emit OperatorUpdated(prev, newOp);
+        vm.prank(owner);
+        vault.setOperator(newOp);
+        assertEq(vault.manifest().operator, newOp);
+    }
+
+    function test_SetNavOracle_OnlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        vault.setNavOracle(address(0xBEEF));
+    }
+
+    function test_SetNavOracle_RejectsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(StrategyVault.ZeroAddress.selector);
+        vault.setNavOracle(address(0));
+    }
+
+    function test_SetNavOracle_EmitsAndUpdates() public {
+        address newNav = address(0xDECAF);
+        address prev = vault.navOracle();
+        vm.expectEmit(true, true, false, false);
+        emit NavOracleUpdated(prev, newNav);
+        vm.prank(owner);
+        vault.setNavOracle(newNav);
+        assertEq(vault.navOracle(), newNav);
+    }
+
     // ── Storage preservation + paramsHashOf swap ───────────────────
 
     function test_UUPSUpgrade_PreservesStorageThenSetterSwapsRegistry() public {

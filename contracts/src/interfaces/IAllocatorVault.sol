@@ -86,6 +86,8 @@ interface IAllocatorVault {
     ///         swap the immutable-registry pointer the vault was
     ///         initialised against.
     event StrategyRegistryUpdated(address indexed previous, address indexed next);
+    /// @notice Owner-only `operator` (Sentinel allocator caller) rotation.
+    event OperatorUpdated(address indexed previous, address indexed next);
     /// @notice CXR-0b — Owner-only wiring of the local HeliosBridgeReceiver.
     event BridgeReceiverUpdated(address indexed previous, address indexed next);
     /// @notice CXR-0b — Owner-only wiring of the local MUsdcOFTAdapter.

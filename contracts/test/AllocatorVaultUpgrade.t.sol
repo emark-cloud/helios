@@ -169,6 +169,32 @@ contract AllocatorVaultUpgradeTest is Test {
         assertEq(vault.strategyRegistry(), address(regV2));
     }
 
+    // ── setOperator (signer rotation) ──────────────────────────────
+
+    event OperatorUpdated(address indexed previous, address indexed next);
+
+    function test_SetOperator_OnlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        vault.setOperator(address(0xBEEF));
+    }
+
+    function test_SetOperator_RejectsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(AllocatorVault.ZeroAddress.selector);
+        vault.setOperator(address(0));
+    }
+
+    function test_SetOperator_EmitsEventAndUpdatesStorage() public {
+        address newOp = address(0xC0FFEE);
+        address prev = vault.operator();
+        vm.expectEmit(true, true, false, false);
+        emit OperatorUpdated(prev, newOp);
+        vm.prank(owner);
+        vault.setOperator(newOp);
+        assertEq(vault.operator(), newOp);
+    }
+
     // ── Storage preservation through UUPS upgrade ───────────────────
 
     function test_UUPSUpgrade_PreservesStorageThenSetterSwapsRegistry() public {
