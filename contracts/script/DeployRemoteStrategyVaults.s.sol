@@ -59,11 +59,10 @@ contract DeployRemoteStrategyVaults is Script {
     /// @dev Whole-token amounts; scaled to baseAsset.decimals() at deploy
     ///      time. Kite mUSDC is 18-dec; Arb-Sepolia mUSDC is 6-dec, so
     ///      hard-coded 18-dec literals would mis-size the vault by 1e12x.
-    uint256 internal constant STAKE_WHOLE = 5_000;
+    uint256 internal constant STAKE_WHOLE = 5000;
     uint256 internal constant CAPACITY_WHOLE = 1_000_000;
 
-    bytes32 internal constant PH_YR_ARB =
-        keccak256("helios.yield_rot_v1.phase6.multiasset.arb");
+    bytes32 internal constant PH_YR_ARB = keccak256("helios.yield_rot_v1.phase6.multiasset.arb");
     bytes32 internal constant PH_MOM_BASE_REMOTE =
         keccak256("helios.mom_v1.phase6.multiasset.base.remote");
     bytes32 internal constant PH_MR_BASE_REMOTE =
@@ -95,9 +94,9 @@ contract DeployRemoteStrategyVaults is Script {
             console2.log("StrategyVault impl (reused):", i.impl);
         }
 
-        if (block.chainid == 421614) {
+        if (block.chainid == 421_614) {
             _deployArbitrum(i);
-        } else if (block.chainid == 84532) {
+        } else if (block.chainid == 84_532) {
             _deployBase(i);
         } else {
             revert("DeployRemoteStrategyVaults: unsupported chain");
@@ -111,9 +110,9 @@ contract DeployRemoteStrategyVaults is Script {
         i.deployer = vm.addr(i.deployerPk);
         i.impl = vm.envOr("STRATEGY_VAULT_IMPL", address(0));
 
-        if (block.chainid == 421614) {
+        if (block.chainid == 421_614) {
             i.file = "./deployments/arbitrum-sepolia.json";
-        } else if (block.chainid == 84532) {
+        } else if (block.chainid == 84_532) {
             i.file = "./deployments/base-sepolia.json";
         } else {
             revert("unsupported chain");
@@ -130,7 +129,7 @@ contract DeployRemoteStrategyVaults is Script {
         require(i.verifier != address(0), "tradeAttestationVerifier missing");
         require(i.priceAnchor != address(0), "oraclePriceAnchor missing");
 
-        if (block.chainid == 421614) {
+        if (block.chainid == 421_614) {
             // On Arb-Sepolia, real Aave V3's USDC/WETH reserves are
             // gated to admin-only mint (FiatToken). v1 routes yr.arb
             // through the Helios-deployed MockYieldVault `0xc065af9b…`
@@ -162,8 +161,7 @@ contract DeployRemoteStrategyVaults is Script {
         address[] memory universe = new address[](1);
         universe[0] = i.usdc;
 
-        address vault =
-            _deployOne(i, CLASS_YR, universe, PH_YR_ARB, "yr.arb");
+        address vault = _deployOne(i, CLASS_YR, universe, PH_YR_ARB, "yr.arb");
 
         // Approve + register on local SR. Stake scaled to baseAsset decimals.
         uint256 stake = _stake(i.usdc);
@@ -177,9 +175,7 @@ contract DeployRemoteStrategyVaults is Script {
             ".addresses.phase6VaultYieldRotationArb"
         );
         vm.writeJson(
-            string.concat('"', vm.toString(i.impl), '"'),
-            i.file,
-            ".addresses.strategyVaultImpl"
+            string.concat('"', vm.toString(i.impl), '"'), i.file, ".addresses.strategyVaultImpl"
         );
         console2.log("patched:", i.file);
     }
@@ -197,10 +193,8 @@ contract DeployRemoteStrategyVaults is Script {
         }
         universe[1] = weth;
 
-        address momVault =
-            _deployOne(i, CLASS_MOM, universe, PH_MOM_BASE_REMOTE, "mom.base");
-        address mrVault =
-            _deployOne(i, CLASS_MR, universe, PH_MR_BASE_REMOTE, "mr.base");
+        address momVault = _deployOne(i, CLASS_MOM, universe, PH_MOM_BASE_REMOTE, "mom.base");
+        address mrVault = _deployOne(i, CLASS_MR, universe, PH_MR_BASE_REMOTE, "mr.base");
 
         uint256 stake = _stake(i.usdc);
         IERC20(i.usdc).approve(i.registry, type(uint256).max);
@@ -219,9 +213,7 @@ contract DeployRemoteStrategyVaults is Script {
             ".addresses.phase6VaultMeanReversionBase"
         );
         vm.writeJson(
-            string.concat('"', vm.toString(i.impl), '"'),
-            i.file,
-            ".addresses.strategyVaultImpl"
+            string.concat('"', vm.toString(i.impl), '"'), i.file, ".addresses.strategyVaultImpl"
         );
         console2.log("patched:", i.file);
     }

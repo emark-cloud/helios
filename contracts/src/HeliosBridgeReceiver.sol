@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { ILayerZeroComposer } from
-    "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroComposer.sol";
+import {
+    ILayerZeroComposer
+} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroComposer.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/oapp-evm/oft/libs/OFTComposeMsgCodec.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -60,13 +61,14 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
         uint32 indexed srcEid, address indexed strategy, address indexed user, uint256 amount
     );
     event CrossChainDefundSettled(
-        uint32 indexed srcEid,
-        bytes32 indexed strategyId,
-        address indexed user,
-        uint256 amount
+        uint32 indexed srcEid, bytes32 indexed strategyId, address indexed user, uint256 amount
     );
     event AllocateFailed(
-        uint32 indexed srcEid, address indexed strategy, address indexed user, uint256 amount, bytes reason
+        uint32 indexed srcEid,
+        address indexed strategy,
+        address indexed user,
+        uint256 amount,
+        bytes reason
     );
     event Recovered(address indexed user, uint256 amount);
 
@@ -78,7 +80,9 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
     constructor(address usdc_, address endpoint_, address oftAdapter_, address owner_)
         Ownable(owner_)
     {
-        require(usdc_ != address(0) && endpoint_ != address(0) && oftAdapter_ != address(0), "zero addr");
+        require(
+            usdc_ != address(0) && endpoint_ != address(0) && oftAdapter_ != address(0), "zero addr"
+        );
         usdc = IERC20(usdc_);
         endpoint = endpoint_;
         oftAdapter = oftAdapter_;
@@ -97,7 +101,11 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
         bytes calldata _message,
         address, /*_executor*/
         bytes calldata /*_extraData*/
-    ) external payable override {
+    )
+        external
+        payable
+        override
+    {
         if (msg.sender != endpoint) revert NotEndpoint();
         if (_from != oftAdapter) revert UntrustedComposeFrom();
 
@@ -141,9 +149,8 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
     {
         if (allocatorVault == address(0)) revert AllocatorVaultUnset();
         usdc.safeTransfer(allocatorVault, amount);
-        IAllocatorVaultCrossChain(allocatorVault).settleRemoteDefund(
-            user, strategyId, amount, srcEid
-        );
+        IAllocatorVaultCrossChain(allocatorVault)
+            .settleRemoteDefund(user, strategyId, amount, srcEid);
         emit CrossChainDefundSettled(srcEid, strategyId, user, amount);
     }
 

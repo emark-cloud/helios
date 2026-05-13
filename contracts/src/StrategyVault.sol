@@ -28,8 +28,7 @@ import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 import { IHeliosOApp } from "./interfaces/IHeliosOApp.sol";
 import { IReputationAnchor } from "./interfaces/IReputationAnchor.sol";
-import { IOFT, SendParam, MessagingFee } from
-    "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
+import { IOFT, SendParam, MessagingFee } from "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
 
 /// @title StrategyVault
 /// @notice Per-strategy capital + ZK-gated trade execution + NAV tracking.
@@ -1077,7 +1076,11 @@ contract StrategyVault is
         baseAsset.forceApprove(oftAdapter, amount);
 
         bytes memory composeMsg = abi.encode(
-            CXR_ACTION_SETTLE_DEFUND, strategyId, address(0), /*remoteVault unused*/ user
+            CXR_ACTION_SETTLE_DEFUND,
+            strategyId,
+            address(0),
+            /*remoteVault unused*/
+            user
         );
 
         SendParam memory param = SendParam({

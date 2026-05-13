@@ -28,7 +28,7 @@ contract AllocatorVaultCXRTest is Test {
     address internal oftAdapter = makeAddr("oftAdapter");
     address internal anchor = makeAddr("anchor");
     bytes32 internal constant STRATEGY = bytes32(uint256(0xABCD));
-    uint32 internal constant ARB_EID = 40231;
+    uint32 internal constant ARB_EID = 40_231;
 
     function setUp() public {
         usdc = new MockERC20("USDC", "USDC");

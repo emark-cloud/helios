@@ -30,7 +30,7 @@ contract UpgradeRemoteVaultsToCXR is Script {
     string internal constant FILE = "./deployments/arbitrum-sepolia.json";
 
     function run() external {
-        require(block.chainid == 421614, "UpgradeRemoteVaultsToCXR: not Arb-Sepolia");
+        require(block.chainid == 421_614, "UpgradeRemoteVaultsToCXR: not Arb-Sepolia");
 
         uint256 pk = vm.envUint("DEPLOYER_PK");
         address proxy = _readAddress(".addresses.phase6VaultYieldRotationArb");

@@ -20,14 +20,14 @@ import { MUsdcOFTAdapter } from "../src/MUsdcOFTAdapter.sol";
 ///         adapter address; reads the other two chain JSONs to find the
 ///         remote adapters + EIDs.
 contract WireOFTPeers is Script {
-    uint32 internal constant KITE_EID = 40415;
-    uint32 internal constant ARB_EID = 40231;
-    uint32 internal constant BASE_EID = 40245;
+    uint32 internal constant KITE_EID = 40_415;
+    uint32 internal constant ARB_EID = 40_231;
+    uint32 internal constant BASE_EID = 40_245;
 
     function run() external {
         uint256 chainId = block.chainid;
         require(
-            chainId == 2368 || chainId == 421614 || chainId == 84532, "WireOFTPeers: unsupported"
+            chainId == 2368 || chainId == 421_614 || chainId == 84_532, "WireOFTPeers: unsupported"
         );
 
         uint256 pk = vm.envUint("DEPLOYER_PK");
@@ -55,7 +55,7 @@ contract WireOFTPeers is Script {
 
     function _chainCtx(uint256 chainId) internal pure returns (string memory file, uint32 eid) {
         if (chainId == 2368) return ("./deployments/kite-testnet.json", KITE_EID);
-        if (chainId == 421614) return ("./deployments/arbitrum-sepolia.json", ARB_EID);
+        if (chainId == 421_614) return ("./deployments/arbitrum-sepolia.json", ARB_EID);
         return ("./deployments/base-sepolia.json", BASE_EID);
     }
 
@@ -70,7 +70,7 @@ contract WireOFTPeers is Script {
                 _readAddress("./deployments/arbitrum-sepolia.json", ".addresses.mUsdcOFTAdapter"),
                 _readAddress("./deployments/base-sepolia.json", ".addresses.mUsdcOFTAdapter")
             ];
-        } else if (chainId == 421614) {
+        } else if (chainId == 421_614) {
             eids = [KITE_EID, BASE_EID];
             adapters = [
                 _readAddress("./deployments/kite-testnet.json", ".addresses.mUsdcOFTAdapter"),

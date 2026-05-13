@@ -46,7 +46,7 @@ contract RedeployBaseDedicatedOps is Script {
     bytes32 internal constant CLASS_MR = ClassIds.MEAN_REVERSION_V1;
 
     uint16 internal constant STRATEGY_FEE_BPS = 1500;
-    uint256 internal constant STAKE_WHOLE = 5_000;
+    uint256 internal constant STAKE_WHOLE = 5000;
     uint256 internal constant CAPACITY_WHOLE = 1_000_000;
 
     bytes32 internal constant PH_MOM_BASE =
@@ -55,7 +55,7 @@ contract RedeployBaseDedicatedOps is Script {
         keccak256("helios.mean_rev_v1.phase6.multiasset.base.remote.v2");
 
     function run() external {
-        require(block.chainid == 84532, "RedeployBaseDedicatedOps: not Base-Sepolia");
+        require(block.chainid == 84_532, "RedeployBaseDedicatedOps: not Base-Sepolia");
 
         uint256 deployerPk = vm.envUint("DEPLOYER_PK");
         address deployer = vm.addr(deployerPk);
@@ -154,9 +154,7 @@ contract RedeployBaseDedicatedOps is Script {
             ".addresses.phase6VaultMeanReversionBaseLegacy_morning_shared"
         );
         vm.writeJson(
-            string.concat('"', vm.toString(newMom), '"'),
-            FILE,
-            ".addresses.phase6VaultMomentumBase"
+            string.concat('"', vm.toString(newMom), '"'), FILE, ".addresses.phase6VaultMomentumBase"
         );
         vm.writeJson(
             string.concat('"', vm.toString(newMr), '"'),
@@ -189,15 +187,16 @@ contract RedeployBaseDedicatedOps is Script {
         uint256 stake,
         uint256 capacity
     ) internal returns (address vault) {
-        IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
-            declaredClass: declaredClass,
-            assetUniverse: universe,
-            maxCapacity: capacity,
-            feeRateBps: STRATEGY_FEE_BPS,
-            operator: operator_,
-            stakeAmount: stake,
-            paramsHash: paramsHash
-        });
+        IStrategyVault.StrategyManifest memory m =
+            IStrategyVault.StrategyManifest({
+                declaredClass: declaredClass,
+                assetUniverse: universe,
+                maxCapacity: capacity,
+                feeRateBps: STRATEGY_FEE_BPS,
+                operator: operator_,
+                stakeAmount: stake,
+                paramsHash: paramsHash
+            });
 
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,

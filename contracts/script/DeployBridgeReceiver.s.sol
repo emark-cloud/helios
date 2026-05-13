@@ -25,7 +25,7 @@ contract DeployBridgeReceiver is Script {
     function run() external returns (address receiver) {
         uint256 chainId = block.chainid;
         require(
-            chainId == 2368 || chainId == 421614 || chainId == 84532,
+            chainId == 2368 || chainId == 421_614 || chainId == 84_532,
             "DeployBridgeReceiver: unsupported chain"
         );
 
@@ -36,7 +36,7 @@ contract DeployBridgeReceiver is Script {
         string memory file;
         if (chainId == 2368) {
             file = "./deployments/kite-testnet.json";
-        } else if (chainId == 421614) {
+        } else if (chainId == 421_614) {
             file = "./deployments/arbitrum-sepolia.json";
         } else {
             file = "./deployments/base-sepolia.json";
@@ -62,9 +62,7 @@ contract DeployBridgeReceiver is Script {
         console2.log("receiver:", receiver);
 
         vm.writeJson(
-            string.concat('"', vm.toString(receiver), '"'),
-            file,
-            ".addresses.heliosBridgeReceiver"
+            string.concat('"', vm.toString(receiver), '"'), file, ".addresses.heliosBridgeReceiver"
         );
         console2.log("patched:", file);
     }

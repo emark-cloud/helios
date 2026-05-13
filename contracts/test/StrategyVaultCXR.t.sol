@@ -108,14 +108,14 @@ contract StrategyVaultCXRTest is Test {
 
         // Simulate the BridgeReceiver having transferred USDC to the
         // vault prior to calling the hook.
-        usdc.mint(address(vault), 1_000e6);
+        usdc.mint(address(vault), 1000e6);
 
         vm.prank(bridgeReceiver);
-        vault.onCrossChainAllocate(1_000e6, user);
+        vault.onCrossChainAllocate(1000e6, user);
 
-        assertEq(vault.allocationOf(allocatorVault), 1_000e6);
-        assertEq(vault.totalNAV(), 1_000e6);
-        assertEq(vault.totalCrossChainAllocated(), 1_000e6);
+        assertEq(vault.allocationOf(allocatorVault), 1000e6);
+        assertEq(vault.totalNAV(), 1000e6);
+        assertEq(vault.totalCrossChainAllocated(), 1000e6);
     }
 
     function test_onCrossChainAllocate_rejectsZeroAmount() public {

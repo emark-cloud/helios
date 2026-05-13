@@ -27,13 +27,14 @@ contract DeployRemoteStrategyRegistry is Script {
     function run() external returns (address strategyRegistry) {
         uint256 chainId = block.chainid;
         require(
-            chainId == 421614 || chainId == 84532, "DeployRemoteStrategyRegistry: unsupported chain"
+            chainId == 421_614 || chainId == 84_532,
+            "DeployRemoteStrategyRegistry: unsupported chain"
         );
 
         uint256 pk = vm.envUint("DEPLOYER_PK");
         address deployer = vm.addr(pk);
 
-        string memory file = chainId == 421614
+        string memory file = chainId == 421_614
             ? "./deployments/arbitrum-sepolia.json"
             : "./deployments/base-sepolia.json";
 

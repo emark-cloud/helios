@@ -32,6 +32,7 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from helios_contracts_abi.abis import IOracleAnchor_ABI
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 from web3.types import TxReceipt
 
 from oracle.commit_mirror import CommitMirror
@@ -186,8 +187,6 @@ class AnchorPoster:
         # in `_gas_params` hits per submit. Injected unconditionally:
         # Kite testnet emits 32-byte extraData and the middleware is a
         # no-op for it, so this is safe to apply to every chain.
-        from web3.middleware import ExtraDataToPOAMiddleware
-
         self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         pk = self.signer_pk if self.signer_pk.startswith("0x") else "0x" + self.signer_pk
         try:

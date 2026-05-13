@@ -76,17 +76,24 @@ contract HeliosBridgeReceiverTest is Test {
 
     function test_allocate_pathReleasesUsdcAndCallsVault() public {
         // Bridge holds released USDC (simulating prior _credit step).
-        usdc.mint(address(receiver), 1_000e6);
+        usdc.mint(address(receiver), 1000e6);
 
         bytes memory msgData = _composeMessage(
-            1, 40231, 1_000e6, 0 /*ALLOCATE*/, bytes32(uint256(0xABCD)), address(vault), user
+            1,
+            40_231,
+            1000e6,
+            0,
+            /*ALLOCATE*/
+            bytes32(uint256(0xABCD)),
+            address(vault),
+            user
         );
 
         vm.prank(endpoint);
         receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
 
-        assertEq(usdc.balanceOf(address(vault)), 1_000e6, "vault should hold released usdc");
-        assertEq(vault.lastAmount(), 1_000e6, "vault.onCrossChainAllocate should fire");
+        assertEq(usdc.balanceOf(address(vault)), 1000e6, "vault should hold released usdc");
+        assertEq(vault.lastAmount(), 1000e6, "vault.onCrossChainAllocate should fire");
         assertEq(vault.lastUser(), user);
     }
 
@@ -94,9 +101,8 @@ contract HeliosBridgeReceiverTest is Test {
         usdc.mint(address(receiver), 500e6);
         vault.setShouldRevert(true);
 
-        bytes memory msgData = _composeMessage(
-            1, 40231, 500e6, 0, bytes32(uint256(0xABCD)), address(vault), user
-        );
+        bytes memory msgData =
+            _composeMessage(1, 40_231, 500e6, 0, bytes32(uint256(0xABCD)), address(vault), user);
 
         vm.prank(endpoint);
         receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
@@ -112,7 +118,7 @@ contract HeliosBridgeReceiverTest is Test {
 
         bytes memory msgData = _composeMessage(
             42,
-            40231,
+            40_231,
             250e6,
             1, /*SETTLE_DEFUND*/
             bytes32(uint256(0xDEAD)),
@@ -127,21 +133,19 @@ contract HeliosBridgeReceiverTest is Test {
         assertEq(allocator.lastUser(), user);
         assertEq(allocator.lastStrategy(), bytes32(uint256(0xDEAD)));
         assertEq(allocator.lastAmount(), 250e6);
-        assertEq(allocator.lastSrcEid(), 40231);
+        assertEq(allocator.lastSrcEid(), 40_231);
     }
 
     function test_rejectsNonEndpoint() public {
-        bytes memory msgData = _composeMessage(
-            1, 40231, 1e6, 0, bytes32(uint256(0x1)), address(vault), user
-        );
+        bytes memory msgData =
+            _composeMessage(1, 40_231, 1e6, 0, bytes32(uint256(0x1)), address(vault), user);
         vm.expectRevert(HeliosBridgeReceiver.NotEndpoint.selector);
         receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
     }
 
     function test_rejectsUntrustedFrom() public {
-        bytes memory msgData = _composeMessage(
-            1, 40231, 1e6, 0, bytes32(uint256(0x1)), address(vault), user
-        );
+        bytes memory msgData =
+            _composeMessage(1, 40_231, 1e6, 0, bytes32(uint256(0x1)), address(vault), user);
         vm.prank(endpoint);
         vm.expectRevert(HeliosBridgeReceiver.UntrustedComposeFrom.selector);
         receiver.lzCompose(address(0xBAD), bytes32(0), msgData, address(0), "");

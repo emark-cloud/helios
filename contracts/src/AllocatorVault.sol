@@ -22,8 +22,7 @@ import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 import { MetaStrategyLib } from "./interfaces/IMetaStrategy.sol";
-import { IOFT, SendParam, MessagingFee } from
-    "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
+import { IOFT, SendParam, MessagingFee } from "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
 
 /// @notice Slim view onto UserVault. AllocatorVault uses these privileged
 ///         methods to move capital while UserVault enforces the meta-strategy
@@ -131,8 +130,8 @@ contract AllocatorVault is
     ///      the convention used by HeliosOApp's reputation messages).
     ///      Incremented on `allocateToRemoteStrategy`, decremented on
     ///      `settleRemoteDefund`.
-    mapping(address user => mapping(bytes32 strategyId => mapping(uint32 dstEid => uint256))) internal
-        _userRemoteDeployed;
+    mapping(address user => mapping(bytes32 strategyId => mapping(uint32 dstEid => uint256)))
+        internal _userRemoteDeployed;
 
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
@@ -914,8 +913,7 @@ contract AllocatorVault is
         baseAsset.forceApprove(oftAdapter, amount);
 
         // Encode compose payload — receiver will decode and dispatch.
-        bytes memory composeMsg =
-            abi.encode(CXR_ACTION_ALLOCATE, strategyId, remoteVault, user);
+        bytes memory composeMsg = abi.encode(CXR_ACTION_ALLOCATE, strategyId, remoteVault, user);
 
         SendParam memory param = SendParam({
             dstEid: dstEid,
