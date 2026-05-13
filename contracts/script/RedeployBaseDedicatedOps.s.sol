@@ -54,95 +54,86 @@ contract RedeployBaseDedicatedOps is Script {
     bytes32 internal constant PH_MR_BASE =
         keccak256("helios.mean_rev_v1.phase6.multiasset.base.remote.v2");
 
+    struct Inputs {
+        uint256 deployerPk;
+        address deployer;
+        address momOp;
+        address mrOp;
+        address impl;
+        address usdc;
+        address registry;
+        address verifier;
+        address swapRouter;
+        address priceAnchor;
+        address yieldAnchor;
+        address oldMom;
+        address oldMr;
+        uint256 stake;
+        uint256 capacity;
+    }
+
+    function _loadInputs() internal view returns (Inputs memory i) {
+        i.deployerPk = vm.envUint("DEPLOYER_PK");
+        i.deployer = vm.addr(i.deployerPk);
+        i.momOp = vm.addr(vm.envUint("MOM_BASE_OPERATOR_PK"));
+        i.mrOp = vm.addr(vm.envUint("MR_BASE_OPERATOR_PK"));
+        i.impl = vm.envAddress("STRATEGY_VAULT_IMPL");
+        i.usdc = _readAddress(".addresses.usdc");
+        i.registry = _readAddress(".addresses.strategyRegistry");
+        i.verifier = _readAddress(".addresses.tradeAttestationVerifier");
+        i.swapRouter = _readAddress(".addresses.swapRouter");
+        i.priceAnchor = _readAddress(".addresses.oraclePriceAnchor");
+        i.yieldAnchor = _readAddress(".addresses.oracleYieldAnchor");
+        i.oldMom = _readAddress(".addresses.phase6VaultMomentumBase");
+        i.oldMr = _readAddress(".addresses.phase6VaultMeanReversionBase");
+        uint8 dec = IERC20Metadata(i.usdc).decimals();
+        i.stake = STAKE_WHOLE * (10 ** dec);
+        i.capacity = CAPACITY_WHOLE * (10 ** dec);
+    }
+
     function run() external {
         require(block.chainid == 84_532, "RedeployBaseDedicatedOps: not Base-Sepolia");
+        Inputs memory i = _loadInputs();
+        require(i.impl != address(0), "impl missing");
+        require(i.swapRouter != address(0), "swapRouter missing");
 
-        uint256 deployerPk = vm.envUint("DEPLOYER_PK");
-        address deployer = vm.addr(deployerPk);
-        uint256 momOpPk = vm.envUint("MOM_BASE_OPERATOR_PK");
-        uint256 mrOpPk = vm.envUint("MR_BASE_OPERATOR_PK");
-        address momOp = vm.addr(momOpPk);
-        address mrOp = vm.addr(mrOpPk);
-
-        address impl = vm.envAddress("STRATEGY_VAULT_IMPL");
-        address usdc = _readAddress(".addresses.usdc");
-        address registry = _readAddress(".addresses.strategyRegistry");
-        address verifier = _readAddress(".addresses.tradeAttestationVerifier");
-        address swapRouter = _readAddress(".addresses.swapRouter");
-        address priceAnchor = _readAddress(".addresses.oraclePriceAnchor");
-        address yieldAnchor = _readAddress(".addresses.oracleYieldAnchor");
-        address oldMom = _readAddress(".addresses.phase6VaultMomentumBase");
-        address oldMr = _readAddress(".addresses.phase6VaultMeanReversionBase");
-
-        require(impl != address(0), "impl missing");
-        require(swapRouter != address(0), "swapRouter missing");
-
-        uint8 dec = IERC20Metadata(usdc).decimals();
-        uint256 stake = STAKE_WHOLE * (10 ** dec);
-        uint256 capacity = CAPACITY_WHOLE * (10 ** dec);
-
-        // 1. Deactivate old proxies (operator = deployer on the morning
-        //    deploy). Skip if either holds NAV (none should at this stage).
-        vm.startBroadcast(deployerPk);
-        if (oldMom != address(0) && IStrategyVaultDeactivate(oldMom).totalNAV() == 0) {
-            StrategyRegistry(registry).deactivate(oldMom);
-            console2.log("deactivated old mom.base:", oldMom);
-        }
-        if (oldMr != address(0) && IStrategyVaultDeactivate(oldMr).totalNAV() == 0) {
-            StrategyRegistry(registry).deactivate(oldMr);
-            console2.log("deactivated old mr.base:", oldMr);
-        }
-
-        // 2. Deploy fresh proxies with dedicated operator/navOracle EOAs.
-        address[] memory universe = new address[](2);
-        universe[0] = usdc;
-        universe[1] = 0x4200000000000000000000000000000000000006; // WETH9 OP predeploy
-
-        address newMom = _deployVault(
-            impl,
-            CLASS_MOM,
-            universe,
-            PH_MOM_BASE,
-            "mom.base",
-            momOp,
-            usdc,
-            registry,
-            verifier,
-            swapRouter,
-            priceAnchor,
-            yieldAnchor,
-            deployer,
-            stake,
-            capacity
-        );
-        address newMr = _deployVault(
-            impl,
-            CLASS_MR,
-            universe,
-            PH_MR_BASE,
-            "mr.base",
-            mrOp,
-            usdc,
-            registry,
-            verifier,
-            swapRouter,
-            priceAnchor,
-            yieldAnchor,
-            deployer,
-            stake,
-            capacity
-        );
-
-        // 3. Register new vaults on SR (deployer pays stake; operator
-        //    field on the SR entry mirrors the manifest operator).
-        IERC20(usdc).approve(registry, type(uint256).max);
-        StrategyRegistry(registry).registerStrategy(newMom, CLASS_MOM, stake);
-        StrategyRegistry(registry).registerStrategy(newMr, CLASS_MR, stake);
+        vm.startBroadcast(i.deployerPk);
+        _deactivateOldVaults(i);
+        (address newMom, address newMr) = _deployBothVaults(i);
+        IERC20(i.usdc).approve(i.registry, type(uint256).max);
+        StrategyRegistry(i.registry).registerStrategy(newMom, CLASS_MOM, i.stake);
+        StrategyRegistry(i.registry).registerStrategy(newMr, CLASS_MR, i.stake);
         console2.log("registered new mom.base + mr.base on Base SR");
         vm.stopBroadcast();
 
-        // 4. Persist addresses — keep the morning shared-deployer ones
-        //    under *Legacy keys for audit history.
+        _persistAddresses(i.oldMom, i.oldMr, newMom, newMr);
+        console2.log("=== Base dedicated-ops redeploy ===");
+        console2.log("new mom.base:", newMom);
+        console2.log("new mr.base: ", newMr);
+    }
+
+    function _deactivateOldVaults(Inputs memory i) internal {
+        if (i.oldMom != address(0) && IStrategyVaultDeactivate(i.oldMom).totalNAV() == 0) {
+            StrategyRegistry(i.registry).deactivate(i.oldMom);
+            console2.log("deactivated old mom.base:", i.oldMom);
+        }
+        if (i.oldMr != address(0) && IStrategyVaultDeactivate(i.oldMr).totalNAV() == 0) {
+            StrategyRegistry(i.registry).deactivate(i.oldMr);
+            console2.log("deactivated old mr.base:", i.oldMr);
+        }
+    }
+
+    function _deployBothVaults(Inputs memory i) internal returns (address newMom, address newMr) {
+        address[] memory universe = new address[](2);
+        universe[0] = i.usdc;
+        universe[1] = 0x4200000000000000000000000000000000000006; // WETH9 OP predeploy
+        newMom = _deployVault(i, CLASS_MOM, universe, PH_MOM_BASE, "mom.base", i.momOp);
+        newMr = _deployVault(i, CLASS_MR, universe, PH_MR_BASE, "mr.base", i.mrOp);
+    }
+
+    function _persistAddresses(address oldMom, address oldMr, address newMom, address newMr)
+        internal
+    {
         vm.writeJson(
             string.concat('"', vm.toString(oldMom), '"'),
             FILE,
@@ -161,57 +152,40 @@ contract RedeployBaseDedicatedOps is Script {
             FILE,
             ".addresses.phase6VaultMeanReversionBase"
         );
-
-        console2.log("=== Base dedicated-ops redeploy ===");
-        console2.log("mom.base operator:", momOp);
-        console2.log("mr.base operator: ", mrOp);
-        console2.log("new mom.base:", newMom);
-        console2.log("new mr.base: ", newMr);
-        console2.log("patched:", FILE);
     }
 
     function _deployVault(
-        address impl,
+        Inputs memory i,
         bytes32 declaredClass,
         address[] memory universe,
         bytes32 paramsHash,
         string memory label,
-        address operator_,
-        address usdc,
-        address registry,
-        address verifier,
-        address swapRouter,
-        address priceAnchor,
-        address yieldAnchor,
-        address allocatorVault_,
-        uint256 stake,
-        uint256 capacity
+        address operator_
     ) internal returns (address vault) {
-        IStrategyVault.StrategyManifest memory m =
-            IStrategyVault.StrategyManifest({
-                declaredClass: declaredClass,
-                assetUniverse: universe,
-                maxCapacity: capacity,
-                feeRateBps: STRATEGY_FEE_BPS,
-                operator: operator_,
-                stakeAmount: stake,
-                paramsHash: paramsHash
-            });
+        IStrategyVault.StrategyManifest memory m = IStrategyVault.StrategyManifest({
+            declaredClass: declaredClass,
+            assetUniverse: universe,
+            maxCapacity: i.capacity,
+            feeRateBps: STRATEGY_FEE_BPS,
+            operator: operator_,
+            stakeAmount: i.stake,
+            paramsHash: paramsHash
+        });
 
         StrategyVault.InitParams memory p = StrategyVault.InitParams({
             manifest: m,
-            baseAsset: MockERC20(usdc),
-            registry: registry,
-            verifier: verifier,
-            allowedRouter: swapRouter,
+            baseAsset: MockERC20(i.usdc),
+            registry: i.registry,
+            verifier: i.verifier,
+            allowedRouter: i.swapRouter,
             navOracle: operator_,
-            allocatorVault: allocatorVault_,
-            priceAnchor: priceAnchor,
-            yieldAnchor: yieldAnchor,
-            owner: allocatorVault_
+            allocatorVault: i.deployer,
+            priceAnchor: i.priceAnchor,
+            yieldAnchor: i.yieldAnchor,
+            owner: i.deployer
         });
 
-        vault = address(new ERC1967Proxy(impl, abi.encodeCall(StrategyVault.initialize, (p))));
+        vault = address(new ERC1967Proxy(i.impl, abi.encodeCall(StrategyVault.initialize, (p))));
         console2.log(string.concat("StrategyVault[", label, "] dedicated-ops:"), vault);
     }
 

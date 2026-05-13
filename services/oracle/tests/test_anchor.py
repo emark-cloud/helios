@@ -327,9 +327,7 @@ def test_submit_lock_serializes_concurrent_calls() -> None:
     # Each thread must have built its tx with a distinct nonce. Without
     # the lock, two of the three would have observed `pending=100`
     # before either had bumped the mempool counter.
-    assert len(set(nonces_observed)) == 3, (
-        f"submits raced — observed nonces {nonces_observed}"
-    )
+    assert len(set(nonces_observed)) == 3, f"submits raced — observed nonces {nonces_observed}"
     assert sorted(nonces_observed) == [100, 101, 102]
 
 
