@@ -170,10 +170,15 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
   - `heliosOApp` `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` (LZ V2 OApp, `kiteEid=40415`, `reputationAnchor=address(0)` — execution-chain shape)
   - LZ V2 endpoint `0x6EDCE65403992e310A62460808c4b910D972f10f` (LZ EID `40245`)
   - Peers set to Kite (`0x9d93f3f2…`) and Arb (`0x55782e70…`)
+  - **CXR-1 (2026-05-13)** — `strategyRegistry` `0x2a94DE11521EAF190e451863bEfe0F178f04DF32` (SR-v3 bytecode; gates mom.base + mr.base vaults pending CXR-3 broadcast)
 - **Arbitrum Sepolia (421614)** — Phase-5 WS10 live-network verification (broadcast 2026-05-11; full set in `contracts/deployments/arbitrum-sepolia.json`). Pinned references:
   - `heliosOApp` `0x55782e7019f4619A06A25bf66D2998C8Fe2CC436` (same address as Base — deployer EOA nonce sequence is identical on both freshly-used chains; LZ EID `40231`)
   - LZ V2 endpoint `0x6EDCE65403992e310A62460808c4b910D972f10f`
   - Peers set to Kite + Base
+  - **CXR-1 + CXR-2 (2026-05-13)** — first remote execution surface for §12.1 venue routing:
+    - `strategyRegistry` `0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2` (SR-v3 bytecode; `reputationAnchor_` placeholder = local HeliosOApp since reputation propagates Arb→Kite via the OApp pipe, never reverse; STAKE_COOLDOWN = 7 days; owner = deployer)
+    - `phase6VaultYieldRotationArb` `0x516f23B9d2b6918D005d00Ccea3074cED1f8D005` (ERC1967 proxy on impl `0x78b3515f…`; baseAsset = Arb-mUSDC `0xe8CF8A57…` 6-dec; `allowedRouter` = MockYieldVault `0xc065af9b…` Aave-V3-shaped lending venue; `allocatorVault` = deployer EOA placeholder for PI_ALLOCATOR binding until CXR-0b BridgeReceiver lands; stake 5_000 mUSDC, maxCapacity 1_000_000 mUSDC; paramsHash `keccak256("helios.yield_rot_v1.phase6.multiasset.arb")`; class YR; registered on Arb SR; `strategyCount = 1`). Real Aave V3 swap is a one-line `allowedRouter` flip once an Aave Arb-Sepolia faucet becomes accessible — admin-gated FiatToken USDC blocked v1 cutover.
+    - `mUsdc` (deployer mint authority retained, 6-dec on Arb vs 18-dec on Kite — different on-chain instances at the same address by nonce coincidence)
 - **Kite testnet — Phase-5 cross-chain additions (2026-05-11)**:
   - `heliosOApp` `0x9D93F3f2254d7d6f6f4208938b7Ce7F9E33c43B3` (canonical-side OApp; wired to live V1 `reputationAnchor` `0x51c07adf…`. Constructor `kiteEid=40415`, `maxPendingPerStrategy=64`. Owner = deployer)
   - LZ V2 endpoint `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` (LZ EID `40415`)

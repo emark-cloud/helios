@@ -19,6 +19,7 @@
     "oracleYieldAnchor": "0x37714f599570bb2b8389e98d771f6176b9c96cd3",
     "strategyVaultImpl": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
     "swapRouter": "0x94cc0aac535ccdb3c01d6787d6413c739ae12bc4",
-    "mockSwapRouter": "0xc065af9b57e2666877a9b479ee61b1f249516277"
+    "mockSwapRouter": "0xc065af9b57e2666877a9b479ee61b1f249516277",
+    "strategyRegistry": "0x2a94DE11521EAF190e451863bEfe0F178f04DF32"
   }
 }

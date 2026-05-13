@@ -86,6 +86,24 @@ interface IAllocatorVault {
     ///         swap the immutable-registry pointer the vault was
     ///         initialised against.
     event StrategyRegistryUpdated(address indexed previous, address indexed next);
+    /// @notice CXR-0b — Owner-only wiring of the local HeliosBridgeReceiver.
+    event BridgeReceiverUpdated(address indexed previous, address indexed next);
+    /// @notice CXR-0b — Owner-only wiring of the local MUsdcOFTAdapter.
+    event OftAdapterUpdated(address indexed previous, address indexed next);
+    /// @notice CXR-0b — `allocateToRemoteStrategy` dispatched a cross-chain
+    ///         OFT message wrapping an ALLOCATE compose payload.
+    event RemoteAllocationSent(
+        address indexed user,
+        bytes32 indexed strategyId,
+        uint32 indexed dstEid,
+        address remoteVault,
+        uint256 amount
+    );
+    /// @notice CXR-0b — `settleRemoteDefund` credited a returning
+    ///         cross-chain allocation back to the user vault.
+    event RemoteDefundSettled(
+        address indexed user, bytes32 indexed strategyId, uint32 indexed srcEid, uint256 amount
+    );
 
     error NotAllocator();
     error AllocationOutOfBounds();

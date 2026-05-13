@@ -22,6 +22,8 @@ import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
 import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 import { MetaStrategyLib } from "./interfaces/IMetaStrategy.sol";
+import { IOFT, SendParam, MessagingFee } from
+    "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
 
 /// @notice Slim view onto UserVault. AllocatorVault uses these privileged
 ///         methods to move capital while UserVault enforces the meta-strategy
@@ -108,11 +110,35 @@ contract AllocatorVault is
     ///      finalize / cancel / recovery. Reads via `pendingDefundOf`.
     mapping(address user => mapping(address strategy => PendingDefund)) internal _pendingDefunds;
 
+    // ── CXR-0b — Cross-chain capital flow (Phase 6 §12.1) ───────────
+    //
+    // Three new slots; see `docs/cross-chain-execution.md`.
+
+    /// @notice Local `HeliosBridgeReceiver` — only address allowed to call
+    ///         `settleRemoteDefund`. Set on Kite (canonical settlement chain)
+    ///         via `setBridgeReceiver`; left zero on execution chains where
+    ///         this vault never runs.
+    address public bridgeReceiver;
+
+    /// @notice Local `MUsdcOFTAdapter` — token target for
+    ///         `allocateToRemoteStrategy` send calls. Set via `setOftAdapter`.
+    ///         Operator approves this address each send; allowance is
+    ///         consumed atomically inside `OFTAdapter._debit`.
+    address public oftAdapter;
+
+    /// @dev Per-(user, strategyId, dstEid) outstanding remote allocations.
+    ///      `strategyId` is the remote vault address as bytes32 (matches
+    ///      the convention used by HeliosOApp's reputation messages).
+    ///      Incremented on `allocateToRemoteStrategy`, decremented on
+    ///      `settleRemoteDefund`.
+    mapping(address user => mapping(bytes32 strategyId => mapping(uint32 dstEid => uint256))) internal
+        _userRemoteDeployed;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
-    ///      WS-CX-1 used 3 of the prior 47 slots: oracleAnchor (1),
-    ///      defundRewardCapUsdE6 (1), _pendingDefunds (1).
-    uint256[44] private __gap;
+    ///      WS-CX-1 used 3 of the prior 47 slots; CXR-0b used 3 more
+    ///      (bridgeReceiver, oftAdapter, _userRemoteDeployed).
+    uint256[41] private __gap;
 
     /// @dev Minimum block spacing between two consecutive observations
     ///      of the same pending defund. Caller-cadence "bars" — at
@@ -149,6 +175,9 @@ contract AllocatorVault is
     error NoAccruedFees();
     error NotOperatorOrPermissionless();
     error RebalanceTooSoon();
+    error OftAdapterUnset();
+    error BridgeReceiverUnset();
+    error NotBridgeReceiver();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -826,5 +855,125 @@ contract AllocatorVault is
     function _refundBond(PendingDefund storage pending) internal {
         uint128 bond = pending.bondAmount;
         if (bond > 0) baseAsset.safeTransfer(pending.triggerer, bond);
+    }
+
+    // ── CXR-0b — Cross-chain allocate / defund settlement ───────────
+
+    /// @dev Cross-chain action discriminator used in the OFT compose
+    ///      payload. Mirror of `HeliosBridgeReceiver.ACTION_*`.
+    uint8 internal constant CXR_ACTION_ALLOCATE = 0;
+    uint8 internal constant CXR_ACTION_SETTLE_DEFUND = 1;
+
+    /// @notice Wire the local HeliosBridgeReceiver. Owner-only. Only
+    ///         this address may call `settleRemoteDefund`.
+    function setBridgeReceiver(address receiver) external onlyOwner {
+        emit BridgeReceiverUpdated(bridgeReceiver, receiver);
+        bridgeReceiver = receiver;
+    }
+
+    /// @notice Wire the local MUsdcOFTAdapter. Owner-only. Used by
+    ///         `allocateToRemoteStrategy` as the OFT send target.
+    function setOftAdapter(address adapter) external onlyOwner {
+        emit OftAdapterUpdated(oftAdapter, adapter);
+        oftAdapter = adapter;
+    }
+
+    /// @notice Pull `amount` USDC from `user` via UserVault, then bridge
+    ///         it to the remote `dstEid` chain via the OFT adapter with
+    ///         a compose payload that targets `remoteVault`. The remote
+    ///         BridgeReceiver releases USDC + calls
+    ///         `StrategyVault.onCrossChainAllocate(amount, user)`.
+    ///
+    ///         The local accounting maps this as a remote allocation —
+    ///         `_userRemoteDeployed[user][strategyId][dstEid] += amount`.
+    ///         The user's meta-strategy bounds (maxCapital,
+    ///         maxStrategiesCount) are NOT enforced here: cross-chain
+    ///         allocations require user opt-in via a separate
+    ///         per-chain allowlist in v2. For v1, the operator is
+    ///         trusted to respect meta-strategy.
+    ///
+    ///         `lzFee.nativeFee` must be passed as `msg.value`.
+    function allocateToRemoteStrategy(
+        address user,
+        bytes32 strategyId,
+        uint256 amount,
+        uint32 dstEid,
+        address remoteVault,
+        bytes calldata extraOptions,
+        MessagingFee calldata lzFee
+    ) external payable onlyOperator nonReentrant whenNotPaused {
+        if (amount == 0) revert ZeroAmount();
+        if (oftAdapter == address(0)) revert OftAdapterUnset();
+        if (remoteVault == address(0)) revert ZeroAddress();
+        address receiver = bridgeReceiver;
+        if (receiver == address(0)) revert BridgeReceiverUnset();
+
+        // Pull capital from the user vault.
+        IUserVaultForAllocator(userVault).transferToAllocator(user, amount);
+        // Approve OFT adapter to pull the funds we'll lock.
+        baseAsset.forceApprove(oftAdapter, amount);
+
+        // Encode compose payload — receiver will decode and dispatch.
+        bytes memory composeMsg =
+            abi.encode(CXR_ACTION_ALLOCATE, strategyId, remoteVault, user);
+
+        SendParam memory param = SendParam({
+            dstEid: dstEid,
+            // The OFT release on the destination side credits `to` with
+            // the released USDC. We want that to be the BridgeReceiver,
+            // which then forwards to the remote vault inside `lzCompose`.
+            // The receiver on the destination chain has the same EOA
+            // configured per CXR-0a — encoded as bytes32.
+            to: bytes32(uint256(uint160(receiver))),
+            amountLD: amount,
+            minAmountLD: amount,
+            extraOptions: extraOptions,
+            composeMsg: composeMsg,
+            oftCmd: ""
+        });
+
+        IOFT(oftAdapter).send{ value: msg.value }(param, lzFee, msg.sender);
+
+        _userRemoteDeployed[user][strategyId][dstEid] += amount;
+        emit RemoteAllocationSent(user, strategyId, dstEid, remoteVault, amount);
+    }
+
+    /// @notice Receive a cross-chain defund settlement from the local
+    ///         BridgeReceiver. Credits `user` back via the UserVault
+    ///         and decrements the remote-allocation tracker. Reputation
+    ///         engine reads this via `_userRemoteDeployed` to compute
+    ///         per-chain PnL.
+    function settleRemoteDefund(address user, bytes32 strategyId, uint256 amount, uint32 srcEid)
+        external
+        nonReentrant
+    {
+        if (msg.sender != bridgeReceiver) revert NotBridgeReceiver();
+        if (amount == 0) revert ZeroAmount();
+
+        uint256 outstanding = _userRemoteDeployed[user][strategyId][srcEid];
+        // Tolerate over-settlement so a strategy that profited returns
+        // more than was deposited (or under-settlement on a drawdown).
+        // Clamp the accounting decrement to the booked amount; the
+        // residue is just attributed to PnL outside this slot.
+        uint256 dec = amount > outstanding ? outstanding : amount;
+        if (dec > 0) _userRemoteDeployed[user][strategyId][srcEid] = outstanding - dec;
+
+        // The BridgeReceiver has already transferred the USDC to this
+        // contract. Credit it back to the user vault.
+        baseAsset.forceApprove(userVault, amount);
+        IUserVaultForAllocator(userVault).creditFromAllocator(user, amount);
+
+        emit RemoteDefundSettled(user, strategyId, srcEid, amount);
+    }
+
+    /// @notice View — outstanding cross-chain allocation for a
+    ///         (user, strategy, chain) tuple. Read by the frontend
+    ///         pending-bridge UI.
+    function userRemoteDeployed(address user, bytes32 strategyId, uint32 dstEid)
+        external
+        view
+        returns (uint256)
+    {
+        return _userRemoteDeployed[user][strategyId][dstEid];
     }
 }
