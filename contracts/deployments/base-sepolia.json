@@ -24,6 +24,8 @@
     "phase6VaultMomentumBase": "0x9e14299e6FAeE1C1F352E2F9197D8A080306FE8d",
     "phase6VaultMeanReversionBase": "0x8b375617589DBC7A90049b0fE07f2Fb4D5A19F08",
     "phase6VaultMomentumBaseLegacy_morning_shared": "0x90e7A456404e73466e71A190dBB5A5A3490776A8",
-    "phase6VaultMeanReversionBaseLegacy_morning_shared": "0x1e458D57F9fE0CF50F82366c258b05A254d8Fa6f"
+    "phase6VaultMeanReversionBaseLegacy_morning_shared": "0x1e458D57F9fE0CF50F82366c258b05A254d8Fa6f",
+    "mUsdcOFTAdapter": "0x7a8F8CAA387c3Be55d5A3ADFF821B4d7274821e1",
+    "heliosBridgeReceiver": "0xC8425C9315b237E2eFbF3dFf26b2b6bFf0B35887"
   }
 }
