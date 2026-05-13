@@ -10,7 +10,7 @@ import {
   CrossChainReputationMessage,
   ReputationSnapshot,
 } from "../generated/schema";
-import { getOrCreateAllocator, getOrCreateStrategy, logEventId } from "./helpers";
+import { currentChainId, getOrCreateAllocator, getOrCreateStrategy, logEventId } from "./helpers";
 
 // Mirrors IReputationAnchor.ActorType — same enum order as V1.
 const ACTOR_STRATEGY: i32 = 0;
@@ -64,6 +64,11 @@ export function handleCrossChainReputationPostedV2(event: CrossChainReputationPo
   msg.score = event.params.newScore;
   msg.sentAt = BigInt.zero();
   msg.receivedAt = event.block.timestamp;
+  // Source chainId is not derivable from `srcEid` without a lookup table;
+  // mirror the OApp receive-side pattern (`helios-oapp.ts`) and leave src
+  // as 0 (unknown) while stamping `dstChainId` from the active datasource.
+  msg.srcChainId = 0;
+  msg.dstChainId = currentChainId();
   msg.save();
 }
 
