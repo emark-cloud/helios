@@ -12,9 +12,9 @@ See [`project_deployer_pk_signer_collapse`](../../.claude/projects/-home-emark-h
 
 | Wallet | Env vars (collapsed) | Role |
 |---|---|---|
-| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` | `DEPLOYER_PK`, `SENTINEL_OPERATOR_PK`, `OPERATOR_PK`, `NAV_ORACLE_PK`, `YIELD_ROT_OPERATOR_PK` | Proxy admin / mint authority on Kite + Base + Arb; Sentinel allocator caller; yr.kite operator + navOracle; yr.arb operator + navOracle placeholder |
+| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` | `DEPLOYER_PK`, `NAV_ORACLE_PK` (bare) | Proxy admin / mint authority on Kite + Base + Arb; yr.arb operator + navOracle (rotation deferred — Arb impl needs CXR upgrade per task #96) |
 
-This is a 5-way collapse — Sentinel, yr.kite, and yr.arb still sign as deployer (low-frequency enough that they didn't surface in the original ~12 tx/min nonce-drift profile that triggered the partial rotation).
+Post-2026-05-13 rotation: SENTINEL_OPERATOR_PK + YIELD_ROT_OPERATOR_PK now point at dedicated EOAs (see Kite table below). Only yr.arb still signs as deployer until its Arb-side impl is upgraded to one carrying `setOperator`/`setNavOracle`.
 
 ---
 
@@ -27,7 +27,8 @@ This is a 5-way collapse — Sentinel, yr.kite, and yr.arb still sign as deploye
 | `0xED71e8eE58b3A68095de911d491b237555932782` | services/oracle (`RouterPriceMirror` keeper) | `MockSwapRouter.owner()` |
 | `0x68c6Bcc256Cd0eb5D60879edC30c5551B8F91B8B` | reference-strategies/momentum_v1 | `phase6VaultMomentum` operator + navOracle |
 | `0xeC644f029E1a8b4d709d83e5F9487B5a04b167E5` | reference-strategies/mean_reversion_v1 | `phase6VaultMeanReversion` operator + navOracle |
-| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` (deployer) | reference-strategies/yield_rotation_v1, services/sentinel | yr.kite operator + navOracle; AllocatorVault caller for `allocate`/`rebalance`/`defund` |
+| `0x0A7d03433CD89827Feb935A80C37c46D58f7dF92` | services/sentinel | `AllocatorVault.operator()` caller for `allocate`/`rebalance`/`defund` (rotated 2026-05-13 from deployer) |
+| `0x86918Bf3cC030688F0d88f9c967646537D506041` | reference-strategies/yield_rotation_v1 | `phase6VaultYieldRotation` operator + navOracle (rotated 2026-05-13 from deployer) |
 
 Per-class strategy services use the same EOA for both `OPERATOR_PK` and `NAV_ORACLE_PK` — intentional (per `project_phase6_ws9_dedicated_keys.md`); collapses ops + nav-signing onto one dedicated EOA per class to break shared-deployer nonce contention.
 
@@ -50,7 +51,7 @@ Phase-6 vault variants 2 + 3 of each class have their own operator + navOracle E
 | Wallet | Service | On-chain role |
 |---|---|---|
 | `0x32b0112C085c25fea23C92D8f0540D26389006A7` | services/oracle (price + yield mirror) | Arb `oraclePriceAnchor.oracleSigner()` + `oracleYieldAnchor.oracleSigner()` — same key as Kite + Base. Funded ~0.02 ETH; healthy. |
-| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` (deployer) | reference-strategies/yield_rotation_v1 (Arb) | `phase6VaultYieldRotationArb` operator + navOracle — placeholder until a dedicated yr.arb EOA is generated (see remaining-rotation notes) |
+| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` (deployer) | reference-strategies/yield_rotation_v1 (Arb) | `phase6VaultYieldRotationArb` operator + navOracle — rotation gated on Arb-side impl upgrade (task #96). EOA-B `0x86918Bf3…` already provisioned + funded with 0.05 ETH-Arb, awaiting impl. |
 
 ---
 
@@ -61,17 +62,19 @@ Phase-6 vault variants 2 + 3 of each class have their own operator + navOracle E
 - `ORACLE_SIGNER_PK` → `0x32b0112C…` (reused on Base + Arb mirrors)
 - `ROUTER_MIRROR_SIGNER_PK` → `0xED71e8eE…`
 
-⏳ **Gated on CXR-0b impl upgrade — setter code ready, deploy pending:**
+✅ **Rotated 2026-05-13 (afternoon, post CXR-0b impl upgrade)** — AllocatorVault + StrategyVault setters live:
+- `SENTINEL_OPERATOR_PK` → `0x0A7d03433CD89827Feb935A80C37c46D58f7dF92` (AllocatorVault.operator on Kite)
+- `YIELD_ROT_OPERATOR_PK` + new `YIELD_ROT_NAV_ORACLE_PK` → `0x86918Bf3cC030688F0d88f9c967646537D506041` (yr.kite operator + navOracle)
+- `deploy/docker-compose.prod.yml` yr.kite block patched with `OPERATOR_PK: ${YIELD_ROT_OPERATOR_PK}` + `NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}` overrides (matches mom/mr pattern)
 
-AllocatorVault + StrategyVault have no `setOperator` / `setNavOracle` in the live impls. Setters now exist at HEAD (3 + 6 tests green) and will ship via the pending CXR-0b impl deploys.
+⏳ **Still pending — yr.arb rotation gated on Arb-side impl upgrade:**
 
-After CXR-0b lands:
-- `SENTINEL_OPERATOR_PK` (Sentinel allocator caller) — rotate via `AllocatorVault.setOperator`
-- `YIELD_ROT_OPERATOR_PK` + new `YIELD_ROT_NAV_ORACLE_PK` (yr.kite + yr.arb) — rotate via `StrategyVault.setOperator` + `setNavOracle` on `phase6VaultYieldRotation` + `phase6VaultYieldRotationArb`
-- yr.kite Variant 2/3 vaults — rotate same way if you want operator parity (services not running)
-- Bare `OPERATOR_PK` / `NAV_ORACLE_PK` env vars — delete after step above, plus add a `NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}` compose override for yr.kite + yr.arb to match the mom/mr pattern
+`phase6VaultYieldRotationArb`'s current Arb impl `0x9c3eb82e3b17d64ac3957741857962b51a0200e2` lacks `setOperator`/`setNavOracle` (it has `setRegistry` only — WS11 setter set, not CXR-aware). Deploy a fresh CXR-aware `StrategyVault` impl on Arb-Sepolia (constructor args: Arb `oraclePriceAnchor` + `oracleYieldAnchor`), `upgradeToAndCall` yr.arb to it, then `setOperator(0x86918Bf3…)` + `setNavOracle(0x86918Bf3…)`. Task #96.
 
-Full runbook (7 steps including funding amounts, exact cast commands, verification) lives in `memory/project_deployer_pk_signer_collapse.md`.
+- yr.kite Variant 2/3 vaults — operator still = deployer on-chain (services not running); rotate same way if you want operator parity.
+- Bare `OPERATOR_PK` / `NAV_ORACLE_PK` env vars — yr.arb still reads bare `NAV_ORACLE_PK` from .env, so delete only after task #96 closes.
+
+Full runbook (funding amounts, exact cast commands, verification) lives in `memory/project_deployer_pk_signer_collapse.md`.
 
 ⚠️ **Operational gas state:**
 - Kite: deployer balance ~0.30 KITE, drains ~0.00006 KITE/min, ~85h to drain. Not urgent.
