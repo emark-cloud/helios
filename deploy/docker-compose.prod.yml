@@ -255,8 +255,16 @@ services:
       # in the Base vault manifest so paramsHash commits + executeWithProof
       # sign from the right address (see project_phase6_ws9_dedicated_keys
       # for the original Kite mitigation).
+      #
+      # `nav_oracle_pk` reads from validation_alias=NAV_ORACLE_PK (no
+      # prefix — pydantic-settings validation_alias overrides env_prefix),
+      # so we override the *unprefixed* key here. Setting
+      # MOMENTUM_NAV_ORACLE_PK would be a no-op and the runtime would fall
+      # through to the env_file value (the Kite navOracle EOA), causing
+      # every reportNAV to revert `NavSignatureInvalid()` (selector
+      # 0x201a422e).
       MOMENTUM_OPERATOR_PK: ${MOMENTUM_BASE_OPERATOR_PK}
-      MOMENTUM_NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
+      NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8015:8005"]
     depends_on: [oracle, prover]
 
@@ -272,8 +280,9 @@ services:
       STRATEGY_REGISTRY: ${MEAN_REV_BASE_STRATEGY_REGISTRY}
       STRATEGY_VAULT_ADDRESS: ${MEAN_REV_BASE_STRATEGY_VAULT_ADDRESS}
       ALLOCATOR_ADDRESS: ${MEAN_REV_BASE_ALLOCATOR_ADDRESS}
+      # NAV_ORACLE_PK (unprefixed) — see comment on momentum_v1_base above.
       MEAN_REV_OPERATOR_PK: ${MEAN_REV_BASE_OPERATOR_PK}
-      MEAN_REV_NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
+      NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8016:8006"]
     depends_on: [oracle, prover]
 
