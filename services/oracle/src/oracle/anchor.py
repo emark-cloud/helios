@@ -178,6 +178,17 @@ class AnchorPoster:
         if self._w3 is not None:
             return
         self._w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        # Base, Arb-Sepolia, and many testnets use validator metadata in
+        # `extraData` that exceeds web3.py's 32-byte default cap. Without
+        # the POA-flavoured middleware the strict block-formatter raises
+        # `extraData is 86 bytes, but should be 32` on every
+        # `get_block(...)` call — which the EIP-1559 fee-detection path
+        # in `_gas_params` hits per submit. Injected unconditionally:
+        # Kite testnet emits 32-byte extraData and the middleware is a
+        # no-op for it, so this is safe to apply to every chain.
+        from web3.middleware import ExtraDataToPOAMiddleware
+
+        self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         pk = self.signer_pk if self.signer_pk.startswith("0x") else "0x" + self.signer_pk
         try:
             self._account = Account.from_key(pk)
