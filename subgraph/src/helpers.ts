@@ -44,7 +44,13 @@ export function getOrCreateStrategy(strategyId: Bytes, blockTimestamp: BigInt): 
   const s = new Strategy(strategyId);
   s.operator = Bytes.empty();
   s.declaredClass = "";
-  s.chainId = 0;
+  // Default chainId to the active datasource's chain. The Kite subgraph
+  // overwrites this in `handleStrategyRegistered` once the SR datasource
+  // fires; Base/Arb subgraphs don't currently index their local SR (see
+  // subgraph.{base,arbitrum}-sepolia.yaml — StrategyVault datasource only),
+  // so this default is what surfaces a Base/Arb-registered strategy with
+  // its correct execution chainId for the §12.1 routing UI.
+  s.chainId = currentChainId();
   s.stakeAmount = BigInt.zero();
   s.feeRateBps = 0;
   s.maxCapacity = BigInt.zero();

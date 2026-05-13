@@ -33,6 +33,7 @@ query StrategyDirectory {
   strategies(first: 200, where: { active: true }) {
     id
     declaredClass
+    chainId
     operator
     feeRateBps
     stakeAmount
@@ -109,10 +110,18 @@ class AllocatorGoldsky:
         deployed = sum(_to_int(a.get("capitalDeployed")) for a in allocs)
         snaps = list(raw.get("navSnapshots") or [])
         last_nav_ts = _to_int(snaps[0].get("timestamp")) if snaps else 0
+        # CXR-4 (2026-05-13) — read chainId from Goldsky when present so a
+        # multi-chain fan-out (future Phase-2 work) returns rows tagged
+        # with each strategy's actual execution chain. Falls back to the
+        # constructor's chain id on legacy indexes where `chainId` is 0
+        # or missing (Kite v0.7.2 still ships pre-CXR-4 `getOrCreateStrategy`
+        # which initializes chainId=0 for Trade-bootstrapped strategies).
+        raw_chain_id = _to_int(raw.get("chainId"))
+        chain_id = raw_chain_id if raw_chain_id > 0 else self._chain_id
         return StrategyDirectoryRow(
             strategy_id=str(raw.get("id")),
             declared_class=str(raw.get("declaredClass") or ""),
-            chain_id=self._chain_id,
+            chain_id=chain_id,
             operator=str(raw.get("operator") or "0x" + "0" * 40),
             fee_rate_bps=_to_int(raw.get("feeRateBps")),
             stake_amount_usd=_to_int(raw.get("stakeAmount")),

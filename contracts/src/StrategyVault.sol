@@ -28,6 +28,7 @@ import { IStrategyRegistry } from "./interfaces/IStrategyRegistry.sol";
 import { IOracleAnchor } from "./interfaces/IOracleAnchor.sol";
 import { IHeliosOApp } from "./interfaces/IHeliosOApp.sol";
 import { IReputationAnchor } from "./interfaces/IReputationAnchor.sol";
+import { IOFT, SendParam, MessagingFee } from "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
 
 /// @title StrategyVault
 /// @notice Per-strategy capital + ZK-gated trade execution + NAV tracking.
@@ -160,13 +161,27 @@ contract StrategyVault is
     ///         a re-init. phase5-plan.md §WS5.
     address public heliosOApp;
 
+    // ── CXR-0b — Cross-chain allocation hooks ───────────────────────
+    /// @notice Local HeliosBridgeReceiver — the only address allowed to
+    ///         call `onCrossChainAllocate`. Set on Base / Arbitrum by
+    ///         the owner via `setBridgeReceiver`; remains zero on Kite
+    ///         (canonical chain, no cross-chain allocations land here).
+    address public bridgeReceiver;
+    /// @notice Local MUsdcOFTAdapter — used by `defundCrossChain` to
+    ///         dispatch the return-leg OFT message back to Kite.
+    address public oftAdapter;
+    /// @notice Aggregate cross-chain allocation received (denominated in
+    ///         base-asset wei). Tracked separately from the
+    ///         `_allocationOf[allocatorVault]` book so off-chain
+    ///         consumers can distinguish locally-funded vs
+    ///         remote-funded capital. Read by the reputation engine.
+    uint256 public totalCrossChainAllocated;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays
-    ///      compatible. WS-CX-2 used 1 of the prior 47 slots:
-    ///      `navDivergenceThresholdBps` + `consecutiveNavDivergenceBreaches`
-    ///      pack into the same slot (16 + 8 = 24 bits). Phase-5 WS5 used
-    ///      another for `heliosOApp`, leaving 45.
-    uint256[45] private __gap;
+    ///      compatible. CXR-0b used 3 more (bridgeReceiver, oftAdapter,
+    ///      totalCrossChainAllocated), leaving 42.
+    uint256[42] private __gap;
 
     error ZeroAddress();
     error NotAllocatorVault();
@@ -981,4 +996,119 @@ contract StrategyVault is
     function _isUniverseAsset(address target) internal view returns (bool) {
         return _universeAsset[target];
     }
+
+    // ── CXR-0b — Cross-chain allocate / defund hooks ────────────────
+
+    /// @dev OFT compose action discriminator — mirrors AllocatorVault +
+    ///      HeliosBridgeReceiver. SETTLE_DEFUND is what we send on the
+    ///      return leg.
+    uint8 internal constant CXR_ACTION_SETTLE_DEFUND = 1;
+
+    /// @notice Wire the local BridgeReceiver. Owner-only. Set on
+    ///         execution chains (Base, Arbitrum) so credited remote
+    ///         allocations have a trusted dispatcher.
+    function setBridgeReceiver(address receiver) external onlyOwner {
+        emit BridgeReceiverUpdated(bridgeReceiver, receiver);
+        bridgeReceiver = receiver;
+    }
+
+    /// @notice Wire the local OFT adapter. Owner-only. Used by
+    ///         `defundCrossChain` as the OFT send target.
+    function setOftAdapter(address adapter) external onlyOwner {
+        emit OftAdapterUpdated(oftAdapter, adapter);
+        oftAdapter = adapter;
+    }
+
+    /// @notice CXR-0b — receive a cross-chain allocation from the
+    ///         local BridgeReceiver. The USDC has already been
+    ///         transferred to this contract by the receiver via
+    ///         `safeTransfer`; this hook just updates the strategy's
+    ///         internal accounting so subsequent trade execution +
+    ///         NAV reporting reflects the new capital.
+    ///
+    ///         Authorization: only the wired BridgeReceiver.
+    ///         The credited capital is attributed to the AllocatorVault
+    ///         configured at init (Kite-canonical allocator address),
+    ///         not the cross-chain user — because the strategy's NAV
+    ///         accounting is per-allocator. Per-user attribution lives
+    ///         on the Kite AllocatorVault.
+    function onCrossChainAllocate(uint256 amount, address user) external notHalted whenNotPaused {
+        if (msg.sender != bridgeReceiver) revert NotBridgeReceiver();
+        if (amount == 0) revert NonZeroValue();
+        _allocationOf[allocatorVault] += amount;
+        _totalNAV += amount;
+        totalCrossChainAllocated += amount;
+        emit CrossChainAllocationReceived(user, allocatorVault, amount, _totalNAV);
+    }
+
+    /// @notice CXR-0b — defund a cross-chain user position by bridging
+    ///         `amount` USDC back to the Kite AllocatorVault as a
+    ///         SETTLE_DEFUND compose message.
+    ///
+    ///         The caller (operator) must include the LZ native fee as
+    ///         `msg.value`; `extraOptions` carries the executor gas
+    ///         options for the destination-side `lzCompose`.
+    ///
+    ///         Authorization: operator only.
+    function defundCrossChain(
+        address user,
+        bytes32 strategyId,
+        uint256 amount,
+        uint32 dstEid,
+        address dstBridgeReceiver,
+        bytes calldata extraOptions,
+        MessagingFee calldata lzFee
+    ) external payable nonReentrant notHalted whenNotPaused {
+        if (msg.sender != _manifest.operator) revert NotNavOracle();
+        if (amount == 0) revert NonZeroValue();
+        if (oftAdapter == address(0)) revert BridgeReceiverUnset(); // re-use error
+        if (dstBridgeReceiver == address(0)) revert ZeroAddress();
+
+        // Pull from allocation book + NAV.
+        if (amount > _allocationOf[allocatorVault]) revert AllocationOverdrawn();
+        _allocationOf[allocatorVault] -= amount;
+        if (amount > _totalNAV) _totalNAV = 0;
+        else _totalNAV -= amount;
+        if (amount > totalCrossChainAllocated) totalCrossChainAllocated = 0;
+        else totalCrossChainAllocated -= amount;
+
+        // Approve OFT adapter to pull the funds.
+        baseAsset.forceApprove(oftAdapter, amount);
+
+        bytes memory composeMsg = abi.encode(
+            CXR_ACTION_SETTLE_DEFUND,
+            strategyId,
+            address(0),
+            /*remoteVault unused*/
+            user
+        );
+
+        SendParam memory param = SendParam({
+            dstEid: dstEid,
+            to: bytes32(uint256(uint160(dstBridgeReceiver))),
+            amountLD: amount,
+            minAmountLD: amount,
+            extraOptions: extraOptions,
+            composeMsg: composeMsg,
+            oftCmd: ""
+        });
+
+        IOFT(oftAdapter).send{ value: msg.value }(param, lzFee, msg.sender);
+
+        emit CrossChainDefundDispatched(user, strategyId, dstEid, amount);
+    }
+
+    // ── Events / errors for CXR-0b ──────────────────────────────────
+
+    event BridgeReceiverUpdated(address indexed previous, address indexed next);
+    event OftAdapterUpdated(address indexed previous, address indexed next);
+    event CrossChainAllocationReceived(
+        address indexed user, address indexed allocator, uint256 amount, uint256 newTotalNAV
+    );
+    event CrossChainDefundDispatched(
+        address indexed user, bytes32 indexed strategyId, uint32 indexed dstEid, uint256 amount
+    );
+
+    error NotBridgeReceiver();
+    error BridgeReceiverUnset();
 }

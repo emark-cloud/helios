@@ -17,8 +17,11 @@
     "yieldRotationVerifierAdapter": "0x49588532a238c8fba81fb521478404eddd95c7e2",
     "oraclePriceAnchor": "0x6e3c2304d1e7c8953b52e8e5f49a6dbd7ef4875b",
     "oracleYieldAnchor": "0x37714f599570bb2b8389e98d771f6176b9c96cd3",
-    "strategyVaultImpl": "0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f",
+    "strategyVaultImpl": "0x78b3515f4e9186d9870dcEF02DA58E4C8c5C6e8f",
     "aavePool": "0xbfc91d59fdaa134a4ed45f7b584caf96d7792eff",
-    "mockYieldVault": "0xc065af9b57e2666877a9b479ee61b1f249516277"
+    "mockYieldVault": "0xc065af9b57e2666877a9b479ee61b1f249516277",
+    "strategyRegistry": "0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2",
+    "phase6VaultYieldRotationArb": "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005",
+    "strategyVaultImplCXR": "0x9C3Eb82e3B17D64aC3957741857962b51A0200E2"
   }
 }

@@ -21,6 +21,7 @@ test introspection and not submitted.
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from helios_contracts_abi.abis import IOracleAnchor_ABI
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 from web3.types import TxReceipt
 
 from oracle.commit_mirror import CommitMirror
@@ -159,6 +161,15 @@ class AnchorPoster:
     _w3: Any = field(default=None, init=False, repr=False)
     _account: Any = field(default=None, init=False, repr=False)
     _contract: Any = field(default=None, init=False, repr=False)
+    # Serializes nonce-reading + tx-submission per chain. The
+    # MultiChainAnchorPoster runs canonical + mirror submits in
+    # parallel — that's fine across chains, but the scheduler fires
+    # one bar per asset in quick succession (BTC, ETH, SOL → same
+    # chain, same EOA). Without the lock, two `get_transaction_count(
+    # addr, "pending")` calls inside that gap race and assign the same
+    # nonce to two outbound txs, surfacing as `nonce too low: address
+    # ... tx: 35 state: 36` or `replacement transaction underpriced`.
+    _submit_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     @property
     def live(self) -> bool:
@@ -168,6 +179,15 @@ class AnchorPoster:
         if self._w3 is not None:
             return
         self._w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        # Base, Arb-Sepolia, and many testnets use validator metadata in
+        # `extraData` that exceeds web3.py's 32-byte default cap. Without
+        # the POA-flavoured middleware the strict block-formatter raises
+        # `extraData is 86 bytes, but should be 32` on every
+        # `get_block(...)` call — which the EIP-1559 fee-detection path
+        # in `_gas_params` hits per submit. Injected unconditionally:
+        # Kite testnet emits 32-byte extraData and the middleware is a
+        # no-op for it, so this is safe to apply to every chain.
+        self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         pk = self.signer_pk if self.signer_pk.startswith("0x") else "0x" + self.signer_pk
         try:
             self._account = Account.from_key(pk)
@@ -260,22 +280,52 @@ class AnchorPoster:
             int(signed.payload.window_end),
             signed.signature,
         )
-        tx = fn.build_transaction(
-            {
+
+        # Serialize the read-nonce → sign → send-raw window per chain.
+        # The scheduler issues one bar per asset in quick succession,
+        # so two `get_transaction_count(addr, "pending")` reads can
+        # otherwise return the same value before either tx has hit
+        # the mempool, producing duplicate-nonce submits.
+        with self._submit_lock:
+            gas_params = self._gas_params()
+            tx_params: dict[str, Any] = {
                 "from": self._account.address,
                 "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
                 "chainId": self.chain_id,
-                "gasPrice": self._w3.eth.gas_price,
+                **gas_params,
             }
-        )
-        signed_tx = self._account.sign_transaction(tx)
-        tx_hash = self._w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            tx = fn.build_transaction(tx_params)
+            signed_tx = self._account.sign_transaction(tx)
+            tx_hash = self._w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+        # Receipt-wait is the slow leg (up to RECEIPT_TIMEOUT_SEC); release
+        # the lock first so other bars on the same chain can stream txs
+        # behind this one (nonce is already committed to the mempool).
         receipt: TxReceipt = self._w3.eth.wait_for_transaction_receipt(
             tx_hash, timeout=RECEIPT_TIMEOUT_SEC
         )
         if receipt["status"] != 1:
             raise RuntimeError(f"tx reverted: {tx_hash.hex()}")
         return tx_hash.hex(), int(receipt["blockNumber"])
+
+    def _gas_params(self) -> dict[str, int]:
+        """Detect EIP-1559 vs legacy gas pricing per chain. Base + Arb
+        reject legacy `gasPrice` if it sits below `baseFeePerGas` —
+        which happens routinely when basefee jumps between read and
+        submit. Use EIP-1559 with 2× basefee headroom so the tx
+        survives one basefee bump, falling back to legacy when the
+        chain returns no `baseFeePerGas` (e.g. Kite testnet).
+        """
+        assert self._w3 is not None
+        block = self._w3.eth.get_block("latest")
+        base_fee = block.get("baseFeePerGas")
+        if base_fee:
+            priority_fee = self._w3.to_wei(1, "gwei")
+            return {
+                "maxFeePerGas": int(base_fee) * 2 + priority_fee,
+                "maxPriorityFeePerGas": priority_fee,
+            }
+        return {"gasPrice": self._w3.eth.gas_price}
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,8 +19,10 @@ in isolation:
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from itertools import pairwise
+from typing import Any
 
 from eth_account import Account
 from eth_account.messages import encode_typed_data
@@ -231,6 +233,160 @@ def test_live_post_uses_onchain_nonce_overriding_payload() -> None:
     assert record.submitted is True
     assert record.nonce == 42
     assert captured == [42]
+
+
+def test_submit_lock_serializes_concurrent_calls() -> None:
+    """Two concurrent `_submit` calls must serialize the
+    `get_transaction_count("pending") → send_raw_transaction` window.
+    Without the per-poster lock, both reads return the same value
+    and one submit reverts with `nonce too low` / `replacement
+    transaction underpriced` (observed on Base-Sepolia 2026-05-13).
+
+    Stub the underlying web3 calls so each `get_transaction_count`
+    returns a counter that increments only when its caller has also
+    completed `send_raw_transaction` — modelling the mempool
+    propagation window. With the lock held, the counter increments
+    exactly between callers; without, two callers observe the same
+    value before either has 'submitted'."""
+
+    state = {"pending": 100}
+    state_lock = threading.Lock()
+    nonces_observed: list[int] = []
+
+    class _StubEth:
+        gas_price = 1_000_000_000
+
+        def get_block(self, _which: str) -> dict[str, int]:
+            return {}  # legacy chain path; not what we're testing here
+
+        def get_transaction_count(self, _addr: str, _tag: str) -> int:
+            with state_lock:
+                return state["pending"]
+
+        def send_raw_transaction(self, _raw: bytes) -> bytes:
+            # Mempool propagation: bump the count only after the tx
+            # is in flight. The 30ms sleep widens the race window;
+            # without the poster's lock, a parallel caller would
+            # observe the same `pending` value via the read above.
+            time.sleep(0.03)
+            with state_lock:
+                state["pending"] += 1
+            return b"\x01" * 32
+
+        def wait_for_transaction_receipt(self, _h: bytes, timeout: int) -> dict[str, int]:
+            return {"status": 1, "blockNumber": 1}
+
+    class _StubContract:
+        class functions:
+            @staticmethod
+            def commit(*_args: Any, **_kw: Any) -> Any:
+                class _Bound:
+                    @staticmethod
+                    def build_transaction(params: dict[str, Any]) -> dict[str, Any]:
+                        # Record the nonce the caller built into the tx;
+                        # mismatches across callers are what we're after.
+                        nonces_observed.append(int(params["nonce"]))
+                        return params
+
+                return _Bound()
+
+    class _StubAccount:
+        address = "0x" + "ab" * 20
+
+        def sign_transaction(self, tx: dict[str, Any]) -> Any:
+            class _Signed:
+                raw_transaction = b"\x00" * 32
+
+            return _Signed()
+
+    class _StubW3:
+        eth = _StubEth()
+
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+    poster._w3 = _StubW3()  # type: ignore[assignment]
+    poster._account = _StubAccount()  # type: ignore[assignment]
+    poster._contract = _StubContract()  # type: ignore[assignment]
+    poster._ensure_live = lambda: None  # type: ignore[assignment]
+
+    def call() -> None:
+        signed = sign_commit(_payload(), _TEST_PK, _CHAIN_ID, _ANCHOR_ADDR)
+        poster._submit(signed)
+
+    threads = [threading.Thread(target=call) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Each thread must have built its tx with a distinct nonce. Without
+    # the lock, two of the three would have observed `pending=100`
+    # before either had bumped the mempool counter.
+    assert len(set(nonces_observed)) == 3, f"submits raced — observed nonces {nonces_observed}"
+    assert sorted(nonces_observed) == [100, 101, 102]
+
+
+def test_gas_params_emits_eip1559_when_basefee_present() -> None:
+    """On EIP-1559 chains (Base, Arb) the poster must emit
+    `maxFeePerGas` / `maxPriorityFeePerGas` with 2× basefee headroom,
+    not legacy `gasPrice`. Without this, a basefee bump between read
+    and submit rejects the tx with "max fee per gas less than block
+    base fee" — observed on Base-Sepolia 2026-05-13."""
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+
+    class _StubEth:
+        def get_block(self, _which: str) -> dict[str, int]:
+            return {"baseFeePerGas": 20_000_000}
+
+    class _StubW3:
+        eth = _StubEth()
+
+        @staticmethod
+        def to_wei(amount: int, _unit: str) -> int:
+            return amount * 10**9
+
+    poster._w3 = _StubW3()  # type: ignore[assignment]
+    params = poster._gas_params()
+    assert "gasPrice" not in params
+    assert params["maxPriorityFeePerGas"] == 10**9  # 1 gwei
+    assert params["maxFeePerGas"] == 20_000_000 * 2 + 10**9
+
+
+def test_gas_params_falls_back_to_legacy_when_no_basefee() -> None:
+    """Kite testnet returns no `baseFeePerGas`; poster must emit
+    legacy `gasPrice` so existing canonical chain stays unchanged."""
+    poster = AnchorPoster(
+        kind="price",
+        rpc_url="http://stub",
+        signer_pk=_TEST_PK,
+        anchor_address=_ANCHOR_ADDR,
+        chain_id=_CHAIN_ID,
+    )
+
+    class _StubEth:
+        gas_price = 1_000_000_000
+
+        def get_block(self, _which: str) -> dict[str, int]:
+            return {}  # no baseFeePerGas key
+
+    class _StubW3:
+        eth = _StubEth()
+
+    poster._w3 = _StubW3()  # type: ignore[assignment]
+    params = poster._gas_params()
+    assert "maxFeePerGas" not in params
+    assert params["gasPrice"] == 1_000_000_000
 
 
 def test_live_post_resyncs_nonce_after_failed_submit() -> None:
