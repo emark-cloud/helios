@@ -12,12 +12,16 @@ loop run in scenario mode without an indexer.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import structlog
 
 from helios_allocator.types import StrategyCandidate
+
+_log = structlog.get_logger(__name__)
 
 # Frontend POSTs allowed_strategy_classes as slugs; Goldsky surfaces
 # `declaredClass` as the on-chain Poseidon hash. Cache the reverse
@@ -187,8 +191,114 @@ def _to_int(v: Any) -> int:
     return int(v)
 
 
+class MultiChainAllocatorGoldsky:
+    """Fan `fetch_directory()` out across one Goldsky endpoint per chain
+    and merge the rows. Per Helios.md §12.1, strategies execute on the
+    chain whose venue best fits their class (mom/mr on Base for deep
+    Uniswap V3 liquidity, yr on Arbitrum for Aave). Each chain has its
+    own subgraph deployment (`helios/v0.8.0`, `helios-base/v0.8.0`,
+    `helios-arbitrum/v0.8.0` at the time of CXR-4) — Sentinel/Helix
+    need to see all three to rank the full multi-chain candidate set.
+
+    Each constituent `AllocatorGoldsky` keeps its own `chain_id`. The
+    merger drops rows whose `chain_id` doesn't match the source endpoint
+    so a misconfigured fan-out can't smuggle a Kite strategy into the
+    Base candidate set. Duplicate `strategy_id` collisions across chains
+    (theoretically possible if two registries happened to assign the
+    same id) keep the first row seen — deterministic ordering follows
+    the constructor's source list.
+
+    Same offline-tolerant posture as `AllocatorGoldsky`: a source with
+    an empty endpoint returns []; a source that raises is logged and
+    skipped so a single broken endpoint can't take down the whole
+    candidate refresh.
+    """
+
+    def __init__(
+        self,
+        sources: list[AllocatorGoldsky],
+    ) -> None:
+        if not sources:
+            raise ValueError("MultiChainAllocatorGoldsky requires ≥1 source")
+        self._sources = sources
+
+    @classmethod
+    def from_endpoints(
+        cls,
+        endpoints_by_chain: dict[int, str],
+        client: httpx.AsyncClient | None = None,
+    ) -> MultiChainAllocatorGoldsky:
+        """Build a multi-chain client from a `{chain_id: endpoint_url}`
+        mapping. Empty / falsy endpoint values are dropped — a service
+        with only `GOLDSKY_ENDPOINT` set still gets a single-source
+        fan-out that behaves identically to the original
+        `AllocatorGoldsky`.
+
+        When `client` is given, all sources share it (cheaper TCP reuse
+        for the common case where the three endpoints sit behind the
+        same Goldsky CDN). When omitted, each source owns its own
+        `httpx.AsyncClient`.
+        """
+        sources: list[AllocatorGoldsky] = []
+        for chain_id, endpoint in endpoints_by_chain.items():
+            if not endpoint:
+                continue
+            sources.append(AllocatorGoldsky(endpoint=endpoint, chain_id=chain_id, client=client))
+        if not sources:
+            # Preserve the offline-tolerant posture — if all endpoints
+            # are blank, hand back a one-source wrapper pointed at the
+            # empty Kite endpoint so `fetch_directory()` returns []
+            # rather than raising.
+            sources.append(AllocatorGoldsky(endpoint="", chain_id=0, client=client))
+        return cls(sources=sources)
+
+    async def aclose(self) -> None:
+        for src in self._sources:
+            await src.aclose()
+
+    async def fetch_directory(self) -> list[StrategyDirectoryRow]:
+        """Fan out across every source concurrently and merge. Rows whose
+        Goldsky-reported `chain_id` doesn't match the source endpoint's
+        chain are dropped (defensive: a fresh chain whose subgraph still
+        ships pre-CXR-4 mappings would emit `chainId=0` and inherit the
+        source's chain id via `AllocatorGoldsky._parse`, which is fine —
+        but a Kite strategy surfaced from the Base endpoint via a
+        misconfigured indexer would be dropped here)."""
+        results = await asyncio.gather(
+            *(src.fetch_directory() for src in self._sources),
+            return_exceptions=True,
+        )
+        merged: list[StrategyDirectoryRow] = []
+        seen: set[str] = set()
+        for src, result in zip(self._sources, results, strict=True):
+            if isinstance(result, BaseException):
+                _log.warning(
+                    "allocator.goldsky.fan_out_source_failed",
+                    chain_id=src._chain_id,
+                    err=str(result),
+                )
+                continue
+            for row in result:
+                if src._chain_id > 0 and row.chain_id != src._chain_id:
+                    # Source chain mismatch — drop. The source endpoint
+                    # is the authoritative chain tag; trusting the row
+                    # would allow a misconfigured subgraph to pollute
+                    # the candidate set across chains.
+                    continue
+                if row.strategy_id in seen:
+                    continue
+                seen.add(row.strategy_id)
+                merged.append(row)
+        return merged
+
+    async def fetch_candidates(self) -> list[StrategyCandidate]:
+        rows = await self.fetch_directory()
+        return [to_candidate(r) for r in rows]
+
+
 __all__ = [
     "AllocatorGoldsky",
+    "MultiChainAllocatorGoldsky",
     "StrategyDirectoryRow",
     "to_candidate",
 ]
