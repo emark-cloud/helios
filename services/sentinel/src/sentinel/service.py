@@ -237,7 +237,7 @@ def _make_router(
     store: AllocatorStore,
     loop: AllocatorLoop,
     onchain: AllocatorOnChain,
-    goldsky: AllocatorGoldsky,
+    goldsky: AllocatorGoldsky | MultiChainAllocatorGoldsky,
     nonce_store: NonceStore,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
