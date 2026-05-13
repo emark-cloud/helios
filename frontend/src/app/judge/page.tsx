@@ -24,11 +24,13 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import { AppShell } from "@/components/chrome/AppShell";
+import { ChainBadge } from "@/components/atoms/ChainBadge";
 import { CopyableEndpoint } from "@/components/judge/CopyableEndpoint";
 import { LandingStatsBand } from "@/components/landing/LandingStatsBand";
 import { JudgeRecentTrades } from "@/components/judge/JudgeRecentTrades";
 import { CHAIN_ADDRESSES, CHAIN_IDS, type HeliosAddresses } from "@/lib/addresses";
 import {
+  chainName,
   explorerAddressUrl,
   explorerHomeUrl,
   explorerHost,
@@ -75,10 +77,10 @@ function Header(): JSX.Element {
         Verify Helios end-to-end.
       </h1>
       <p className="max-w-3xl text-sm leading-relaxed text-fg-secondary lg:text-base">
-        Every claim on this page resolves to Kitescan or Goldsky. Live counts refresh
-        every 30 seconds; addresses are read from
+        Every claim on this page resolves to Kitescan, BaseScan, Arbiscan, or
+        Goldsky. Live counts refresh every 30 seconds; addresses are read from
         <code className="ml-1 font-mono text-[12px] text-fg-primary">
-          contracts/deployments/kite-testnet.json
+          contracts/deployments/{"{"}kite-testnet,base-sepolia,arbitrum-sepolia{"}"}.json
         </code>
         at build time.
       </p>
@@ -222,21 +224,84 @@ function EvalChecklist(): JSX.Element {
 }
 
 function AddressTable(): JSX.Element {
-  const kite = CHAIN_ADDRESSES["kite-testnet"];
-  const kiteId = CHAIN_IDS["kite-testnet"];
-  const rows = addressRows(kite);
-
+  // §12.1 venue routing — Kite hosts identity + small-position vaults;
+  // Base hosts mom/mr against Uniswap V3 spot liquidity; Arb hosts yr
+  // against an Aave-V3-shaped lending pool. Each chain has its own
+  // StrategyRegistry; reputation propagates Base/Arb → Kite via the
+  // HeliosOApp pipe so the canonical reputation chain stays Kite.
   return (
-    <section aria-labelledby="judge-addresses">
-      <div className="mb-3 flex items-baseline justify-between">
+    <section aria-labelledby="judge-addresses" className="flex flex-col gap-6">
+      <div className="flex items-baseline justify-between">
         <h2
           id="judge-addresses"
           className="text-[12px] uppercase tracking-[0.16em] text-fg-muted"
         >
-          Deployed addresses
+          Deployed addresses · §12.1 cross-chain routing
         </h2>
         <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
-          chain {kiteId} · kite testnet
+          3 chains · 12 vaults
+        </span>
+      </div>
+      <p className="font-mono text-[12px] leading-relaxed text-fg-muted">
+        Identity + small-position vaults on Kite; spot momentum + mean-reversion
+        on Base-Sepolia against Uniswap V3; yield-rotation on Arbitrum-Sepolia
+        against an Aave-V3-shaped lending pool. Reputation propagates
+        Base/Arb → Kite via the HeliosOApp pipe, so the canonical reputation
+        chain stays Kite.
+      </p>
+
+      <ChainAddressBlock
+        chainKey="kite-testnet"
+        title="Kite testnet · canonical identity + reputation"
+        rows={addressRowsKite(CHAIN_ADDRESSES["kite-testnet"])}
+        rpcHint={KITE_RPC}
+        subgraphUrl={GOLDSKY_DEFAULT}
+      />
+      <ChainAddressBlock
+        chainKey="base-sepolia"
+        title="Base-Sepolia · spot mom + mr (Uniswap V3)"
+        rows={addressRowsBase(CHAIN_ADDRESSES["base-sepolia"])}
+      />
+      <ChainAddressBlock
+        chainKey="arbitrum-sepolia"
+        title="Arbitrum-Sepolia · yr (Aave-V3-shaped)"
+        rows={addressRowsArb(CHAIN_ADDRESSES["arbitrum-sepolia"])}
+      />
+
+      <p className="font-mono text-[12px] text-fg-muted">
+        Kite mainnet (chain 2366) is a stretch — see{" "}
+        <code className="text-fg-secondary">docs/deployment-strategy.md</code>.
+        The v1 system promises identical wiring on mainnet; only the chain
+        target changes for Kite Passport.
+      </p>
+    </section>
+  );
+}
+
+function ChainAddressBlock({
+  chainKey,
+  title,
+  rows,
+  rpcHint,
+  subgraphUrl,
+}: {
+  chainKey: "kite-testnet" | "base-sepolia" | "arbitrum-sepolia";
+  title: string;
+  rows: AddressRow[];
+  rpcHint?: string;
+  subgraphUrl?: string;
+}): JSX.Element {
+  const chainId = CHAIN_IDS[chainKey];
+  const home = explorerHomeUrl(chainId);
+  const host = explorerHost(chainId);
+  const name = chainName(chainId);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <ChainBadge chainId={chainId} />
+        <h3 className="text-sm text-fg-primary">{title}</h3>
+        <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-fg-muted">
+          chain {chainId} · {name.toLowerCase()}
         </span>
       </div>
       <div className="overflow-hidden rounded-md border border-surface-line bg-surface-panel">
@@ -250,9 +315,12 @@ function AddressTable(): JSX.Element {
           </thead>
           <tbody>
             {rows.map((row) => {
-              const url = row.value ? explorerAddressUrl(kiteId, row.value) : null;
+              const url = row.value ? explorerAddressUrl(chainId, row.value) : null;
               return (
-                <tr key={row.label} className="border-b border-surface-line last:border-b-0">
+                <tr
+                  key={row.label}
+                  className="border-b border-surface-line last:border-b-0"
+                >
                   <td className="px-3 py-2 text-fg-primary">{row.label}</td>
                   <td className="px-3 py-2 font-mono text-[12px] text-fg-secondary">
                     {row.value ? row.value : "—"}
@@ -277,50 +345,45 @@ function AddressTable(): JSX.Element {
           </tbody>
         </table>
       </div>
-      <ul className="mt-3 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
-        <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
-          <span className="text-fg-muted">RPC </span>
-          <code className="font-mono text-fg-primary">{KITE_RPC}</code>
-        </li>
+      <ul className="grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
+        {rpcHint ? (
+          <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
+            <span className="text-fg-muted">RPC </span>
+            <code className="font-mono text-fg-primary">{rpcHint}</code>
+          </li>
+        ) : null}
         <li className="rounded-sm border border-surface-line bg-surface-panel px-3 py-2">
           <span className="text-fg-muted">Explorer </span>
-          {(() => {
-            const home = explorerHomeUrl(kiteId);
-            const host = explorerHost(kiteId);
-            return home && host ? (
-              <a
-                href={home}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-amber hover:underline"
-              >
-                {host}
-              </a>
-            ) : (
-              <span className="font-mono text-fg-muted">—</span>
-            );
-          })()}
+          {home && host ? (
+            <a
+              href={home}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-amber hover:underline"
+            >
+              {host}
+            </a>
+          ) : (
+            <span className="font-mono text-fg-muted">—</span>
+          )}
         </li>
-        <li>
-          <CopyableEndpoint
-            label="Subgraph"
-            url={GOLDSKY_DEFAULT}
-            caption="POST GraphQL queries here"
-          />
-        </li>
+        {subgraphUrl ? (
+          <li>
+            <CopyableEndpoint
+              label="Subgraph"
+              url={subgraphUrl}
+              caption="POST GraphQL queries here"
+            />
+          </li>
+        ) : null}
       </ul>
-      <p className="mt-2 font-mono text-[12px] text-fg-muted">
-        Cross-chain executes on Base Sepolia (84532) + Arbitrum Sepolia (421614);
-        Kite testnet remains the canonical identity / reputation chain. Mainnet
-        (2366) is a stretch — see <code className="text-fg-secondary">docs/deployment-strategy.md</code>.
-      </p>
-    </section>
+    </div>
   );
 }
 
 type AddressRow = { label: string; value: string | undefined };
 
-function addressRows(addrs: HeliosAddresses): AddressRow[] {
+function addressRowsKite(addrs: HeliosAddresses): AddressRow[] {
   return [
     { label: "USDC (testnet)", value: addrs.usdc },
     { label: "Swap router", value: addrs.swapRouter },
@@ -329,7 +392,8 @@ function addressRows(addrs: HeliosAddresses): AddressRow[] {
     { label: "Strategy registry", value: addrs.strategyRegistry },
     { label: "Allocator registry", value: addrs.allocatorRegistry },
     { label: "Trade attestation verifier", value: addrs.tradeAttestationVerifier },
-    { label: "Reputation anchor (V1)", value: addrs.reputationAnchor },
+    { label: "Reputation anchor (V2-bis)", value: addrs.reputationAnchor },
+    { label: "LayerZero V2 OApp", value: addrs.heliosOApp },
     { label: "Strategy vault — momentum (Phase-6)", value: addrs.phase6VaultMomentum },
     {
       label: "Strategy vault — mean reversion (Phase-6)",
@@ -344,6 +408,44 @@ function addressRows(addrs: HeliosAddresses): AddressRow[] {
     { label: "Mock SOL (Phase-6 universe)", value: addrs.mSol },
     { label: "Verifier — momentum_v1", value: addrs.momentumVerifier },
     { label: "Verifier — mean_reversion_v1", value: addrs.meanReversionVerifier },
+    { label: "Verifier — yield_rotation_v1", value: addrs.yieldRotationVerifier },
+  ];
+}
+
+function addressRowsBase(addrs: HeliosAddresses): AddressRow[] {
+  return [
+    { label: "USDC (testnet)", value: addrs.usdc },
+    { label: "Uniswap V3 SwapRouter02", value: addrs.swapRouter },
+    { label: "Strategy registry (Base)", value: addrs.strategyRegistry },
+    { label: "Trade attestation verifier", value: addrs.tradeAttestationVerifier },
+    { label: "LayerZero V2 OApp", value: addrs.heliosOApp },
+    {
+      label: "Strategy vault — momentum (Base spot)",
+      value: addrs.phase6VaultMomentumBase,
+    },
+    {
+      label: "Strategy vault — mean reversion (Base spot)",
+      value: addrs.phase6VaultMeanReversionBase,
+    },
+    { label: "Verifier — momentum_v1", value: addrs.momentumVerifier },
+    { label: "Verifier — mean_reversion_v1", value: addrs.meanReversionVerifier },
+  ];
+}
+
+function addressRowsArb(addrs: HeliosAddresses): AddressRow[] {
+  return [
+    { label: "USDC (testnet, 6-dec)", value: addrs.usdc },
+    {
+      label: "Lending pool (MockYieldVault, Aave-V3-shaped)",
+      value: addrs.mockYieldVault ?? addrs.aavePool,
+    },
+    { label: "Strategy registry (Arb)", value: addrs.strategyRegistry },
+    { label: "Trade attestation verifier", value: addrs.tradeAttestationVerifier },
+    { label: "LayerZero V2 OApp", value: addrs.heliosOApp },
+    {
+      label: "Strategy vault — yield rotation (Arb)",
+      value: addrs.phase6VaultYieldRotationArb,
+    },
     { label: "Verifier — yield_rotation_v1", value: addrs.yieldRotationVerifier },
   ];
 }

@@ -1,27 +1,68 @@
 specVersion: 1.0.0
-description: Helios — Arbitrum Sepolia execution surface (Phase 5 / WS6).
+description: Helios — Arbitrum Sepolia execution surface (Phase 5 / WS6 + CXR-2).
 repository: https://github.com/helios-market/helios
 schema:
   file: ./schema.graphql
 
-# Phase 5 / WS6 — Arbitrum Sepolia subgraph. Yield rotation is the
-# only class executing here; the YR-specific event handler is wired
-# alongside the canonical Trade/NAV set so rotation receipts feed both
-# `Trade` (for §8.2 trade volume) and `YieldRotation` (for the audit
-# page rotation timeline).
+# Phase 5 / WS6 + CXR-2 (2026-05-13) — Arbitrum Sepolia subgraph for
+# the §12.1 yield venue (yr.arb against an Aave-V3-shaped MockYieldVault
+# until the admin-gated FiatToken USDC faucet on Aave Arb-Sepolia opens
+# up). Reputation propagates Arb → Kite via the HeliosOApp pipe so the
+# canonical reputation chain stays Kite; the YR-specific event handler
+# is wired alongside the canonical Trade/NAV set so rotation receipts
+# feed both `Trade` (for §8.2 trade volume) and `YieldRotation` (for the
+# audit page rotation timeline).
 #
-# Addresses + startBlock are sentinels; replaced after WS2 broadcast
-# writes `contracts/deployments/arbitrum-sepolia.json`. Goldsky deploy
-# is gated until that broadcast lands.
+# Addresses sourced from `contracts/deployments/arbitrum-sepolia.json`
+# (CXR-1/2 broadcast 2026-05-13). startBlock pinned to the first event
+# observed via `cast logs` against the Arb-Sepolia RPC.
 
 dataSources:
   - kind: ethereum
-    name: StrategyVault
+    name: StrategyRegistry
     network: arbitrum-sepolia
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2"
+      abi: StrategyRegistry
+      startBlock: 268054047
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-registry.ts
+      entities:
+        - Strategy
+        - ParamsRotation
+      abis:
+        - name: StrategyRegistry
+          file: ./abis/StrategyRegistry.json
+      eventHandlers:
+        - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
+          handler: handleStrategyRegistered
+        - event: StrategyDeactivated(indexed address)
+          handler: handleStrategyDeactivated
+        - event: ReputationUpdated(indexed address,int256,int256)
+          handler: handleStrategyReputationUpdated
+        - event: ParamsRotated(indexed address,bytes32,bytes32)
+          handler: handleParamsRotated
+        - event: MarketAllowlistRootSet(indexed bytes32,bytes32)
+          handler: handleMarketAllowlistRootSet
+        - event: ParamsHashCommitted(indexed address,bytes32)
+          handler: handleParamsHashCommitted
+        - event: ParamsRotationInitiated(indexed address,bytes32,bytes32,uint64)
+          handler: handleParamsRotationInitiated
+        - event: ParamsRotationCancelled(indexed address,bytes32)
+          handler: handleParamsRotationCancelled
+        - event: StrategySlashed(indexed address,uint256,string)
+          handler: handleStrategySlashed
+
+  - kind: ethereum
+    name: StrategyVaultYieldRotationArb
+    network: arbitrum-sepolia
+    source:
+      address: "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 268056541
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -49,9 +90,9 @@ dataSources:
     name: HeliosOApp
     network: arbitrum-sepolia
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x55782e7019f4619A06A25bf66D2998C8Fe2CC436"
       abi: HeliosOApp
-      startBlock: 0
+      startBlock: 268054047
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7

@@ -1,20 +1,29 @@
 /**
  * Per-chain deployed addresses. Source of truth lives at
- * `contracts/deployments/<chain>.json`, written by `DeployPhase1.s.sol`.
- * Frontend reads the JSON directly (Next.js `resolveJsonModule`) — no
- * hardcoded addresses elsewhere per CLAUDE.md.
+ * `contracts/deployments/<chain>.json`, written by the per-chain deploy
+ * scripts. Frontend reads the JSON directly (Next.js `resolveJsonModule`)
+ * — no hardcoded addresses elsewhere per CLAUDE.md.
  *
+ * Three chains are loaded post-CXR-3 (2026-05-13): the canonical Kite
+ * testnet + the Base-Sepolia spot venue (mom + mr against Uniswap V3) +
+ * the Arbitrum-Sepolia yield venue (yr against an Aave-V3-shaped pool).
  * `@helios/contracts-abi/addresses` exports a typed shape too, but its
- * ADDRESSES map is populated by a separate generate step. Until that
- * pipeline runs after every deploy, importing the JSON directly keeps
- * the frontend in sync with whatever the contracts package shipped.
+ * ADDRESSES map is populated by a separate generate step; importing the
+ * JSONs directly keeps the frontend in sync with whatever the contracts
+ * package shipped last broadcast.
  */
 
 import type { Address } from "viem";
 
 import kiteTestnet from "../../../contracts/deployments/kite-testnet.json";
+import baseSepolia from "../../../contracts/deployments/base-sepolia.json";
+import arbitrumSepolia from "../../../contracts/deployments/arbitrum-sepolia.json";
 
-export type ChainKey = "kite-testnet" | "anvil";
+export type ChainKey =
+  | "kite-testnet"
+  | "base-sepolia"
+  | "arbitrum-sepolia"
+  | "anvil";
 
 export type HeliosAddresses = {
   readonly usdc?: Address;
@@ -50,6 +59,19 @@ export type HeliosAddresses = {
   readonly mWbtc?: Address;
   readonly mWeth?: Address;
   readonly mSol?: Address;
+  // CXR (2026-05-13) — cross-chain venue routing per §12.1.
+  // LayerZero V2 OApp; same address on Kite + Base + Arb by deployer
+  // nonce-coincidence on a fresh EOA.
+  readonly heliosOApp?: Address;
+  // Base-Sepolia spot vaults (Uniswap V3 SwapRouter02).
+  readonly phase6VaultMomentumBase?: Address;
+  readonly phase6VaultMeanReversionBase?: Address;
+  // Arbitrum-Sepolia yield vault (Aave-V3-shaped MockYieldVault until the
+  // admin-gated FiatToken USDC faucet opens up; one-line `allowedRouter`
+  // flip swaps it to the real Aave V3 Pool).
+  readonly phase6VaultYieldRotationArb?: Address;
+  readonly aavePool?: Address;
+  readonly mockYieldVault?: Address;
 };
 
 type DeploymentFile = {
@@ -58,9 +80,13 @@ type DeploymentFile = {
 };
 
 const KITE: DeploymentFile = kiteTestnet as DeploymentFile;
+const BASE: DeploymentFile = baseSepolia as DeploymentFile;
+const ARB: DeploymentFile = arbitrumSepolia as DeploymentFile;
 
 export const CHAIN_ADDRESSES: Record<ChainKey, HeliosAddresses> = {
   "kite-testnet": KITE.addresses,
+  "base-sepolia": BASE.addresses,
+  "arbitrum-sepolia": ARB.addresses,
   // Anvil deployments are written at scenario boot; empty map keeps
   // typecheck happy when the file isn't present.
   anvil: {},
@@ -68,11 +94,15 @@ export const CHAIN_ADDRESSES: Record<ChainKey, HeliosAddresses> = {
 
 export const CHAIN_IDS: Record<ChainKey, number> = {
   "kite-testnet": KITE.chainId,
+  "base-sepolia": BASE.chainId,
+  "arbitrum-sepolia": ARB.chainId,
   anvil: 31_337,
 };
 
 export function addressesForChainId(chainId: number): HeliosAddresses {
   if (chainId === KITE.chainId) return KITE.addresses;
+  if (chainId === BASE.chainId) return BASE.addresses;
+  if (chainId === ARB.chainId) return ARB.addresses;
   if (chainId === 31_337) return CHAIN_ADDRESSES.anvil;
   return {};
 }

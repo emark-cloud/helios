@@ -18,6 +18,31 @@ const ENDPOINT =
     ? process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT
     : "/__test/subgraphs/unset";
 
+// CXR-4 (2026-05-13) — optional per-chain subgraph endpoints for the
+// §12.1 spot + yield venues. Each endpoint follows the same Goldsky
+// schema as the canonical Kite endpoint; the frontend fans out reads
+// in parallel and merges by entity id (`Strategy.id` is the registry
+// address). When either is unset, the multi-chain helpers silently fall
+// back to the canonical endpoint — Base/Arb subgraphs only become
+// queryable once `pnpm --filter subgraph deploy:base|deploy:arbitrum`
+// has actually run against Goldsky.
+const ENDPOINT_BASE =
+  process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_BASE &&
+  process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_BASE.length > 0
+    ? process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_BASE
+    : null;
+const ENDPOINT_ARB =
+  process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_ARBITRUM &&
+  process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_ARBITRUM.length > 0
+    ? process.env.NEXT_PUBLIC_GOLDSKY_ENDPOINT_ARBITRUM
+    : null;
+
+const CROSS_CHAIN_ENDPOINTS: Array<{ chainId: number; endpoint: string }> = [
+  { chainId: 2368, endpoint: ENDPOINT },
+  ...(ENDPOINT_BASE ? [{ chainId: 84532, endpoint: ENDPOINT_BASE }] : []),
+  ...(ENDPOINT_ARB ? [{ chainId: 421614, endpoint: ENDPOINT_ARB }] : []),
+];
+
 export class GoldskyError extends Error {
   readonly status: number;
   readonly errors?: unknown;
@@ -33,8 +58,9 @@ export async function gqlRequest<T>(
   query: string,
   variables?: Record<string, unknown>,
   signal?: AbortSignal,
+  endpoint: string = ENDPOINT,
 ): Promise<T> {
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
@@ -89,16 +115,46 @@ export async function fetchStrategies(
   opts: { first?: number; orderBy?: string; orderDir?: "asc" | "desc" } = {},
   signal?: AbortSignal,
 ): Promise<StrategyDirectoryRow[]> {
-  const data = await gqlRequest<{ strategies: StrategyDirectoryRow[] }>(
-    STRATEGIES_QUERY,
-    {
-      first: opts.first ?? 100,
-      orderBy: opts.orderBy ?? "currentReputation",
-      orderDir: opts.orderDir ?? "desc",
-    },
-    signal,
+  // CXR-4 — fan out across every configured chain subgraph in parallel.
+  // The Goldsky schema is identical per chain; rows are deduped by
+  // strategy id, with the row's `chainId` field stamped to the source
+  // endpoint when the subgraph reports 0 (pre-CXR-4 indexes set chainId
+  // to the active datasource via `getOrCreateStrategy`, but legacy
+  // indexes — including the currently-deployed Kite v0.7.2 — may have
+  // strategies that were bootstrapped from a Trade event before SR
+  // registration fired, so `chainId=0` rows still appear).
+  const variables = {
+    first: opts.first ?? 100,
+    orderBy: opts.orderBy ?? "currentReputation",
+    orderDir: opts.orderDir ?? "desc",
+  };
+  const results = await Promise.allSettled(
+    CROSS_CHAIN_ENDPOINTS.map(async ({ chainId, endpoint }) => {
+      const data = await gqlRequest<{ strategies: StrategyDirectoryRow[] }>(
+        STRATEGIES_QUERY,
+        variables,
+        signal,
+        endpoint,
+      );
+      return data.strategies.map((s) => ({
+        ...s,
+        chainId: s.chainId > 0 ? s.chainId : chainId,
+      }));
+    }),
   );
-  return data.strategies;
+  if (results.every((r) => r.status === "rejected")) {
+    const first = results[0];
+    if (first && first.status === "rejected") throw first.reason;
+    throw new GoldskyError("Goldsky returned no data", 0);
+  }
+  const merged = new Map<string, StrategyDirectoryRow>();
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    for (const row of r.value) {
+      if (!merged.has(row.id)) merged.set(row.id, row);
+    }
+  }
+  return Array.from(merged.values());
 }
 
 // ── User dashboard ──────────────────────────────────────────────────
@@ -198,12 +254,38 @@ export async function fetchRecentTrades(
   first: number = 25,
   signal?: AbortSignal,
 ): Promise<RecentTrade[]> {
-  const data = await gqlRequest<{ trades: RecentTrade[] }>(
-    RECENT_TRADES_QUERY,
-    { first },
-    signal,
+  // CXR-4 — fan out across every configured chain subgraph in parallel
+  // so /judge's recent-trades feed surfaces Base + Arb executions, not
+  // just Kite. Order by timestamp after the merge so the chain mix in
+  // the top N is genuine.
+  const results = await Promise.allSettled(
+    CROSS_CHAIN_ENDPOINTS.map(async ({ chainId, endpoint }) => {
+      const data = await gqlRequest<{ trades: RecentTrade[] }>(
+        RECENT_TRADES_QUERY,
+        { first },
+        signal,
+        endpoint,
+      );
+      return data.trades.map((t) => ({
+        ...t,
+        strategy: {
+          ...t.strategy,
+          chainId: t.strategy.chainId > 0 ? t.strategy.chainId : chainId,
+        },
+      }));
+    }),
   );
-  return data.trades;
+  const all: RecentTrade[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") all.push(...r.value);
+  }
+  if (all.length === 0) {
+    const first0 = results[0];
+    if (first0 && first0.status === "rejected") throw first0.reason;
+    return [];
+  }
+  all.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+  return all.slice(0, first);
 }
 
 // ── Allocators directory (`/allocators`) ────────────────────────────

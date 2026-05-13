@@ -1,28 +1,97 @@
 specVersion: 1.0.0
-description: Helios — Base Sepolia execution surface (Phase 5 / WS6).
+description: Helios — Base Sepolia execution surface (Phase 5 / WS6 + CXR-3).
 repository: https://github.com/helios-market/helios
 schema:
   file: ./schema.graphql
 
-# Phase 5 / WS6 — Base Sepolia subgraph. Goldsky's multi-chain story
-# is "one subgraph per chain, compose at query time" rather than a
-# single composite index, so the execution-chain datasources live in
-# this sibling manifest. Frontend (WS7) fans out parallel queries
-# against the three Goldsky endpoints and merges by entity id —
-# `Strategy.id` is the registry address, identical on every chain.
+# Phase 5 / WS6 + CXR-3 (2026-05-13) — Base Sepolia subgraph for the
+# §12.1 spot venue (mom + mr against Uniswap V3 SwapRouter02). Each
+# chain has its own StrategyRegistry; reputation propagates Base → Kite
+# via the HeliosOApp pipe so the canonical reputation chain stays Kite.
 #
-# Addresses + startBlock are sentinels; replaced after WS2 broadcast
-# writes `contracts/deployments/base-sepolia.json`. Goldsky deploy is
-# gated until that broadcast lands.
+# Goldsky's multi-chain story is "one subgraph per chain, compose at
+# query time" rather than a single composite index, so the execution-
+# chain datasources live in this sibling manifest. Frontend (CXR-4)
+# fans out parallel queries against the three Goldsky endpoints and
+# merges by entity id — `Strategy.id` is the registry address.
+#
+# Addresses sourced from `contracts/deployments/base-sepolia.json`
+# (CXR-1/3 broadcast 2026-05-13). startBlock pinned to the first event
+# observed via `cast logs` against the Base-Sepolia RPC.
 
 dataSources:
   - kind: ethereum
-    name: StrategyVault
+    name: StrategyRegistry
     network: base-sepolia
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x2a94DE11521EAF190e451863bEfe0F178f04DF32"
+      abi: StrategyRegistry
+      startBlock: 41459335
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-registry.ts
+      entities:
+        - Strategy
+        - ParamsRotation
+      abis:
+        - name: StrategyRegistry
+          file: ./abis/StrategyRegistry.json
+      eventHandlers:
+        - event: StrategyRegistered(indexed address,indexed address,indexed address,bytes32,uint256)
+          handler: handleStrategyRegistered
+        - event: StrategyDeactivated(indexed address)
+          handler: handleStrategyDeactivated
+        - event: ReputationUpdated(indexed address,int256,int256)
+          handler: handleStrategyReputationUpdated
+        - event: ParamsRotated(indexed address,bytes32,bytes32)
+          handler: handleParamsRotated
+        - event: MarketAllowlistRootSet(indexed bytes32,bytes32)
+          handler: handleMarketAllowlistRootSet
+        - event: ParamsHashCommitted(indexed address,bytes32)
+          handler: handleParamsHashCommitted
+        - event: ParamsRotationInitiated(indexed address,bytes32,bytes32,uint64)
+          handler: handleParamsRotationInitiated
+        - event: ParamsRotationCancelled(indexed address,bytes32)
+          handler: handleParamsRotationCancelled
+        - event: StrategySlashed(indexed address,uint256,string)
+          handler: handleStrategySlashed
+
+  - kind: ethereum
+    name: StrategyVaultMomentumBase
+    network: base-sepolia
+    source:
+      address: "0x9e14299e6FAeE1C1F352E2F9197D8A080306FE8d"
       abi: StrategyVault
-      startBlock: 0
+      startBlock: 41459646
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/strategy-vault.ts
+      entities:
+        - Trade
+        - NAVSnapshot
+        - Strategy
+      abis:
+        - name: StrategyVault
+          file: ./abis/StrategyVault.json
+      eventHandlers:
+        - event: TradeAttested(indexed address,indexed address,indexed bytes32,bytes32,address,address,uint256,uint256,uint8,uint64,uint64)
+          handler: handleTradeAttested
+        - event: NAVReported(indexed address,uint256,uint64)
+          handler: handleNAVReported
+        - event: Slashed(indexed address,uint256,string)
+          handler: handleSlashed
+
+  - kind: ethereum
+    name: StrategyVaultMeanReversionBase
+    network: base-sepolia
+    source:
+      address: "0x8b375617589DBC7A90049b0fE07f2Fb4D5A19F08"
+      abi: StrategyVault
+      startBlock: 41459647
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -47,9 +116,9 @@ dataSources:
     name: HeliosOApp
     network: base-sepolia
     source:
-      address: "0x000000000000000000000000000000000000dEaD"
+      address: "0x55782e7019f4619A06A25bf66D2998C8Fe2CC436"
       abi: HeliosOApp
-      startBlock: 0
+      startBlock: 41459152
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
