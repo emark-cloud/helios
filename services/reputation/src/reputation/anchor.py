@@ -86,7 +86,144 @@ _IREPUTATION_ANCHOR_V1_ABI: list[dict[str, Any]] = [
 # durable on-chain.
 _PENDING_RING_CAP = 4096
 
+# Minimal view-only ABI for the registry pre-flight (`RegistryActiveCheck`).
+# Both registries share an `*Of(address)` getter returning a struct with
+# `registeredAt` (uint64) + `active` (bool); the field shape differs but
+# only the two fields we read need to line up by position, which they do
+# (see `IStrategyRegistry.StrategyEntry` vs `IAllocatorRegistry.AllocatorEntry`).
+_REGISTRY_PROBE_ABI: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "strategyOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "strategyId", "type": "address"}],
+        "outputs": [
+            {
+                "type": "tuple",
+                "components": [
+                    {"name": "vault", "type": "address"},
+                    {"name": "operator", "type": "address"},
+                    {"name": "declaredClass", "type": "bytes32"},
+                    {"name": "stakeAmount", "type": "uint256"},
+                    {"name": "currentReputation", "type": "int256"},
+                    {"name": "registeredAt", "type": "uint64"},
+                    {"name": "active", "type": "bool"},
+                ],
+            }
+        ],
+    },
+    {
+        "type": "function",
+        "name": "allocatorOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "allocatorId", "type": "address"}],
+        "outputs": [
+            {
+                "type": "tuple",
+                "components": [
+                    {"name": "name", "type": "string"},
+                    {"name": "operatorVault", "type": "address"},
+                    {"name": "operator", "type": "address"},
+                    {"name": "rankingFunctionHash", "type": "bytes32"},
+                    {"name": "supportedClasses", "type": "bytes32[]"},
+                    {"name": "feeRateBps", "type": "uint16"},
+                    {"name": "stakeAmount", "type": "uint256"},
+                    {"name": "currentReputation", "type": "int256"},
+                    {"name": "totalUsers", "type": "uint256"},
+                    {"name": "totalCapitalManaged", "type": "uint256"},
+                    {"name": "registeredAt", "type": "uint64"},
+                    {"name": "active", "type": "bool"},
+                    {"name": "isReferenceBrand", "type": "bool"},
+                ],
+            }
+        ],
+    },
+]
+
 _log = structlog.get_logger(__name__)
+
+
+class RegistryActiveCheck:
+    """On-chain pre-flight for `AnchorPoster.post()`.
+
+    Reads `*Of(actor)` on the bound registries and returns False when an
+    actor isn't registered (`registeredAt == 0`) or has been deactivated
+    (`active == false`). Without this filter, the engine submits
+    `postReputationUpdate` for every Goldsky-reported actor whose
+    `Strategy.active == true` — which includes pre-WS11 legacy cohorts
+    that the new SR-v3 doesn't know about, so every such submission
+    reverts `StrategyNotFound()` (`0x5be2b482`) and wastes ~117k gas.
+
+    Configured via the canonical SR-v3 / AR-v2 addresses
+    (`REPUTATION_STRATEGY_REGISTRY_ADDRESS`,
+    `REPUTATION_ALLOCATOR_REGISTRY_ADDRESS`). Either may be unset, in
+    which case the corresponding actor type bypasses the check —
+    matches the test-mode posture of `AnchorPoster.live`.
+    """
+
+    def __init__(
+        self,
+        rpc_url: str,
+        strategy_registry: str = "",
+        allocator_registry: str = "",
+    ) -> None:
+        self._rpc_url = rpc_url
+        self._strategy_registry = strategy_registry
+        self._allocator_registry = allocator_registry
+        # Lazy handles — same posture as AnchorPoster so test harnesses
+        # don't have to spin up an RPC stub just to construct the engine.
+        self._w3: Web3 | None = None
+        self._strategy_contract: Any = None
+        self._allocator_contract: Any = None
+
+    def _ensure_live(self) -> None:
+        if self._w3 is not None:
+            return
+        self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+        if self._strategy_registry:
+            self._strategy_contract = self._w3.eth.contract(
+                address=Web3.to_checksum_address(self._strategy_registry),
+                abi=_REGISTRY_PROBE_ABI,
+            )
+        if self._allocator_registry:
+            self._allocator_contract = self._w3.eth.contract(
+                address=Web3.to_checksum_address(self._allocator_registry),
+                abi=_REGISTRY_PROBE_ABI,
+            )
+
+    def is_active(self, actor: str, actor_type: int) -> bool:
+        """True if the actor is registered AND active in the bound
+        registry. When the relevant registry address is unset, returns
+        True (i.e. defers to whatever the anchor's own checks decide).
+        On any RPC error, returns True — better to let the anchor surface
+        the real error than silently swallow a transient blip."""
+        self._ensure_live()
+        if actor_type == 0:  # ActorType.STRATEGY
+            contract = self._strategy_contract
+            getter = "strategyOf"
+        elif actor_type == 1:  # ActorType.ALLOCATOR
+            contract = self._allocator_contract
+            getter = "allocatorOf"
+        else:
+            return True
+        if contract is None:
+            return True
+        try:
+            entry = contract.functions[getter](Web3.to_checksum_address(actor)).call()
+        except Exception as exc:
+            _log.warning("reputation.registry_probe.error", actor=actor, err=str(exc))
+            return True
+        # `strategyOf` returns 7-tuple, `allocatorOf` returns 13-tuple.
+        # `registeredAt` + `active` are the last two slots in both layouts
+        # except allocator has a trailing `isReferenceBrand` bool after
+        # `active`. Pull by struct index to avoid ordering drift.
+        if actor_type == 0:
+            registered_at = int(entry[5])
+            active = bool(entry[6])
+        else:
+            registered_at = int(entry[10])
+            active = bool(entry[11])
+        return registered_at > 0 and active
 
 
 @dataclass(slots=True)
@@ -106,6 +243,7 @@ class AnchorPoster:
         anchor_address: str,
         chain_id: int,
         typehash_version: str = "1",
+        registry_check: RegistryActiveCheck | None = None,
     ) -> None:
         if typehash_version not in {"1", "2"}:
             raise ValueError(f"unsupported typehash version: {typehash_version!r}")
@@ -115,6 +253,7 @@ class AnchorPoster:
         self._chain_id = chain_id
         self._typehash_version = typehash_version
         self._live = bool(rpc_url and signer_pk and anchor_address)
+        self._registry_check = registry_check
         self.pending: deque[PostedUpdate] = deque(maxlen=_PENDING_RING_CAP)
         # Serialize `_submit`. Phase-3 review MEDIUM: `_submit` reads the
         # on-chain pending nonce inline, signs, and sends. Two concurrent
@@ -147,6 +286,23 @@ class AnchorPoster:
                 score_e4=signed.update.current_score,
             )
             return result
+        # Pre-flight: drop submissions for actors the bound registries
+        # don't know about. The Goldsky candidate set leaks legacy
+        # cohorts (V1 registry never deactivated them when WS11 swapped
+        # the anchor to SR-v3 / AR-v2), so without this filter every
+        # legacy actor wastes ~117k gas and reverts `StrategyNotFound`
+        # or `AllocatorNotFound`. See memory `project_reputation_registry_filter`.
+        if self._registry_check is not None:
+            actor_type = int(signed.update.actor_type)
+            if not self._registry_check.is_active(signed.update.actor, actor_type):
+                result.error = "skipped: actor not in active registry set"
+                self.pending.append(result)
+                _log.info(
+                    "reputation.anchor.skip_not_in_registry",
+                    actor=signed.update.actor,
+                    actor_type=actor_type,
+                )
+                return result
         try:
             with self._submit_lock:
                 tx_hash, block_number = self._submit(signed)

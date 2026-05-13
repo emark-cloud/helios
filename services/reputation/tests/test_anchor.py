@@ -210,5 +210,95 @@ async def test_async_post_does_not_block_event_loop() -> None:
     assert counter["ticks"] >= 4  # loop drained while submit was running
 
 
+class _FakeRegistryCheck:
+    """Stub `RegistryActiveCheck` for the post-time filter tests. Records
+    every probe so the assertion can check the filter ran exactly once
+    per submission attempt — no double-fire from a misplaced loop."""
+
+    def __init__(self, active: bool) -> None:
+        self._active = active
+        self.probes: list[tuple[str, int]] = []
+
+    def is_active(self, actor: str, actor_type: int) -> bool:
+        self.probes.append((actor, actor_type))
+        return self._active
+
+
+def test_post_skips_when_registry_says_inactive() -> None:
+    """Legacy pre-WS11 actors are still marked `active: true` in Goldsky's
+    Strategy entity (V1 registry never emitted `StrategyDeactivated` for
+    them) but SR-v3 doesn't know them. Without this filter the engine
+    submits, wastes ~117k gas, and reverts `StrategyNotFound()`. The
+    pre-flight short-circuits before `_submit` is reached."""
+    poster = AnchorPoster(
+        rpc_url="http://stub",
+        signer_pk=_PK,
+        anchor_address=_ANCHOR,
+        chain_id=2368,
+        registry_check=_FakeRegistryCheck(active=False),  # type: ignore[arg-type]
+    )
+    poster._live = True
+
+    def boom_submit(_signed):  # type: ignore[no-untyped-def]
+        raise AssertionError("_submit must not run for filtered actors")
+
+    poster._submit = boom_submit  # type: ignore[assignment]
+    result = poster.post(_signed_update())  # type: ignore[arg-type]
+    assert result.submitted is False
+    assert result.error.startswith("skipped:")
+    assert result.tx_hash == ""
+    # And it landed in `pending` so /v1/audit sees the skip alongside real posts.
+    assert list(poster.pending) == [result]
+    assert poster._registry_check.probes == [(_ACTOR, 0)]  # type: ignore[attr-defined]
+
+
+def test_post_proceeds_when_registry_says_active() -> None:
+    """Mirror of the skip test — when the registry says the actor IS
+    active, `_submit` runs normally. Confirms the filter is gated, not
+    blanket-skipping every submission."""
+    captured: dict[str, object] = {}
+
+    def stub_submit(signed):  # type: ignore[no-untyped-def]
+        captured["actor"] = signed.update.actor
+        return ("0x" + "cd" * 32, 42)
+
+    poster = AnchorPoster(
+        rpc_url="http://stub",
+        signer_pk=_PK,
+        anchor_address=_ANCHOR,
+        chain_id=2368,
+        registry_check=_FakeRegistryCheck(active=True),  # type: ignore[arg-type]
+    )
+    poster._live = True
+    poster._submit = stub_submit  # type: ignore[assignment]
+
+    result = poster.post(_signed_update())  # type: ignore[arg-type]
+    assert result.submitted is True
+    assert captured["actor"] == _ACTOR
+
+
+def test_post_proceeds_when_registry_check_omitted() -> None:
+    """Test-mode posture preserved: an AnchorPoster constructed without
+    `registry_check` skips the pre-flight entirely (matches the e2e fake
+    harnesses and existing unit tests). Regression guard against making
+    the filter mandatory."""
+    captured: dict[str, object] = {}
+
+    def stub_submit(signed):  # type: ignore[no-untyped-def]
+        captured["ran"] = True
+        return ("0x" + "ef" * 32, 7)
+
+    poster = AnchorPoster(
+        rpc_url="http://stub",
+        signer_pk=_PK,
+        anchor_address=_ANCHOR,
+        chain_id=2368,
+    )
+    poster._live = True
+    poster._submit = stub_submit  # type: ignore[assignment]
+    poster.post(_signed_update())  # type: ignore[arg-type]
+    assert captured.get("ran") is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

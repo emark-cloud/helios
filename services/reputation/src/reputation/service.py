@@ -21,7 +21,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from reputation import score as _score
-from reputation.anchor import AnchorPoster
+from reputation.anchor import AnchorPoster, RegistryActiveCheck
 from reputation.cohort import CohortStats
 from reputation.engine import AllocatorEngineUpdate, EngineUpdate, ReputationEngine
 from reputation.goldsky import GoldskyClient
@@ -37,6 +37,17 @@ class Settings(BaseServiceSettings):
     signer_pk: str = Field(default="", validation_alias="REPUTATION_SIGNER_PK")
     anchor_address: str = Field(default="", validation_alias="REPUTATION_ANCHOR_ADDRESS")
     typehash_version: str = Field(default="1", validation_alias="REPUTATION_TYPEHASH_VERSION")
+    # WS11 follow-up — pre-flight every submission against the active
+    # registry set to skip legacy actors the bound registries no longer
+    # recognise (`StrategyNotFound` 0x5be2b482 / `AllocatorNotFound`).
+    # Either may be empty: the filter then defers to the anchor's own
+    # checks for that actor type.
+    strategy_registry_address: str = Field(
+        default="", validation_alias="REPUTATION_STRATEGY_REGISTRY_ADDRESS"
+    )
+    allocator_registry_address: str = Field(
+        default="", validation_alias="REPUTATION_ALLOCATOR_REGISTRY_ADDRESS"
+    )
     http_port: int = 8002
 
 
@@ -194,12 +205,22 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         anchor_address=cfg.anchor_address or "0x" + "0" * 40,
         typehash_version=cfg.typehash_version,
     )
+    registry_check = (
+        RegistryActiveCheck(
+            rpc_url=cfg.kite_rpc_url,
+            strategy_registry=cfg.strategy_registry_address,
+            allocator_registry=cfg.allocator_registry_address,
+        )
+        if (cfg.strategy_registry_address or cfg.allocator_registry_address)
+        else None
+    )
     anchor = AnchorPoster(
         rpc_url=cfg.kite_rpc_url,
         signer_pk=cfg.signer_pk,
         anchor_address=cfg.anchor_address,
         chain_id=cfg.kite_chain_id,
         typehash_version=cfg.typehash_version,
+        registry_check=registry_check,
     )
     engine = ReputationEngine(
         goldsky=goldsky,
