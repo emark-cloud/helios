@@ -21,6 +21,7 @@
     "aavePool": "0xbfc91d59fdaa134a4ed45f7b584caf96d7792eff",
     "mockYieldVault": "0xc065af9b57e2666877a9b479ee61b1f249516277",
     "strategyRegistry": "0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2",
-    "phase6VaultYieldRotationArb": "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005"
+    "phase6VaultYieldRotationArb": "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005",
+    "strategyVaultImplCXR": "0x9C3Eb82e3B17D64aC3957741857962b51A0200E2"
   }
 }

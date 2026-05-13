@@ -215,5 +215,61 @@ services:
     ports: ["127.0.0.1:8007:8007"]
     depends_on: [oracle, prover]
 
+  # --- CXR — remote-chain strategy runtimes (§12.1 venue routing) ---
+  # Each service reuses the same image as its Kite counterpart but
+  # overrides KITE_RPC_URL / KITE_CHAIN_ID / STRATEGY_REGISTRY /
+  # STRATEGY_VAULT_ADDRESS to point at the remote-chain proxies.
+  # The `KITE_` prefix is a historical artefact of the template
+  # settings — the field is "execution-chain RPC", not Kite-specific.
+
+  yield_rotation_v1_arb:
+    image: helios/yield_rotation_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+      KITE_RPC_URL: ${ARBITRUM_SEPOLIA_RPC_URL}
+      KITE_CHAIN_ID: 421614
+      STRATEGY_REGISTRY: ${YIELD_ROTATION_ARB_STRATEGY_REGISTRY}
+      STRATEGY_VAULT_ADDRESS: ${YIELD_ROTATION_ARB_STRATEGY_VAULT_ADDRESS}
+      YIELD_ROT_VENUE_KIND: aave_v3
+      YIELD_ROT_LENDING_POOL_ADDRESS: ${YIELD_ROTATION_ARB_LENDING_POOL_ADDRESS}
+      ALLOCATOR_ADDRESS: ${YIELD_ROTATION_ARB_ALLOCATOR_ADDRESS}
+    ports: ["127.0.0.1:8017:8007"]
+    depends_on: [oracle, prover]
+
+  momentum_v1_base:
+    image: helios/momentum_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+      KITE_RPC_URL: ${BASE_SEPOLIA_RPC_URL}
+      KITE_CHAIN_ID: 84532
+      STRATEGY_REGISTRY: ${MOMENTUM_BASE_STRATEGY_REGISTRY}
+      STRATEGY_VAULT_ADDRESS: ${MOMENTUM_BASE_STRATEGY_VAULT_ADDRESS}
+      ALLOCATOR_ADDRESS: ${MOMENTUM_BASE_ALLOCATOR_ADDRESS}
+      NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
+    ports: ["127.0.0.1:8015:8005"]
+    depends_on: [oracle, prover]
+
+  mean_reversion_v1_base:
+    image: helios/mean_reversion_v1:latest
+    restart: *restart
+    env_file: /srv/helios/.env
+    environment:
+      ORACLE_ENDPOINT: http://oracle:8003
+      PROVER_ENDPOINT: http://prover:8004
+      KITE_RPC_URL: ${BASE_SEPOLIA_RPC_URL}
+      KITE_CHAIN_ID: 84532
+      STRATEGY_REGISTRY: ${MEAN_REV_BASE_STRATEGY_REGISTRY}
+      STRATEGY_VAULT_ADDRESS: ${MEAN_REV_BASE_STRATEGY_VAULT_ADDRESS}
+      ALLOCATOR_ADDRESS: ${MEAN_REV_BASE_ALLOCATOR_ADDRESS}
+      NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
+    ports: ["127.0.0.1:8016:8006"]
+    depends_on: [oracle, prover]
+
   # helix:    # deferred post-hackathon (regime/correlation scope cut)
   # bot:      # deferred post-hackathon (Telegram bot scope cut)

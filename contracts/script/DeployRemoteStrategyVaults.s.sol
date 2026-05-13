@@ -141,14 +141,16 @@ contract DeployRemoteStrategyVaults is Script {
             require(i.router != address(0), "mockYieldVault missing on Arb");
             require(i.yieldAnchor != address(0), "oracleYieldAnchor missing on Arb");
         } else {
-            // On Base, prefer an explicit `uniswapV3Router` if present in
-            // the JSON; otherwise fall back to env. On Base-Sepolia the
-            // SwapRouter02 lives at 0x94cc0aac...
-            i.router = _readAddress(i.file, ".addresses.uniswapV3Router");
+            // On Base, the canonical Uniswap V3 SwapRouter02 is stored
+            // under `swapRouter` in the Phase-5 base-sepolia.json.
+            i.router = _readAddress(i.file, ".addresses.swapRouter");
+            if (i.router == address(0)) {
+                i.router = _readAddress(i.file, ".addresses.uniswapV3Router");
+            }
             if (i.router == address(0)) {
                 i.router = vm.envAddress("UNISWAP_V3_ROUTER");
             }
-            require(i.router != address(0), "uniswapV3Router missing on Base");
+            require(i.router != address(0), "swapRouter missing on Base");
             // Yield anchor is not required on Base (mom/mr only).
             if (i.yieldAnchor == address(0)) {
                 i.yieldAnchor = i.priceAnchor; // benign — only read on YR path
@@ -185,15 +187,14 @@ contract DeployRemoteStrategyVaults is Script {
     function _deployBase(Inputs memory i) internal {
         address[] memory universe = new address[](2);
         universe[0] = i.usdc;
-        // Base-Sepolia WETH-equivalent — read from JSON; falls back to
-        // env WETH if not preset. mom/mr witnesses bind to a 2-asset
-        // universe at minimum; richer universes (WBTC, WSOL) can be
-        // added once Base test pools exist with non-trivial depth.
+        // Base-Sepolia WETH-equivalent — read from JSON if preset;
+        // otherwise default to the canonical OP-Stack predeploy WETH9
+        // at 0x4200000000000000000000000000000000000006 (live on Base
+        // mainnet + Base-Sepolia).
         address weth = _readAddress(i.file, ".addresses.weth");
         if (weth == address(0)) {
-            weth = vm.envAddress("WETH");
+            weth = 0x4200000000000000000000000000000000000006;
         }
-        require(weth != address(0), "weth missing on Base");
         universe[1] = weth;
 
         address momVault =
