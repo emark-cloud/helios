@@ -72,6 +72,8 @@ dataSources:
           handler: handleParamsRotationInitiated
         - event: ParamsRotationCancelled(indexed address,bytes32)
           handler: handleParamsRotationCancelled
+        - event: StrategySlashed(indexed address,uint256,string)
+          handler: handleStrategySlashed
 
   - kind: ethereum
     name: AllocatorRegistry
@@ -977,6 +979,8 @@ dataSources:
           handler: handleParamsRotationInitiated
         - event: ParamsRotationCancelled(indexed address,bytes32)
           handler: handleParamsRotationCancelled
+        - event: StrategySlashed(indexed address,uint256,string)
+          handler: handleStrategySlashed
 
   - kind: ethereum
     name: AllocatorRegistryV2

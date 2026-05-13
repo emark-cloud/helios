@@ -1,4 +1,4 @@
-import { Bytes } from "@graphprotocol/graph-ts";
+import { BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
   StrategyRegistered,
   StrategyDeactivated,
@@ -8,6 +8,7 @@ import {
   ParamsHashCommitted,
   ParamsRotationInitiated,
   ParamsRotationCancelled,
+  StrategySlashed,
 } from "../generated/StrategyRegistry/StrategyRegistry";
 import {
   MarketAllowlistRoot,
@@ -140,4 +141,21 @@ export function handleParamsRotationCancelled(event: ParamsRotationCancelled): v
   row.blockNumber = event.block.number;
   row.txHash = event.transaction.hash;
   row.save();
+}
+
+// `StrategySlashed(strategyId, amount, reason)` — owner reduced the
+// strategy's bonded stake. The on-chain V3 also flips `active=false`
+// when stake hits 0 (the V1 contract predates that guard, so it stays
+// active on-chain even after a full slash). Mirror the V3 semantics
+// across all bound datasources so the engine's Goldsky candidate
+// query (`active: true, stakeAmount_gt: 0`) and the frontend
+// `/strategies` listing both stop surfacing phantom EOA registrations.
+export function handleStrategySlashed(event: StrategySlashed): void {
+  const id = event.params.strategyId as Bytes;
+  const strategy = getOrCreateStrategy(id, event.block.timestamp);
+  strategy.stakeAmount = strategy.stakeAmount.minus(event.params.amount);
+  if (strategy.stakeAmount.le(BigInt.zero())) {
+    strategy.active = false;
+  }
+  strategy.save();
 }
