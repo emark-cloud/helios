@@ -79,8 +79,11 @@ services:
     # at 30s intervals give us a 90-second worst-case detection window
     # before the container restarts.
     healthcheck:
+      # node:bookworm-slim ships neither wget nor curl. Use the runtime's
+      # built-in fetch — the prover is already a Node 20 service, so this
+      # adds no dependency. CMD form avoids shell-escaping pitfalls.
       test:
-        ["CMD-SHELL", "wget --quiet --spider http://localhost:8004/health || exit 1"]
+        ["CMD", "node", "-e", "fetch('http://localhost:8004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
