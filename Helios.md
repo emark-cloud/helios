@@ -1284,6 +1284,16 @@ For the hackathon, we ship documentation for three classes. Each comes with:
 
 Operators can implement their own variants of these classes. They cannot invent new classes in v1 (post-hackathon: a permissionless class registry with circuit-submission gating).
 
+### 10.5 LLM-driven strategies (reference: `llm_momentum_v1`)
+
+The SDK was designed so the operator can be *any* process — deterministic quant code, a learned policy, or a large language model. `reference-strategies/llm_momentum_v1/` is the canonical LLM example: a `StrategyAgent` subclass where `on_bar` calls Claude via the Anthropic SDK and turns a forced tool-use response (`{action, confidence, rationale}`) into a `TradeIntent`.
+
+Crucially, `declared_class = "momentum_v1"` — the LLM strategy **reuses the existing momentum_v1 circuit, verifier, and registry slot.** No new on-chain code, no new circuit, no protocol change. The Poseidon `paramsHash` enforces the same bounds it does for the deterministic strategy: a hallucinated trade outside `[max_position_size, max_slippage_bps, signal_threshold_bps, stop_loss_price]` fails Groth16 verification and reverts on chain.
+
+That is the test for whether the SDK abstraction works: an LLM strategy is a strict drop-in for a deterministic one. Operators pick the model (`claude-haiku-4-5-20251001` default, Sonnet/Opus optional), edit the system prompt, and ship. The `helios scaffold-strategy llm_momentum_v1 --name <NAME>` command renders a buildable package with the Anthropic SDK already wired.
+
+See `docs/agentic-workflow.md` for the deep-dive on the "Claude decides, the chain enforces" design and the circuit invariants the LLM operates under.
+
 ---
 
 ## 11. The Allocator Agent
