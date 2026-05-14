@@ -1880,7 +1880,7 @@ To be brutally clear about what we are *not* doing, so judges can score what's t
 
 ## 17. Post-hackathon roadmap
 
-Helios is designed as v1 of a real protocol, not a hackathon throwaway. The post-hackathon path:
+Helios is designed as v1 of a real protocol. The post-hackathon path:
 
 ### Phase 1 (Months 1-3 post-hackathon)
 
