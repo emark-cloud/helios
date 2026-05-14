@@ -168,17 +168,17 @@ in post.
 7. Terminal output streams: fetched receipt, decoded proof, ran
    Groth16 verifier, exit code 0 → `PROOF VALID ✓`.
 
-**Voiceover (90 words, ~120 wpm).**
+**Voiceover (87 words, ~116 wpm).**
 
 > *"Every trade carries a Groth16 zero-knowledge proof binding it
 > to the strategy's declared class. The mean-reversion agent here
 > literally cannot execute a momentum entry — the on-chain
 > verifier rejects the transaction before it lands. Eight
 > thousand circuit constraints enforce the class invariants. We
-> ship a CLI that anyone can run: it pulls the trade off-chain,
-> decodes the proof from calldata, and re-runs the same verifier
-> locally. Forty milliseconds. No trust required. Cryptography
-> all the way down."*
+> ship a CLI that anyone can run: pulls the trade, decodes the
+> proof, re-runs the verifier locally. Forty milliseconds. Same
+> verifier covers our Claude-driven strategy reference — model
+> decides, chain enforces. Cryptography all the way down."*
 
 **Capture notes.**
 - Pre-pick a clean `TradeAttested` tx hash from mr.kite (any from
@@ -355,3 +355,7 @@ For the video editor preparing assets in advance:
 | ReputationAnchor V2-bis | `0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D` (Kite) |
 | Cross-chain hop txs (fallback) | `0x6ef584a1…`, `0xfee792dc…`, `0xcda2e6bd…` |
 | Cross-chain reputation evidence | LZ GUID `0x24fd5344…` (Base → Kite) |
+| LLM strategy reference (source) | `reference-strategies/llm_momentum_v1/src/llm_momentum_v1/strategy.py` |
+| LLM strategy deep-dive (judge-facing) | `docs/agentic-workflow.md` |
+| LLM strategy deploy script (compiles, not yet broadcast) | `contracts/script/DeployLLMMomentumVault.s.sol` |
+| Scaffold CLI command (capturable b-roll) | `helios scaffold-strategy llm_momentum_v1 --name <NAME>` |
