@@ -45,7 +45,11 @@ class StrategyAgent(ABC):
     """
 
     declared_class: ClassVar[str] = ""
-    asset_universe: ClassVar[Sequence[str]] = ()
+    # Class-level default (e.g. mom/mr ship the Kite 4-tuple). Subclasses
+    # may also override per-instance via __init__ when a deploy needs a
+    # chain-scoped universe (e.g. Base 2-asset). Not `ClassVar` so the
+    # instance-level assignment isn't a pyright variance violation.
+    asset_universe: Sequence[str] = ()
     max_position_size_usd: ClassVar[int] = 0
     fee_rate_bps: ClassVar[int] = 0
 

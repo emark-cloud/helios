@@ -28,6 +28,7 @@ the stop-loss, never the window length.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
 from helios.poseidon import poseidon_hash
@@ -46,7 +47,7 @@ class MeanReversionStrategy(StrategyAgent):
     # [Base mUSDC, WETH9]. The symbolic order MUST match the address
     # order in `MEAN_REV_ASSET_UNIVERSE_ADDRESSES_JSON`; the runtime
     # asserts lockstep at startup.
-    asset_universe: tuple[str, ...] = ("USDC", "WBTC", "WETH", "WSOL")
+    asset_universe: Sequence[str] = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 

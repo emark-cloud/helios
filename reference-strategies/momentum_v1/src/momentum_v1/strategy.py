@@ -20,6 +20,8 @@ operator's IP.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from helios import Direction, MarketSnapshot, StrategyAgent, TradeIntent
 from helios.poseidon import poseidon_hash
 from helios.sizing import nav_target_notional
@@ -35,7 +37,7 @@ class MomentumStrategy(StrategyAgent):
     # Per-deploy chains override via the `asset_universe` __init__ arg
     # — symbolic order MUST match `MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON`
     # slot order; the runtime asserts lockstep at startup.
-    asset_universe: tuple[str, ...] = ("USDC", "WBTC", "WETH", "WSOL")
+    asset_universe: Sequence[str] = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 
