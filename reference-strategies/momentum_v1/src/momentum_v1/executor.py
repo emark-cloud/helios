@@ -380,7 +380,9 @@ class TradeExecutor:
                 "from": self._account.address,
                 "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
                 "chainId": self._chain_id,
-                "gasPrice": self._w3.eth.gas_price,
+                # 2× headroom so Arb/Base base-fee drift between estimate
+                # and inclusion doesn't reject the tx (see yr executor).
+                "gasPrice": self._w3.eth.gas_price * 2,
             }
         )
         signed = self._account.sign_transaction(tx)

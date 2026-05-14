@@ -258,7 +258,12 @@ class TradeExecutor:
                 "from": self._account.address,
                 "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
                 "chainId": self._chain_id,
-                "gasPrice": self._w3.eth.gas_price,
+                # 2× headroom over eth.gas_price so the tx survives a
+                # base-fee bump between estimate and inclusion. Arb-Sepolia's
+                # base fee drifts ~2% per block, which is enough to reject
+                # a flat-price tx with `max fee per gas less than block base
+                # fee` and stall the NAV loop.
+                "gasPrice": self._w3.eth.gas_price * 2,
             }
         )
         signed = self._account.sign_transaction(tx)
