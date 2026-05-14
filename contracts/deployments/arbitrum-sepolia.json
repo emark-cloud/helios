@@ -22,7 +22,7 @@
     "mockYieldVault": "0xc065af9b57e2666877a9b479ee61b1f249516277",
     "strategyRegistry": "0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2",
     "phase6VaultYieldRotationArb": "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005",
-    "strategyVaultImplCXR": "0x9C3Eb82e3B17D64aC3957741857962b51A0200E2",
+    "strategyVaultImplCXR": "0x4e6928a2Ac4c9E9dE99d4F33Fa18d31EA0bFA45c",
     "mUsdcOFTAdapter": "0x23Ad5880616d23Ebe8aC13e08B631c85892736a5",
     "heliosBridgeReceiver": "0x49FDD3D9eA0e81710f67C8b22447942A0a0b03DF"
   }

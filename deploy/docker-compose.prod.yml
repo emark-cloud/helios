@@ -236,6 +236,13 @@ services:
       YIELD_ROT_VENUE_KIND: aave_v3
       YIELD_ROT_LENDING_POOL_ADDRESS: ${YIELD_ROTATION_ARB_LENDING_POOL_ADDRESS}
       ALLOCATOR_ADDRESS: ${YIELD_ROTATION_ARB_ALLOCATOR_ADDRESS}
+      # yr.kite and yr.arb share the dedicated yield-rotation EOA
+      # 0x86918Bf3..., funded on both chains. yr.arb's Arb-side impl
+      # was upgraded (task #96) so setOperator/setNavOracle could
+      # install this EOA on-chain. Override `NAV_ORACLE_PK` unprefixed
+      # — see mom.base block for the validation_alias rationale.
+      YIELD_ROT_OPERATOR_PK: ${YIELD_ROT_OPERATOR_PK}
+      NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8017:8007"]
     depends_on: [oracle, prover]
 

@@ -1,6 +1,6 @@
 # Wallet inventory
 
-Snapshot of every wallet currently signing Helios txs in production, grouped by chain. Updated 2026-05-13 after the signer-rotation pass.
+Snapshot of every wallet currently signing Helios txs in production, grouped by chain. Updated 2026-05-14 after yr.arb rotation closed (task #96).
 
 Source of truth: addresses derived from `/srv/helios/.env` on the Helios VPS via `eth_account.Account.from_key(...)` inside the oracle container; on-chain roles cross-referenced against `contracts/deployments/*.json` + live contract calls.
 
@@ -12,9 +12,9 @@ See [`project_deployer_pk_signer_collapse`](../../.claude/projects/-home-emark-h
 
 | Wallet | Env vars (collapsed) | Role |
 |---|---|---|
-| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` | `DEPLOYER_PK`, `NAV_ORACLE_PK` (bare) | Proxy admin / mint authority on Kite + Base + Arb; yr.arb operator + navOracle (rotation deferred — Arb impl needs CXR upgrade per task #96) |
+| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` | `DEPLOYER_PK` | Proxy admin / mint authority on Kite + Base + Arb. All strategy operator/navOracle roles now rotated off this EOA. |
 
-Post-2026-05-13 rotation: SENTINEL_OPERATOR_PK + YIELD_ROT_OPERATOR_PK now point at dedicated EOAs (see Kite table below). Only yr.arb still signs as deployer until its Arb-side impl is upgraded to one carrying `setOperator`/`setNavOracle`.
+Post-2026-05-13/14 rotation: SENTINEL_OPERATOR_PK + YIELD_ROT_OPERATOR_PK (yr.kite AND yr.arb) now point at dedicated EOAs (see per-chain tables below).
 
 ---
 
@@ -51,7 +51,7 @@ Phase-6 vault variants 2 + 3 of each class have their own operator + navOracle E
 | Wallet | Service | On-chain role |
 |---|---|---|
 | `0x32b0112C085c25fea23C92D8f0540D26389006A7` | services/oracle (price + yield mirror) | Arb `oraclePriceAnchor.oracleSigner()` + `oracleYieldAnchor.oracleSigner()` — same key as Kite + Base. Funded ~0.02 ETH; healthy. |
-| `0xECf5e30F091D1db7c7b0ef26634a71d46DC9Bb25` (deployer) | reference-strategies/yield_rotation_v1 (Arb) | `phase6VaultYieldRotationArb` operator + navOracle — rotation gated on Arb-side impl upgrade (task #96). EOA-B `0x86918Bf3…` already provisioned + funded with 0.05 ETH-Arb, awaiting impl. |
+| `0x86918Bf3cC030688F0d88f9c967646537D506041` | reference-strategies/yield_rotation_v1 (Arb) | `phase6VaultYieldRotationArb` operator + navOracle (rotated 2026-05-14 after Arb-side impl upgrade to `0x4e6928a2…`; shares the same EOA as yr.kite). |
 
 ---
 
@@ -67,12 +67,15 @@ Phase-6 vault variants 2 + 3 of each class have their own operator + navOracle E
 - `YIELD_ROT_OPERATOR_PK` + new `YIELD_ROT_NAV_ORACLE_PK` → `0x86918Bf3cC030688F0d88f9c967646537D506041` (yr.kite operator + navOracle)
 - `deploy/docker-compose.prod.yml` yr.kite block patched with `OPERATOR_PK: ${YIELD_ROT_OPERATOR_PK}` + `NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}` overrides (matches mom/mr pattern)
 
-⏳ **Still pending — yr.arb rotation gated on Arb-side impl upgrade:**
+✅ **Rotated 2026-05-14 (yr.arb closure — task #96):**
+- yr.arb's Arb-side StrategyVault impl upgraded to `0x4e6928a2Ac4c9E9dE99d4F33Fa18d31EA0bFA45c` (UUPS broadcast via `UpgradeRemoteVaultsToCXR.s.sol`). The new impl carries `setOperator`/`setNavOracle` setters.
+- `setOperator(0x86918Bf3…)` tx `0x7748afa3aaecb4cf1d0b9f76b1012e8a0e3c9f772cc2cdb0af1148a6b67e9f85`
+- `setNavOracle(0x86918Bf3…)` tx `0x57028f73fc367cd8a57315969a19d6c897e260c9071b2934f3c3e1d234a8ee58`
+- `deploy/docker-compose.prod.yml` yr.arb block patched with `YIELD_ROT_OPERATOR_PK` + unprefixed `NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}` overrides.
 
-`phase6VaultYieldRotationArb`'s current Arb impl `0x9c3eb82e3b17d64ac3957741857962b51a0200e2` lacks `setOperator`/`setNavOracle` (it has `setRegistry` only — WS11 setter set, not CXR-aware). Deploy a fresh CXR-aware `StrategyVault` impl on Arb-Sepolia (constructor args: Arb `oraclePriceAnchor` + `oracleYieldAnchor`), `upgradeToAndCall` yr.arb to it, then `setOperator(0x86918Bf3…)` + `setNavOracle(0x86918Bf3…)`. Task #96.
-
+Remaining cleanup:
 - yr.kite Variant 2/3 vaults — operator still = deployer on-chain (services not running); rotate same way if you want operator parity.
-- Bare `OPERATOR_PK` / `NAV_ORACLE_PK` env vars — yr.arb still reads bare `NAV_ORACLE_PK` from .env, so delete only after task #96 closes.
+- Bare `OPERATOR_PK` / `NAV_ORACLE_PK` env vars in `/srv/helios/.env` — safe to delete once every running service has its dedicated override in the compose file (all four do as of 2026-05-14).
 
 Full runbook (funding amounts, exact cast commands, verification) lives in `memory/project_deployer_pk_signer_collapse.md`.
 
