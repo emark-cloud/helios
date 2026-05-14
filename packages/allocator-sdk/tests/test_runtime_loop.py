@@ -403,7 +403,19 @@ async def test_remote_chain_with_cxr_wired_submits_live_allocate_to_remote() -> 
     base_sid = "0x" + "bb" * 20
     goldsky = _StubGoldsky([_row_chain(base_sid, 84_532)])
     loop = AllocatorLoop(
-        store=store, allocator=_AlwaysFirstAllocator(), goldsky=goldsky, onchain=onchain
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        # CXR cost Tier 1 defaults gate sub-$10 deltas (10e18 wei) — the
+        # stub's 10_000-wei delta would silently skip. Disable both
+        # gates so this test exercises the original CXR-0c contract
+        # shape, not the Tier 1 cost suppression. The threshold gate
+        # has dedicated coverage below.
+        config=LoopConfig(
+            min_cross_chain_alloc_usd_wei=0,
+            cross_chain_flush_cadence_sec=0,
+        ),
     )
 
     await loop.tick_once(now=now_ts())
@@ -576,3 +588,339 @@ async def test_unallocated_strategy_never_emits_defund() -> None:
     # nor anywhere else in the pending op list.
     assert all(c.strategy != sid_ghost for c in onchain.pending)
     assert defunds == []  # first tick allocates; no prior state to drain
+
+
+# ── CXR cost Tier 1 — threshold + flush cadence gates ────────────────
+
+
+def _cxr_wired_onchain() -> AllocatorOnChain:
+    return AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+        oft_adapter_address="0x" + "ee" * 20,
+        remote_chain_eids={84_532: 40_245, 421_614: 40_231},
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_below_threshold_skipped_silently() -> None:
+    """Tier 1 — a cross-chain delta below `min_cross_chain_alloc_usd_wei`
+    must not fire `allocateToRemoteStrategy` (~1 KITE LZ V2 floor) and
+    must not emit a deferred event. The op is silently queued so a
+    later tick with an accumulated delta crosses the threshold.
+
+    Stub flow: delegated_capital_usd=10_000 (delta=10_000 since the
+    user has no prior allocations); threshold set higher than the
+    delta. Expect zero on-chain calls AND zero submitted/deferred
+    events for the cross-chain strategy.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = _cxr_wired_onchain()
+    remote_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(remote_sid, 84_532)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            # Threshold an order of magnitude above the stub delta so
+            # the gate definitely catches.
+            min_cross_chain_alloc_usd_wei=100_000,
+            cross_chain_flush_cadence_sec=0,
+        ),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # Critical: the LZ V2 fixed-fee submit must NOT fire.
+    assert all(c.method != "allocateToRemoteStrategy" for c in onchain.pending)
+    events = store.recent_events(user.meta.user_address)
+    submitted = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_SUBMITTED"]
+    deferred = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED"]
+    # No event at all — threshold-skipped ops are silent (log-only) since
+    # the next tick reassesses the cumulative delta.
+    assert submitted == []
+    assert deferred == []
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_above_threshold_submits_normally() -> None:
+    """Tier 1 — a cross-chain delta above the threshold fires the
+    submit normally. Sanity-check that the gate doesn't swallow
+    legitimate deltas.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = _cxr_wired_onchain()
+    remote_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(remote_sid, 84_532)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            # Threshold well below the stub 10_000 delta so the gate is
+            # a no-op.
+            min_cross_chain_alloc_usd_wei=100,
+            cross_chain_flush_cadence_sec=0,
+        ),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    remote_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    assert len(remote_calls) == 1
+    events = store.recent_events(user.meta.user_address)
+    submitted = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_SUBMITTED"]
+    assert len(submitted) == 1
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_flush_cadence_suppresses_repeat_fires() -> None:
+    """Tier 1 — once a cross-chain submit lands, subsequent ticks
+    within `cross_chain_flush_cadence_sec` MUST NOT fire a second LZ
+    V2 send for the same (user, strategyId). The deferred path doesn't
+    mutate `user.allocations` (capital is only credited when the
+    destination chain confirms), so without this gate every 60s tick
+    would re-fire and burn another ~1 KITE.
+
+    Three-tick scenario:
+      t=0     → fires once (first cross-chain submit)
+      t=120   → within 300s window → suppressed (no new call, no new event)
+      t=400   → outside 300s window → fires again
+
+    The meta-strategy uses `rebalance_cadence_sec=60` so the user-level
+    rebalance gate doesn't dominate the per-(user, strategyId) flush
+    gate we're actually testing.
+    """
+    store = AllocatorStore()
+    meta = _meta()
+    # Lower the user-level cadence so ticks 2 + 3 actually reach
+    # `_apply_diffs` → `_defer_remote_ops`. Default 900s would gate
+    # both before they hit the flush window we're testing.
+    short_cadence_meta = MetaStrategy(
+        **{**meta.__dict__, "rebalance_cadence_sec": 60}
+    )
+    user = store.upsert_user(short_cadence_meta)
+    user.delegated_capital_usd = 10_000
+
+    onchain = _cxr_wired_onchain()
+    remote_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(remote_sid, 84_532)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            min_cross_chain_alloc_usd_wei=0,  # disable threshold gate
+            cross_chain_flush_cadence_sec=300,
+        ),
+    )
+
+    t0 = now_ts()
+    await loop.tick_once(now=t0)
+    after_first = len(
+        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    )
+    assert after_first == 1
+
+    # Tick inside the flush window — must not fire a second send.
+    # t0 + 120 is past the user-level 60s cadence gate but well inside
+    # the 300s flush window.
+    await loop.tick_once(now=t0 + 120)
+    after_window = len(
+        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    )
+    assert after_window == 1, "in-window tick should be suppressed"
+
+    # Tick outside the flush window — fires again. The deferred path
+    # never mutates `user.allocations`, so the diff still produces a
+    # positive delta and the now-eligible op resubmits.
+    await loop.tick_once(now=t0 + 400)
+    after_flush = len(
+        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    )
+    assert after_flush == 2, "post-window tick should resubmit"
+
+
+class _MultiCandidateAllocator(BaseAllocator):
+    """Spreads capital evenly across all candidates. Used to drive
+    multi-strategy targets in Tier 2 batching tests."""
+
+    name = "MultiSpread"
+    fee_rate_bps = 0
+    supported_classes = ("momentum_v1",)
+
+    def rank_strategies(
+        self, user: MetaStrategy, candidates: list[StrategyCandidate]
+    ) -> list[float]:
+        return [1.0 for _ in candidates]
+
+    def allocate(
+        self,
+        user: MetaStrategy,
+        ranked: list[StrategyCandidate],
+        capital: int,
+    ) -> list[AllocationTarget]:
+        if not ranked or capital <= 0:
+            return []
+        share = capital // len(ranked)
+        return [
+            AllocationTarget(
+                strategy_id=c.strategy_id,
+                chain_id=c.chain_id,
+                capital_usd=share,
+                weight_bps=10_000 // len(ranked),
+            )
+            for c in ranked
+        ]
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_two_strategies_same_chain_collapse_to_one_batch_send() -> None:
+    """Tier 2 — the headline cost lever. Two cross-chain targets on
+    the same destination chain (mom.base + mr.base) MUST submit one
+    `allocateToRemoteStrategyBatch` instead of two
+    `allocateToRemoteStrategy` calls. That's where the ~33% LZ V2 fee
+    saving on a multi-candidate rebalance comes from.
+
+    Pins the invariant by counting on-chain call shapes — the loop
+    groups remote ops by dst_eid and flushes via batch when N>1.
+    """
+    store = AllocatorStore()
+    meta = _meta()
+    # Need max_strategies_count >= 2 so the second candidate isn't
+    # pruned by the meta-strategy gate.
+    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
+    user = store.upsert_user(multi_meta)
+    # Use 18-dec canonical scale so per-entry amounts survive the
+    # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
+    # per entry, comfortably above the floor.
+    user.delegated_capital_usd = 100 * 10**18
+
+    onchain = _cxr_wired_onchain()
+    sid_a = "0x" + "aa" * 20
+    sid_b = "0x" + "bb" * 20
+    goldsky = _StubGoldsky(
+        [_row_chain(sid_a, 84_532), _row_chain(sid_b, 84_532)]  # both on Base
+    )
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_MultiCandidateAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            min_cross_chain_alloc_usd_wei=0,
+            cross_chain_flush_cadence_sec=0,
+        ),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # Exactly ONE batched call, not two single-call sends. Confirms
+    # the LZ V2 fee was paid once for both strategies.
+    batch_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategyBatch"]
+    single_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    assert len(batch_calls) == 1, "should batch same-chain ops into one send"
+    assert len(single_calls) == 0, "no single-call send when N>1 on same chain"
+    # Both strategies appear in the batched call's payload.
+    batch = batch_calls[0]
+    assert set(batch.batch_strategy_ids) == {sid_a, sid_b}
+    assert batch.dst_eid == 40_245  # Base EID
+    assert len(batch.batch_amounts) == 2
+
+    # Per-strategy SUBMITTED events still fire — UI dashboard sees one
+    # event per strategy, both sharing the batch's tx hash.
+    events = store.recent_events(user.meta.user_address)
+    submitted = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_SUBMITTED"]
+    assert len(submitted) == 2, "one event per strategy in the batch"
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_two_strategies_different_chains_fire_two_single_sends() -> None:
+    """Tier 2 invariant — only ops on the SAME destination chain can
+    batch. A mom.base + yr.arb pair must fire two separate sends, one
+    per chain. Pins that the grouping key is dst_chain_id, not "any
+    cross-chain op".
+    """
+    store = AllocatorStore()
+    meta = _meta()
+    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
+    user = store.upsert_user(multi_meta)
+    # Use 18-dec canonical scale so per-entry amounts survive the
+    # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
+    # per entry, comfortably above the floor.
+    user.delegated_capital_usd = 100 * 10**18
+
+    onchain = _cxr_wired_onchain()
+    sid_base = "0x" + "bb" * 20
+    sid_arb = "0x" + "aa" * 20
+    goldsky = _StubGoldsky(
+        [_row_chain(sid_base, 84_532), _row_chain(sid_arb, 421_614)]
+    )
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_MultiCandidateAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            min_cross_chain_alloc_usd_wei=0,
+            cross_chain_flush_cadence_sec=0,
+        ),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # Two single-call sends (one per chain), zero batch calls.
+    batch_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategyBatch"]
+    single_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    assert len(batch_calls) == 0, "different-chain ops can't share a batch"
+    assert len(single_calls) == 2
+    assert {c.dst_eid for c in single_calls} == {40_245, 40_231}
+
+
+@pytest.mark.asyncio
+async def test_cross_chain_threshold_zero_disables_gate() -> None:
+    """Tier 1 — setting threshold to 0 fully disables the gate for
+    back-compat with tests and dry-runs that allocate dust amounts.
+    Pinning the disable knob protects scenario-mode replays + the
+    existing `test_remote_chain_with_cxr_wired_submits_live_allocate_to_remote`
+    contract from a future regression where the threshold default
+    creeps up and accidentally silences live-bridge tests.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 1  # dust delta
+
+    onchain = _cxr_wired_onchain()
+    remote_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(remote_sid, 84_532)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+        config=LoopConfig(
+            min_cross_chain_alloc_usd_wei=0,
+            cross_chain_flush_cadence_sec=0,
+        ),
+    )
+
+    await loop.tick_once(now=now_ts())
+    # The stub `allocate_to_remote` records the call even when amount
+    # floors to 0 (`_CONVERSION = 10^12` strips dust). What we're
+    # pinning is that the threshold=0 setting did NOT trip the gate
+    # before the dust floor.
+    remote_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
+    assert len(remote_calls) == 1

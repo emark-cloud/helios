@@ -43,6 +43,15 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
     /// @notice OFT credit action discriminator.
     uint8 internal constant ACTION_ALLOCATE = 0;
     uint8 internal constant ACTION_SETTLE_DEFUND = 1;
+    /// @notice CXR-cost Tier 2 — batched ALLOCATE shape. ComposeMsg
+    ///         encodes arrays of (strategyId, amount, remoteVault) +
+    ///         user; this receiver loops `_allocateOne` per index.
+    ///         Mirror of `AllocatorVault.CXR_ACTION_ALLOCATE_BATCH`.
+    uint8 internal constant ACTION_ALLOCATE_BATCH = 2;
+    /// @notice Bound on entries per batched compose. Matches
+    ///         `AllocatorVault.CXR_MAX_BATCH_SIZE`. lzCompose runs at
+    ///         200k gas budget; 16 entries leave comfortable headroom.
+    uint256 internal constant MAX_BATCH_SIZE = 16;
 
     IERC20 public immutable usdc;
     address public immutable endpoint;
@@ -76,6 +85,10 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
     error UntrustedComposeFrom();
     error UnknownAction(uint8 action);
     error AllocatorVaultUnset();
+    error MalformedComposeMsg();
+    error InvalidBatchSize(uint256 size);
+    error MismatchedBatchArrays();
+    error BatchAmountMismatch(uint256 sum, uint256 expected);
 
     constructor(address usdc_, address endpoint_, address oftAdapter_, address owner_)
         Ownable(owner_)
@@ -113,25 +126,60 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
         uint32 srcEid = OFTComposeMsgCodec.srcEid(_message);
         bytes memory inner = OFTComposeMsgCodec.composeMsg(_message);
 
-        (uint8 action, bytes32 strategyId, address remoteVault, address user) =
-            abi.decode(inner, (uint8, bytes32, address, address));
+        // Peek the action discriminator without committing to a decode
+        // shape — the single-call (action 0/1) and batched (action 2)
+        // payloads have different ABI tuple types so we must branch
+        // before the full abi.decode.
+        uint8 action = _peekAction(inner);
 
         if (action == ACTION_ALLOCATE) {
-            _allocate(srcEid, strategyId, remoteVault, user, amountLD);
+            (, /*action*/ bytes32 strategyId, address remoteVault, address user) =
+                abi.decode(inner, (uint8, bytes32, address, address));
+            // strategyId is unused on the receiver side — emitted by
+            // the sender's RemoteAllocationSent; the receiver's event
+            // is keyed on the remote vault address.
+            strategyId; // silence unused-var warning
+            _allocateOne(srcEid, remoteVault, user, amountLD);
         } else if (action == ACTION_SETTLE_DEFUND) {
+            (, bytes32 strategyId, /*remoteVault*/, address user) =
+                abi.decode(inner, (uint8, bytes32, address, address));
             _settleDefund(srcEid, strategyId, user, amountLD);
+        } else if (action == ACTION_ALLOCATE_BATCH) {
+            (
+                ,
+                /*action*/
+                bytes32[] memory strategyIds,
+                uint256[] memory amounts,
+                address[] memory remoteVaults,
+                address user
+            ) = abi.decode(inner, (uint8, bytes32[], uint256[], address[], address));
+            strategyIds; // strategyIds unused on receiver; sender event covers it
+            _allocateBatch(srcEid, amounts, remoteVaults, user, amountLD);
         } else {
             revert UnknownAction(action);
         }
     }
 
-    function _allocate(
-        uint32 srcEid,
-        bytes32, /*strategyId*/
-        address remoteVault,
-        address user,
-        uint256 amount
-    ) internal {
+    /// @dev Peek the first uint8 in an ABI-encoded payload without
+    ///      committing to a full decode. Action discriminator occupies
+    ///      the low byte of the first 32-byte head slot.
+    function _peekAction(bytes memory inner) internal pure returns (uint8) {
+        if (inner.length < 32) revert MalformedComposeMsg();
+        uint256 slot;
+        assembly {
+            slot := mload(add(inner, 32))
+        }
+        return uint8(slot);
+    }
+
+    /// @dev Single-entry allocate dispatch. Shared between the
+    ///      single-call (ACTION_ALLOCATE) and batched (ACTION_ALLOCATE_BATCH)
+    ///      paths. On revert, the per-entry amount is parked in
+    ///      `recoverable[user]` so a sibling entry in the same batch
+    ///      can still settle.
+    function _allocateOne(uint32 srcEid, address remoteVault, address user, uint256 amount)
+        internal
+    {
         usdc.safeTransfer(remoteVault, amount);
         try IStrategyVaultCrossChain(remoteVault).onCrossChainAllocate(amount, user) {
             emit CrossChainAllocateExecuted(srcEid, remoteVault, user, amount);
@@ -141,6 +189,32 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
             // recover() after the operator forwards from the vault.
             recoverable[user] += amount;
             emit AllocateFailed(srcEid, remoteVault, user, amount, reason);
+        }
+    }
+
+    /// @dev Batched allocate dispatch. Each entry calls `_allocateOne`
+    ///      so a per-entry revert doesn't roll back the rest of the
+    ///      batch — failing entries fall through to `recoverable[user]`
+    ///      while siblings still settle into their target vaults.
+    ///      Sum-of-amounts MUST equal the OFT-credited `totalAmountLD`
+    ///      to avoid stranding capital in this receiver.
+    function _allocateBatch(
+        uint32 srcEid,
+        uint256[] memory amounts,
+        address[] memory remoteVaults,
+        address user,
+        uint256 totalAmountLD
+    ) internal {
+        uint256 n = amounts.length;
+        if (n == 0 || n > MAX_BATCH_SIZE) revert InvalidBatchSize(n);
+        if (remoteVaults.length != n) revert MismatchedBatchArrays();
+        uint256 sum;
+        for (uint256 i; i < n; ++i) {
+            sum += amounts[i];
+        }
+        if (sum != totalAmountLD) revert BatchAmountMismatch(sum, totalAmountLD);
+        for (uint256 i; i < n; ++i) {
+            _allocateOne(srcEid, remoteVaults[i], user, amounts[i]);
         }
     }
 

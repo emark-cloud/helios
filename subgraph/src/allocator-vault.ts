@@ -4,8 +4,14 @@ import {
   AllocationIncreased,
   AllocationDecreased,
   StrategyDefunded,
+  RemoteAllocationSent,
 } from "../generated/AllocatorVault/AllocatorVault";
-import { Allocation, AllocatorDecision, DefundEvent } from "../generated/schema";
+import {
+  Allocation,
+  AllocatorDecision,
+  CrossChainAllocation,
+  DefundEvent,
+} from "../generated/schema";
 import {
   getOrCreateAllocator,
   getOrCreateDelegation,
@@ -183,4 +189,23 @@ export function handleStrategyDefunded(event: StrategyDefunded): void {
   delegation.save();
 
   emitDecision(event, allocator, user, strategy, "DEFUND", a.capitalDeployed, event.params.reason);
+}
+
+
+// CXR-cost Tier 2 — `RemoteAllocationSent` fires once per strategy on
+// both the single-call (allocateToRemoteStrategy) and batched
+// (allocateToRemoteStrategyBatch) paths. The batched path emits N
+// events sharing one tx hash; consumers can group by `txHash` to
+// compute batch size and amortized LZ V2 fee per strategy.
+export function handleRemoteAllocationSent(event: RemoteAllocationSent): void {
+  const row = new CrossChainAllocation(logEventId(event));
+  row.user = event.params.user;
+  row.strategyId = event.params.strategyId;
+  row.remoteVault = event.params.remoteVault;
+  row.dstEid = event.params.dstEid.toI32();
+  row.amount = event.params.amount;
+  row.sentAt = event.block.timestamp;
+  row.blockNumber = event.block.number;
+  row.txHash = event.transaction.hash;
+  row.save();
 }

@@ -1666,6 +1666,8 @@ The MVP uses **LayerZero OFT** for the underlying capital movement. USDC must be
 
 For the demo, we'll keep one strategy on Kite, one on Base, and one on Arbitrum — enough to demonstrate the cross-chain flow without complicating the demo physics.
 
+**Cost model + trajectory.** v1 ships per-(user, destination-chain) batching: a single `OFT.send` can carry N strategy allocations sharing the same destination, amortizing LZ V2's ~1 KITE fixed executor + DVN fee across the batch (cuts a 3-candidate cold-start from ~3.2 KITE to ~2.2 KITE on Kite testnet). The next layers — folding the `lzCompose` hop into the OFT adapter's `_credit` (saves ~30–40% per hop) and multi-user aggregation per (strategy, dst chain) (saves linearly with concurrent users) — are post-v1 roadmap items tracked in `docs/cross-chain-cost-roadmap.md`. The shape ships incrementally because LZ V2's fee is mostly fixed-cost, so each lever attacks a different floor.
+
 ### 12.4 Reputation propagation
 
 Reputation propagation is one-directional (other chains → Kite). On Base/Arbitrum:

@@ -233,6 +233,7 @@ dataSources:
       entities:
         - Allocation
         - DefundEvent
+        - CrossChainAllocation
       abis:
         - name: AllocatorVault
           file: ./abis/AllocatorVault.json
@@ -245,6 +246,12 @@ dataSources:
           handler: handleAllocationDecreased
         - event: StrategyDefunded(indexed address,indexed address,string,indexed address)
           handler: handleStrategyDefunded
+        # CXR-cost Tier 2 — single + batched cross-chain allocate both
+        # emit one `RemoteAllocationSent` per strategy. Batches surface
+        # as multiple rows sharing a txHash; query-time GroupBy yields
+        # per-batch cardinality + amortized fee.
+        - event: RemoteAllocationSent(indexed address,indexed bytes32,indexed uint32,address,uint256)
+          handler: handleRemoteAllocationSent
 
   - kind: ethereum
     name: UserVault

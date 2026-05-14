@@ -150,6 +150,141 @@ contract AllocatorVaultCXRTest is Test {
         );
     }
 
+    // ── CXR-cost Tier 2 — batched `allocateToRemoteStrategyBatch` ────
+
+    function _batchParams(uint256 n)
+        internal
+        view
+        returns (AllocatorVault.RemoteBatchParams memory p)
+    {
+        bytes32[] memory sids = new bytes32[](n);
+        uint256[] memory amts = new uint256[](n);
+        address[] memory vaults = new address[](n);
+        for (uint256 i; i < n; ++i) {
+            sids[i] = bytes32(uint256(0xCAFE0000 + i));
+            amts[i] = (i + 1) * 100e6;
+            vaults[i] = address(uint160(0xBEEF0000 + i));
+        }
+        p = AllocatorVault.RemoteBatchParams({
+            user: user,
+            strategyIds: sids,
+            amounts: amts,
+            remoteVaults: vaults,
+            dstEid: ARB_EID,
+            extraOptions: "",
+            lzFee: MessagingFee({ nativeFee: 0, lzTokenFee: 0 })
+        });
+    }
+
+    function test_allocateBatch_revertsOnEmptyBatch() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(0);
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(AllocatorVault.InvalidBatchSize.selector, 0));
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsOnBatchSizeOverCap() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(17);
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(AllocatorVault.InvalidBatchSize.selector, 17));
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsOnMismatchedArrayLengths() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+        // Break the symmetry: amounts has only 1 entry.
+        uint256[] memory shortAmts = new uint256[](1);
+        shortAmts[0] = 100e6;
+        p.amounts = shortAmts;
+
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.MismatchedBatchArrays.selector);
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsOnZeroAmount() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+        p.amounts[1] = 0; // dust entry
+
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.ZeroAmount.selector);
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsOnZeroRemoteVault() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+        p.remoteVaults[0] = address(0);
+
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.ZeroAddress.selector);
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsIfDestinationReceiverUnset() public {
+        vm.prank(owner);
+        av.setOftAdapter(oftAdapter);
+        // No setDestinationReceiver — both single and batch paths must
+        // fast-fail on this gate so a mis-wired operator can't burn an
+        // LZ V2 fee before the receiver is set per chain.
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.DestinationReceiverUnset.selector);
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_revertsIfOftAdapterUnset() public {
+        vm.prank(owner);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.OftAdapterUnset.selector);
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
+    function test_allocateBatch_onlyOperator() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+        vm.stopPrank();
+
+        AllocatorVault.RemoteBatchParams memory p = _batchParams(2);
+
+        vm.prank(makeAddr("rando"));
+        // Auth gate fires before validation; expect the operator-mismatch
+        // revert (any non-operator caller is rejected uniformly).
+        vm.expectRevert();
+        av.allocateToRemoteStrategyBatch(p);
+    }
+
     function test_settleRemoteDefund_creditsUserVaultAndDecrements() public {
         vm.prank(owner);
         av.setBridgeReceiver(bridgeReceiver);

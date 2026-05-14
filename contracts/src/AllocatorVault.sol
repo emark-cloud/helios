@@ -883,6 +883,21 @@ contract AllocatorVault is
     ///      payload. Mirror of `HeliosBridgeReceiver.ACTION_*`.
     uint8 internal constant CXR_ACTION_ALLOCATE = 0;
     uint8 internal constant CXR_ACTION_SETTLE_DEFUND = 1;
+    /// @dev CXR-cost Tier 2 — batched ALLOCATE shape. ComposeMsg encodes
+    ///      arrays of (strategyId, amount, remoteVault) plus a single
+    ///      user; receiver loops `_allocateOne` per index. Amortizes
+    ///      the ~1 KITE LZ V2 fixed fee across N strategies on the same
+    ///      destination chain. See `docs/cross-chain-cost-roadmap.md`.
+    uint8 internal constant CXR_ACTION_ALLOCATE_BATCH = 2;
+    /// @dev Hard cap on entries per batched compose. Bounds the
+    ///      destination-side gas budget; lzCompose runs at 200k. Realistic
+    ///      N for a single user is ≤4 (mom/mr/yr per chain × 2 chains);
+    ///      16 leaves headroom without exposing the receiver to OOG.
+    uint256 internal constant CXR_MAX_BATCH_SIZE = 16;
+
+    error InvalidBatchSize(uint256 size);
+    error MismatchedBatchArrays();
+    error BatchAmountMismatch(uint256 sum, uint256 expected);
 
     /// @notice Wire the local HeliosBridgeReceiver. Owner-only. Only
     ///         this address may call `settleRemoteDefund`.
@@ -966,6 +981,104 @@ contract AllocatorVault is
 
         _userRemoteDeployed[user][strategyId][dstEid] += amount;
         emit RemoteAllocationSent(user, strategyId, dstEid, remoteVault, amount);
+    }
+
+    /// @notice CXR-cost Tier 2 — batched cross-chain allocate. Packs N
+    ///         (strategyId, amount, remoteVault) entries into a single
+    ///         OFT.send so the ~1 KITE LZ V2 fixed fee is amortized
+    ///         across N strategies on the same destination chain.
+    ///         Equivalent to N sequential `allocateToRemoteStrategy`
+    ///         calls, minus N-1 LZ fees.
+    ///
+    ///         Per-entry validation matches the single-call path:
+    ///         zero-amount entries revert, zero-address remoteVaults
+    ///         revert. The aggregate `amountLD` bridged equals
+    ///         `sum(amounts)`. Receiver enforces the same sum so a
+    ///         malformed payload reverts on delivery rather than
+    ///         silently stranding capital.
+    /// @dev Tier 2 batch params packed into a struct so the external
+    ///      function stays under via-IR's stack-depth ceiling. ABI-wise
+    ///      this is a calldata tuple, identical to spreading the args.
+    struct RemoteBatchParams {
+        address user;
+        bytes32[] strategyIds;
+        uint256[] amounts;
+        address[] remoteVaults;
+        uint32 dstEid;
+        bytes extraOptions;
+        MessagingFee lzFee;
+    }
+
+    function allocateToRemoteStrategyBatch(RemoteBatchParams calldata p)
+        external
+        payable
+        onlyOperator
+        nonReentrant
+        whenNotPaused
+    {
+        uint256 total = _validateAndSumBatch(p.amounts, p.remoteVaults, p.strategyIds.length);
+        if (oftAdapter == address(0)) revert OftAdapterUnset();
+        address dstReceiver = destinationReceiver[p.dstEid];
+        if (dstReceiver == address(0)) revert DestinationReceiverUnset();
+
+        // Pull capital + approve OFT adapter for the aggregate amount.
+        // Same shape as the single-call path; OFTAdapter._debit pulls
+        // exactly `total` from this vault inside `IOFT.send`.
+        IUserVaultForAllocator(userVault).transferToAllocator(p.user, total);
+        baseAsset.forceApprove(oftAdapter, total);
+
+        _sendBatch(p, dstReceiver, total);
+
+        // Per-strategy accounting + event emission. Mirrors the
+        // single-call path so reputation engine + subgraph consumers
+        // see the same RemoteAllocationSent shape per entry — keeps
+        // the existing helios/v0.8.x mapping forward-compatible
+        // without a fresh subgraph deploy (each batch entry emits its
+        // own event; consumers group by `transaction.hash`).
+        uint256 n = p.strategyIds.length;
+        for (uint256 i; i < n; ++i) {
+            _userRemoteDeployed[p.user][p.strategyIds[i]][p.dstEid] += p.amounts[i];
+            emit RemoteAllocationSent(
+                p.user, p.strategyIds[i], p.dstEid, p.remoteVaults[i], p.amounts[i]
+            );
+        }
+    }
+
+    /// @dev Tier 2 batch helper — per-entry validation + sum-of-amounts.
+    ///      Extracted from `allocateToRemoteStrategyBatch` to keep that
+    ///      function under the via-IR stack-depth ceiling.
+    function _validateAndSumBatch(
+        uint256[] calldata amounts,
+        address[] calldata remoteVaults,
+        uint256 n
+    ) internal pure returns (uint256 total) {
+        if (n == 0 || n > CXR_MAX_BATCH_SIZE) revert InvalidBatchSize(n);
+        if (amounts.length != n || remoteVaults.length != n) revert MismatchedBatchArrays();
+        for (uint256 i; i < n; ++i) {
+            if (amounts[i] == 0) revert ZeroAmount();
+            if (remoteVaults[i] == address(0)) revert ZeroAddress();
+            total += amounts[i];
+        }
+    }
+
+    /// @dev Tier 2 batch helper — build the SendParam + dispatch
+    ///      OFT.send. Same stack-depth justification as the validator.
+    function _sendBatch(RemoteBatchParams calldata p, address dstReceiver, uint256 total)
+        internal
+    {
+        bytes memory composeMsg = abi.encode(
+            CXR_ACTION_ALLOCATE_BATCH, p.strategyIds, p.amounts, p.remoteVaults, p.user
+        );
+        SendParam memory param = SendParam({
+            dstEid: p.dstEid,
+            to: bytes32(uint256(uint160(dstReceiver))),
+            amountLD: total,
+            minAmountLD: total,
+            extraOptions: p.extraOptions,
+            composeMsg: composeMsg,
+            oftCmd: ""
+        });
+        IOFT(oftAdapter).send{ value: msg.value }(param, p.lzFee, msg.sender);
     }
 
     /// @notice Receive a cross-chain defund settlement from the local

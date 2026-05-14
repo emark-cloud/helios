@@ -560,6 +560,30 @@ Pre-cutover the testnet stack used `MockSwapRouter` with admin-set prices, so de
 
 Cuts taken 2026-05-05 to deliver a working demo faster and let the operator (emark) use the app end-to-end without service-side detours. Each item lands in `Helios.md §17` (post-hackathon roadmap) so the trajectory stays explicit.
 
+### Cross-chain cost levers (planned 2026-05-14 — Tier 3 + Tier 4)
+
+Background: Tier 1 (threshold + flush gates) and Tier 2 (multi-strategy
+batching) shipped on 2026-05-14 and cut cold-start cost ~33% (3.2 KITE
+→ ~2.2 KITE for a 3-candidate broadcast). The roadmap doc at
+`docs/cross-chain-cost-roadmap.md` enumerates the remaining levers.
+
+- [ ] **CXR-cost Tier 3 — drop the lzCompose hop.** Fold
+  `HeliosBridgeReceiver` dispatch into `MUsdcOFTAdapter._credit` so the
+  destination chain processes release-and-dispatch in one executor
+  invocation. Saves ~30–40% per hop. Requires a fresh OFT adapter deploy
+  (immutable on mainnet), peer rewire, and careful test coverage on
+  both allocate + defund directions. Mainnet OFT adapter immutability
+  is the gating risk. See `docs/cross-chain-cost-roadmap.md §Tier 3`.
+- [ ] **CXR-cost Tier 4 — multi-user aggregation.** Queue per-user
+  pending allocates on `AllocatorVault` per (dstEid, strategyId), flush
+  via keeper every `multi_user_flush_sec` with a single `OFT.send`
+  carrying `(user[], amount[])`. Linear savings with concurrent user
+  count; not actionable at v1 (1 demo user). New action constant
+  `ACTION_ALLOCATE_MULTIUSER = 3`; per-user revert recovery; subgraph
+  `CrossChainAllocation.userIndex` field. Triggers when multi-tenant
+  production scale (~10+ concurrent users per strategy) materializes.
+  See `docs/cross-chain-cost-roadmap.md §Tier 4`.
+
 - **Telegram bot (`@helios_market_bot`).** The 0:50–1:30 and 1:30–2:10 demo beats are carried by the dashboard activity rail (`/dashboard` already streams `SentinelEvent`s over WS). The `services/bot/` scaffold was removed in the v0.5 cleanup; restoring it means re-scaffolding from `services/_template/` plus the token provisioning flow, the DESIGN.md §15 message templates as bot output, and the `/dashboard` opt-in step. Roadmap: post-hackathon Phase 1 (Months 1–3).
 - **x402 paid services (Choice G).** Pieverse facilitator + per-service pricing curves + `X-Payment` middleware across prover/oracle/reputation. Strong agent-economy demo polish but not in the headline 3-min script. Roadmap: post-hackathon Phase 1.
 - **Helix regime-adaptive fee + correlation-aware greedy.** AllocatorSDK still exposes the hooks (`pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`) so any third party can build a correlation/regime allocator from day one — Helix v1 just doesn't use them. Helix-lite still produces visibly different allocations from Sentinel via fee weighting + greedy pick over reputation. Roadmap: post-hackathon Phase 1.

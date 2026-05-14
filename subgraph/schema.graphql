@@ -293,6 +293,24 @@ type VerifierRegistration @entity(immutable: true) {
   txHash: Bytes!
 }
 
+# CXR-cost Tier 2 — `AllocatorVault.RemoteAllocationSent`. One row per
+# cross-chain allocate dispatched via OFT.send. Tier 2 collapses N
+# same-destination strategies into one OFT.send, so multiple
+# `CrossChainAllocation` rows can share a `txHash` — UI / cost
+# dashboards group by txHash to compute batch size and amortized
+# per-strategy fee.
+type CrossChainAllocation @entity(immutable: true) {
+  id: Bytes!                      # tx hash + log index
+  user: Bytes!                    # User address (canonical chain)
+  strategyId: Bytes!              # bytes32 — remote vault address
+  remoteVault: Bytes!             # address — duplicate of strategyId padding
+  dstEid: Int!                    # LayerZero V2 destination EID
+  amount: BigInt!                 # 18-dec canonical USD wei
+  sentAt: BigInt!                 # block.timestamp at OFT.send
+  blockNumber: BigInt!
+  txHash: Bytes!                  # shared across batched siblings
+}
+
 # Phase 2 / WS3.A — yield_rotation_v1 attestation. Distinct from `Trade`
 # because the YR event surfaces market-rotation fields (mFrom/mTo,
 # yieldOracleRoot, amountRotating) that don't fit the swap-shaped Trade

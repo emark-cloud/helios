@@ -111,6 +111,11 @@ _OFT_QUOTE_SEND_ABI: tuple[dict[str, Any], ...] = (
 # Solidity-side: `CXR_ACTION_ALLOCATE = 0`. Mirror here so we encode the
 # compose payload the way HeliosBridgeReceiver.sol expects.
 _CXR_ACTION_ALLOCATE: int = 0
+# Tier 2 — batched ALLOCATE. ComposeMsg encodes arrays + a single user.
+# Receiver loops `_allocateOne` per index. Amortizes the LZ V2 fixed
+# fee across N strategies on the same destination chain. Mirror of
+# `AllocatorVault.CXR_ACTION_ALLOCATE_BATCH` / `HeliosBridgeReceiver.ACTION_ALLOCATE_BATCH`.
+_CXR_ACTION_ALLOCATE_BATCH: int = 2
 
 # LayerZero V2 Type-3 options TLV — defaults to:
 #   - lzReceive: 200_000 gas (OFT release on the destination chain)
@@ -160,6 +165,37 @@ _ALLOCATE_TO_REMOTE_ABI: tuple[dict[str, Any], ...] = (
         ],
         "outputs": [],
     },
+    # Tier 2 — batched variant. Single struct arg `RemoteBatchParams` to
+    # stay under via-IR stack-depth on the solidity side; web3 encodes
+    # the tuple from the ordered Python value.
+    {
+        "type": "function",
+        "name": "allocateToRemoteStrategyBatch",
+        "stateMutability": "payable",
+        "inputs": [
+            {
+                "name": "p",
+                "type": "tuple",
+                "components": [
+                    {"name": "user", "type": "address"},
+                    {"name": "strategyIds", "type": "bytes32[]"},
+                    {"name": "amounts", "type": "uint256[]"},
+                    {"name": "remoteVaults", "type": "address[]"},
+                    {"name": "dstEid", "type": "uint32"},
+                    {"name": "extraOptions", "type": "bytes"},
+                    {
+                        "name": "lzFee",
+                        "type": "tuple",
+                        "components": [
+                            {"name": "nativeFee", "type": "uint256"},
+                            {"name": "lzTokenFee", "type": "uint256"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "outputs": [],
+    },
 )
 
 _log = structlog.get_logger(__name__)
@@ -190,6 +226,12 @@ class OnChainCall:
     lz_native_fee: int = 0
     lz_token_fee: int = 0
     strategy_id_bytes32: bytes = b""
+    # Tier 2 — batched-allocate fields. Populated by
+    # `allocate_to_remote_batch`; empty for all other methods.
+    batch_strategy_ids: tuple[str, ...] = ()
+    batch_strategy_ids_bytes32: tuple[bytes, ...] = ()
+    batch_amounts: tuple[int, ...] = ()
+    batch_remote_vaults: tuple[str, ...] = ()
 
 
 class AllocatorOnChain:
@@ -349,6 +391,69 @@ class AllocatorOnChain:
         if self._live and dst_eid:
             native_fee, lz_token_fee = self._quote_remote_fee(
                 dst_eid, remote_vault, user, sid_bytes, amount
+            )
+            call.lz_native_fee = native_fee
+            call.lz_token_fee = lz_token_fee
+        return self._submit(call)
+
+    def allocate_to_remote_batch(
+        self,
+        user: str,
+        entries: list[tuple[str, int, str]],
+        chain_id: int,
+    ) -> OnChainCall:
+        """Tier 2 — Batched cross-chain allocate. `entries` is a list of
+        `(strategy_id, amount, remote_vault)` tuples sharing a single
+        `dst_eid`. Packs N entries into one OFT.send so the ~1 KITE LZ
+        V2 fixed fee is amortized across the batch.
+
+        Each entry's amount is floored to the OFT shared-decimals base
+        (10^12) so the adapter's `_removeDust` is a no-op. Entries
+        whose amount drops to 0 after the floor are filtered out
+        upstream by the caller — they'd revert `ZeroAmount` on-chain
+        anyway, and burning the LZ fee on a near-dust batch is exactly
+        what this lever is meant to avoid.
+        """
+        dst_eid = self._remote_chain_eids.get(chain_id, 0)
+        _CONVERSION = 10**12
+        floored: list[tuple[str, int, str]] = []
+        sids_hex: list[str] = []
+        sid_bytes_list: list[bytes] = []
+        amounts: list[int] = []
+        vaults: list[str] = []
+        for sid, raw_amt, vault in entries:
+            amt = int(raw_amt) - (int(raw_amt) % _CONVERSION)
+            if amt == 0:
+                continue
+            floored.append((sid, amt, vault))
+            sids_hex.append(sid)
+            sid_bytes_list.append(
+                bytes.fromhex(Web3.to_checksum_address(sid)[2:].rjust(64, "0"))
+            )
+            amounts.append(amt)
+            vaults.append(Web3.to_checksum_address(vault))
+
+        call = OnChainCall(
+            method="allocateToRemoteStrategyBatch",
+            user=user,
+            strategy=None,
+            amount=sum(amounts),
+            dst_eid=dst_eid,
+            extra_options=_DEFAULT_LZ_EXTRA_OPTIONS,
+            batch_strategy_ids=tuple(sids_hex),
+            batch_strategy_ids_bytes32=tuple(sid_bytes_list),
+            batch_amounts=tuple(amounts),
+            batch_remote_vaults=tuple(vaults),
+        )
+        if not floored or not dst_eid:
+            return self._submit(call)
+        if self._live:
+            native_fee, lz_token_fee = self._quote_remote_fee_batch(
+                dst_eid,
+                user,
+                tuple(sid_bytes_list),
+                tuple(amounts),
+                tuple(vaults),
             )
             call.lz_native_fee = native_fee
             call.lz_token_fee = lz_token_fee
@@ -627,7 +732,10 @@ class AllocatorOnChain:
             "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
             "chainId": self._chain_id,
         }
-        if call.method == "allocateToRemoteStrategy" and call.lz_native_fee:
+        if (
+            call.method in ("allocateToRemoteStrategy", "allocateToRemoteStrategyBatch")
+            and call.lz_native_fee
+        ):
             tx_overrides["value"] = int(call.lz_native_fee)
         tx = fn.build_transaction(
             {
@@ -692,6 +800,21 @@ class AllocatorOnChain:
                 call.extra_options,
                 (int(call.lz_native_fee), int(call.lz_token_fee)),
             )
+        if call.method == "allocateToRemoteStrategyBatch":
+            # Tier 2 — single-struct RemoteBatchParams tuple. Solidity-side
+            # field order: (user, strategyIds, amounts, remoteVaults,
+            # dstEid, extraOptions, lzFee). web3.py auto-encodes from the
+            # ordered Python tuple.
+            params_tuple = (
+                Web3.to_checksum_address(call.user),
+                [bytes(b) for b in call.batch_strategy_ids_bytes32],
+                [int(a) for a in call.batch_amounts],
+                [Web3.to_checksum_address(v) for v in call.batch_remote_vaults],
+                int(call.dst_eid),
+                call.extra_options,
+                (int(call.lz_native_fee), int(call.lz_token_fee)),
+            )
+            return self._vault_contract.functions.allocateToRemoteStrategyBatch(params_tuple)
         raise ValueError(f"unknown onchain method: {call.method}")
 
     def _quote_remote_fee(
@@ -732,6 +855,51 @@ class AllocatorOnChain:
             to_bytes32,
             int(amount),
             int(amount),
+            _DEFAULT_LZ_EXTRA_OPTIONS,
+            compose_msg,
+            b"",
+        )
+        result = self._oft_contract.functions.quoteSend(send_param, False).call()
+        return int(result[0]), int(result[1])
+
+    def _quote_remote_fee_batch(
+        self,
+        dst_eid: int,
+        user: str,
+        sid_bytes_list: tuple[bytes, ...],
+        amounts: tuple[int, ...],
+        remote_vaults: tuple[str, ...],
+    ) -> tuple[int, int]:
+        """Tier 2 — Quote LZ V2 native fee for a batched compose. Mirrors
+        the AllocatorVault's batch payload shape so the fee matches what
+        the actual submit will burn.
+        """
+        self._ensure_oft_live()
+        assert self._w3 is not None
+        assert self._oft_contract is not None
+        compose_msg = self._w3.codec.encode(
+            ["uint8", "bytes32[]", "uint256[]", "address[]", "address"],
+            [
+                _CXR_ACTION_ALLOCATE_BATCH,
+                list(sid_bytes_list),
+                list(amounts),
+                [Web3.to_checksum_address(v) for v in remote_vaults],
+                Web3.to_checksum_address(user),
+            ],
+        )
+        total = sum(amounts)
+        # `to` in SendParam is the destinationReceiver; the OFT fee
+        # quote doesn't depend on its exact value (any non-zero bytes32
+        # produces the same quote), so we pass a placeholder bytes32.
+        # Matches the single-call `_quote_remote_fee` convention.
+        to_bytes32 = bytes.fromhex(
+            Web3.to_checksum_address(remote_vaults[0])[2:].rjust(64, "0")
+        )
+        send_param = (
+            int(dst_eid),
+            to_bytes32,
+            int(total),
+            int(total),
             _DEFAULT_LZ_EXTRA_OPTIONS,
             compose_msg,
             b"",

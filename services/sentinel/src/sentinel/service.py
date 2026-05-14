@@ -121,6 +121,23 @@ class Settings(BaseServiceSettings):
     )
     base_lz_eid: int = Field(default=40_245, validation_alias="BASE_LZ_EID")
     arbitrum_lz_eid: int = Field(default=40_231, validation_alias="ARBITRUM_LZ_EID")
+    # Cross-chain cost Tier 1 — gates that suppress LZ V2 send waste.
+    # `min_cross_chain_alloc_usd_wei` skips sub-threshold dust deltas
+    # (default $10 ≈ 10e18 on Kite's 18-dec canonical scale); the next
+    # tick re-evaluates the cumulative delta. `cross_chain_flush_cadence_sec`
+    # enforces a per-(user, strategyId) cooldown between LZ V2 sends so
+    # the 60s drawdown-tick cadence doesn't fire a fresh ~1 KITE send
+    # on every cycle when the target oscillates. Set either to 0 to
+    # disable. See `docs/cross-chain-cost-roadmap.md` for the cost shape
+    # these levers attack.
+    min_cross_chain_alloc_usd_wei: int = Field(
+        default=10 * 10**18,
+        validation_alias="SENTINEL_MIN_CROSS_CHAIN_ALLOC_USD_WEI",
+    )
+    cross_chain_flush_cadence_sec: int = Field(
+        default=300,
+        validation_alias="SENTINEL_CROSS_CHAIN_FLUSH_CADENCE_SEC",
+    )
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -156,6 +173,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             drawdown_check_interval_sec=cfg.drawdown_check_interval_sec,
             rank_update_interval_sec=cfg.rank_update_interval_sec,
             fee_check_interval_sec=cfg.fee_check_interval_sec,
+            min_cross_chain_alloc_usd_wei=cfg.min_cross_chain_alloc_usd_wei,
+            cross_chain_flush_cadence_sec=cfg.cross_chain_flush_cadence_sec,
         ),
     )
 

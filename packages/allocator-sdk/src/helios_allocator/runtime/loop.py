@@ -68,6 +68,19 @@ class LoopConfig:
     # 0 disables the filter (back-compat for backtests / scenario mode
     # that have no NAV snapshots).
     nav_freshness_sec: int = 3600
+    # Cross-chain cost Tier 1 — minimum delta (18-dec USD wei) for a
+    # cross-chain allocate to be worth burning the ~1 KITE LZ V2 fixed
+    # fee. Smaller deltas get skipped silently and the op rolls into the
+    # next tick; eventually accumulated deltas cross the threshold and
+    # fire as a single send. Default $10 ≈ 10e18 wei (Kite canonical
+    # 18-dec). 0 disables the gate (back-compat for tests / dry-runs).
+    min_cross_chain_alloc_usd_wei: int = 10 * 10**18
+    # Cross-chain cost Tier 1 — minimum seconds between consecutive
+    # cross-chain submits for the same (user, strategyId). Prevents
+    # 60s-tick spam from firing a fresh LZ V2 send each cycle when the
+    # target oscillates; only the post-window net delta fires. Default
+    # 300s. 0 disables the gate.
+    cross_chain_flush_cadence_sec: int = 300
 
 
 class AllocatorLoop:
@@ -98,6 +111,13 @@ class AllocatorLoop:
         self._directory: list[StrategyDirectoryRow] = []
         self._last_rank_ts: int = 0
         self._last_fee_ts: int = 0
+        # Cross-chain cost Tier 1 — per-(user, strategyId) timestamp of
+        # the last successful cross-chain submit. Read in
+        # `_defer_remote_ops` to enforce `cross_chain_flush_cadence_sec`
+        # spacing between LZ V2 sends. Unbounded growth is fine: one
+        # entry per (user, strategyId) pair the loop ever submits for,
+        # which scales with active subscribers × cross-chain strategies.
+        self._cross_chain_last_fire: dict[tuple[str, str], int] = {}
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
@@ -507,6 +527,17 @@ class AllocatorLoop:
         """
         local = self._onchain.chain_id
         kept: list[tuple[str, int]] = []
+        # Tier 2 — collect eligible remote ops by dst_chain_id so a
+        # single OFT.send can carry N strategies whose targets share a
+        # destination chain (mom.base + mr.base → 1 send instead of 2,
+        # saves a fixed-cost LZ V2 fee). Entries shape:
+        # `(sid, delta, remote_vault)`.
+        eligible: dict[int, list[tuple[str, int, str]]] = {}
+        # Ops the loop couldn't submit (mis-wired bridge, defund delta,
+        # vault-resolution failure). Each one re-emits its DEFERRED
+        # event after batch flush.
+        deferred: list[tuple[str, int, int]] = []  # (sid, delta, chain_id)
+
         for sid, delta in ops:
             tgt = target_by_id.get(sid)
             if tgt is None or tgt.chain_id in (0, local):
@@ -520,80 +551,256 @@ class AllocatorLoop:
             # bridge wired for this destination chain. Fall back to the
             # deferred event on any failure (mis-wired OFT, no LZ fee
             # native gas, revert) so the dashboard still shows intent.
-            if delta > 0 and self._onchain.supports_remote_chain(tgt.chain_id):
-                try:
-                    remote_vault = self._onchain.resolve_remote_vault(sid)
-                    call = self._onchain.allocate_to_remote(
-                        user.meta.user_address,
-                        sid,
-                        int(delta),
-                        tgt.chain_id,
-                        remote_vault,
-                    )
-                    if not call.error:
-                        self._store.emit_event(
-                            AllocatorEvent(
-                                user_address=user.meta.user_address,
-                                kind="CROSS_CHAIN_ALLOCATION_SUBMITTED",
-                                strategy_id=sid,
-                                amount_usd=delta,
-                                reason=f"chain={tgt.chain_id}; OFT send on Kite",
-                                timestamp=ts,
-                                tx_hash=call.tx_hash,
-                            )
-                        )
-                        _log.info(
-                            "allocator.allocation.cross_chain.submitted",
-                            user=user.meta.user_address,
-                            strategy=sid,
-                            amount=delta,
-                            dst_chain_id=tgt.chain_id,
-                            tx_hash=call.tx_hash,
-                        )
-                        continue
-                    _log.warning(
-                        "allocator.allocation.cross_chain.live_failed",
-                        user=user.meta.user_address,
-                        strategy=sid,
-                        amount=delta,
-                        dst_chain_id=tgt.chain_id,
-                        err=call.error,
-                    )
-                except Exception as exc:
-                    _log.warning(
-                        "allocator.allocation.cross_chain.live_exception",
-                        user=user.meta.user_address,
-                        strategy=sid,
-                        amount=delta,
-                        dst_chain_id=tgt.chain_id,
-                        err=str(exc),
-                    )
-            # Only emit on the "add capital" direction. A delta<0 against
-            # a remote strategy would mean we somehow accounted for a
-            # remote allocation locally — currently impossible since we
-            # never write user.allocations for remote targets — but the
-            # invariant is "remote ops are silent on-chain", not "remote
-            # ops are silent in the event log", so we still log the
-            # cycle-time intent.
-            self._store.emit_event(
-                AllocatorEvent(
-                    user_address=user.meta.user_address,
-                    kind="CROSS_CHAIN_ALLOCATION_DEFERRED",
-                    strategy_id=sid,
-                    amount_usd=max(0, delta),
-                    reason=f"chain={tgt.chain_id}; pending CXR-0a/0b bridge",
-                    timestamp=ts,
+            if not (delta > 0 and self._onchain.supports_remote_chain(tgt.chain_id)):
+                deferred.append((sid, delta, tgt.chain_id))
+                continue
+            # Cross-chain cost Tier 1 — threshold gate. The LZ V2 fee
+            # floor on Kite testnet is ~1 KITE per OFT.send regardless
+            # of payload size; firing for a $0.50 dust delta burns that
+            # fee for negligible reallocation. Skip and let the delta
+            # accumulate over subsequent ticks until it crosses the
+            # threshold. Threshold-skipped ops are silent (log-only) —
+            # the next tick reassesses the cumulative delta.
+            if (
+                self._cfg.min_cross_chain_alloc_usd_wei > 0
+                and delta < self._cfg.min_cross_chain_alloc_usd_wei
+            ):
+                _log.info(
+                    "allocator.allocation.cross_chain.threshold_skip",
+                    user=user.meta.user_address,
+                    strategy=sid,
+                    amount=delta,
+                    threshold=self._cfg.min_cross_chain_alloc_usd_wei,
+                    dst_chain_id=tgt.chain_id,
                 )
+                continue
+            # Cross-chain cost Tier 1 — per-(user, strategyId) flush
+            # cadence. Prevents the 60s tick coordinator from firing a
+            # fresh ~1 KITE send every cycle when the target keeps
+            # moving by epsilon. The window starts from the last
+            # successful submit; ops in the window queue silently and
+            # the next-eligible tick fires the net delta.
+            key = (user.meta.user_address, sid)
+            last_fire = self._cross_chain_last_fire.get(key, 0)
+            if (
+                self._cfg.cross_chain_flush_cadence_sec > 0
+                and last_fire > 0
+                and ts - last_fire < self._cfg.cross_chain_flush_cadence_sec
+            ):
+                _log.info(
+                    "allocator.allocation.cross_chain.flush_window",
+                    user=user.meta.user_address,
+                    strategy=sid,
+                    amount=delta,
+                    seconds_until_flush=(
+                        self._cfg.cross_chain_flush_cadence_sec - (ts - last_fire)
+                    ),
+                    dst_chain_id=tgt.chain_id,
+                )
+                continue
+            try:
+                remote_vault = self._onchain.resolve_remote_vault(sid)
+            except Exception as exc:
+                _log.warning(
+                    "allocator.allocation.cross_chain.vault_resolve_failed",
+                    user=user.meta.user_address,
+                    strategy=sid,
+                    amount=delta,
+                    dst_chain_id=tgt.chain_id,
+                    err=str(exc),
+                )
+                deferred.append((sid, delta, tgt.chain_id))
+                continue
+            eligible.setdefault(tgt.chain_id, []).append((sid, int(delta), remote_vault))
+
+        # Tier 2 — flush each dst_chain_id group: 1 entry uses the
+        # single-call path (preserves the existing `RemoteAllocationSent`
+        # tx shape + the single-call fee quote); 2+ entries uses the
+        # batched compose so the LZ V2 fixed fee is amortized.
+        for dst_chain_id, entries in eligible.items():
+            failed = self._flush_cross_chain_group(user, dst_chain_id, entries, ts)
+            deferred.extend(failed)
+
+        for sid, delta, chain_id in deferred:
+            self._emit_cross_chain_deferred(user, sid, delta, chain_id, ts, local)
+        return kept
+
+    def _flush_cross_chain_group(
+        self,
+        user: UserState,
+        dst_chain_id: int,
+        entries: list[tuple[str, int, str]],
+        ts: int,
+    ) -> list[tuple[str, int, int]]:
+        """Tier 2 — submit `entries` against `dst_chain_id` using the
+        single-call path if `len == 1` and the batched path if `len > 1`.
+
+        Returns the entries that fell back to DEFERRED so the caller
+        can emit their deferred events alongside the rest.
+        """
+        if len(entries) == 1:
+            sid, delta, remote_vault = entries[0]
+            return self._submit_single_remote(user, dst_chain_id, sid, delta, remote_vault, ts)
+        return self._submit_batched_remote(user, dst_chain_id, entries, ts)
+
+    def _submit_single_remote(
+        self,
+        user: UserState,
+        dst_chain_id: int,
+        sid: str,
+        delta: int,
+        remote_vault: str,
+        ts: int,
+    ) -> list[tuple[str, int, int]]:
+        try:
+            call = self._onchain.allocate_to_remote(
+                user.meta.user_address, sid, int(delta), dst_chain_id, remote_vault
             )
-            _log.info(
-                "allocator.allocation.cross_chain.deferred",
+        except Exception as exc:
+            _log.warning(
+                "allocator.allocation.cross_chain.live_exception",
                 user=user.meta.user_address,
                 strategy=sid,
                 amount=delta,
-                dst_chain_id=tgt.chain_id,
-                local_chain_id=local,
+                dst_chain_id=dst_chain_id,
+                err=str(exc),
             )
-        return kept
+            return [(sid, delta, dst_chain_id)]
+        if call.error:
+            _log.warning(
+                "allocator.allocation.cross_chain.live_failed",
+                user=user.meta.user_address,
+                strategy=sid,
+                amount=delta,
+                dst_chain_id=dst_chain_id,
+                err=call.error,
+            )
+            return [(sid, delta, dst_chain_id)]
+        self._cross_chain_last_fire[(user.meta.user_address, sid)] = ts
+        self._emit_cross_chain_submitted(
+            user, sid, delta, dst_chain_id, ts, call.tx_hash, batch_size=1
+        )
+        return []
+
+    def _submit_batched_remote(
+        self,
+        user: UserState,
+        dst_chain_id: int,
+        entries: list[tuple[str, int, str]],
+        ts: int,
+    ) -> list[tuple[str, int, int]]:
+        try:
+            call = self._onchain.allocate_to_remote_batch(
+                user.meta.user_address, entries, dst_chain_id
+            )
+        except Exception as exc:
+            _log.warning(
+                "allocator.allocation.cross_chain.batch_exception",
+                user=user.meta.user_address,
+                batch_size=len(entries),
+                dst_chain_id=dst_chain_id,
+                err=str(exc),
+            )
+            return [(sid, delta, dst_chain_id) for sid, delta, _ in entries]
+        if call.error:
+            _log.warning(
+                "allocator.allocation.cross_chain.batch_failed",
+                user=user.meta.user_address,
+                batch_size=len(entries),
+                dst_chain_id=dst_chain_id,
+                err=call.error,
+            )
+            return [(sid, delta, dst_chain_id) for sid, delta, _ in entries]
+        # Happy path — record last_fire + emit per-entry SUBMITTED
+        # events sharing the batch's tx_hash. Subgraph consumers group
+        # by `transaction.hash`; UI consumers see one event per strategy
+        # so the dashboard list stays uniform with the single-call shape.
+        for sid, delta, _ in entries:
+            self._cross_chain_last_fire[(user.meta.user_address, sid)] = ts
+            self._emit_cross_chain_submitted(
+                user, sid, delta, dst_chain_id, ts, call.tx_hash, batch_size=len(entries)
+            )
+        _log.info(
+            "allocator.allocation.cross_chain.batch_submitted",
+            user=user.meta.user_address,
+            batch_size=len(entries),
+            dst_chain_id=dst_chain_id,
+            tx_hash=call.tx_hash,
+            total_amount=sum(d for _, d, _ in entries),
+        )
+        return []
+
+    def _emit_cross_chain_submitted(
+        self,
+        user: UserState,
+        sid: str,
+        delta: int,
+        dst_chain_id: int,
+        ts: int,
+        tx_hash: str,
+        *,
+        batch_size: int,
+    ) -> None:
+        reason = (
+            f"chain={dst_chain_id}; OFT send on Kite"
+            if batch_size == 1
+            else f"chain={dst_chain_id}; OFT batch send on Kite (N={batch_size})"
+        )
+        self._store.emit_event(
+            AllocatorEvent(
+                user_address=user.meta.user_address,
+                kind="CROSS_CHAIN_ALLOCATION_SUBMITTED",
+                strategy_id=sid,
+                amount_usd=delta,
+                reason=reason,
+                timestamp=ts,
+                tx_hash=tx_hash,
+            )
+        )
+        _log.info(
+            "allocator.allocation.cross_chain.submitted",
+            user=user.meta.user_address,
+            strategy=sid,
+            amount=delta,
+            dst_chain_id=dst_chain_id,
+            tx_hash=tx_hash,
+            batch_size=batch_size,
+        )
+
+    def _emit_cross_chain_deferred(
+        self,
+        user: UserState,
+        sid: str,
+        delta: int,
+        chain_id: int,
+        ts: int,
+        local: int,
+    ) -> None:
+        # Only emit on the "add capital" direction. A delta<0 against
+        # a remote strategy would mean we somehow accounted for a
+        # remote allocation locally — currently impossible since we
+        # never write user.allocations for remote targets — but the
+        # invariant is "remote ops are silent on-chain", not "remote
+        # ops are silent in the event log", so we still log the
+        # cycle-time intent.
+        self._store.emit_event(
+            AllocatorEvent(
+                user_address=user.meta.user_address,
+                kind="CROSS_CHAIN_ALLOCATION_DEFERRED",
+                strategy_id=sid,
+                amount_usd=max(0, delta),
+                reason=f"chain={chain_id}; pending CXR-0a/0b bridge",
+                timestamp=ts,
+            )
+        )
+        _log.info(
+            "allocator.allocation.cross_chain.deferred",
+            user=user.meta.user_address,
+            strategy=sid,
+            amount=delta,
+            dst_chain_id=chain_id,
+            local_chain_id=local,
+        )
 
     def _is_pure_redistribution(
         self,
