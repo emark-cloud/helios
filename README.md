@@ -102,6 +102,17 @@ Helios's contribution is removing the fiduciary human-in-the-loop
 typical at both layers, replacing it with the meta-strategy
 commitment + ZK class enforcement + auto-defund.
 
+### Agentic workflow
+
+The "rules, RL, or LLM all work" claim is concrete:
+`reference-strategies/llm_momentum_v1/` is a working `StrategyAgent`
+subclass where Claude decides every trade via the Anthropic SDK and
+the chain enforces the bounds. Reuses the existing `momentum_v1`
+Groth16 verifier and Poseidon `paramsHash` — no new circuit, no
+protocol change. See [`docs/agentic-workflow.md`](./docs/agentic-workflow.md)
+for the "Claude decides, the chain enforces" design and the six
+invariants the model cannot escape.
+
 ## What works today
 
 Live as of `v1` (2026-05-14):
@@ -123,11 +134,13 @@ Live as of `v1` (2026-05-14):
   + oracle services on a Servarica Montreal VPS; Goldsky subgraphs
   `helios/v0.9.0` + `helios-base/v0.8.0` + `helios-arbitrum/v0.8.0`
   index all three chains.
-- **LLM strategy reference.** `reference-strategies/llm_momentum_v1/`
-  ships a Claude-driven `momentum_v1` strategy — the model decides
-  LONG/EXIT/HOLD per bar via Anthropic tool use; the on-chain
-  `params_hash` enforces the operator's declared bounds. Scaffold
-  your own with `helios scaffold-strategy llm_momentum_v1 --name <NAME>`.
+- **LLM strategy reference — "Claude decides, the chain enforces."**
+  `reference-strategies/llm_momentum_v1/` ships a Claude-driven
+  `momentum_v1` strategy that reuses the existing Groth16 verifier
+  unchanged. The Anthropic SDK picks LONG/EXIT/HOLD per bar; the
+  on-chain `params_hash` bounds what the model can do. Scaffold your
+  own with `helios scaffold-strategy llm_momentum_v1 --name <NAME>`.
+  Deep-dive: [`docs/agentic-workflow.md`](./docs/agentic-workflow.md).
 
 Full empirical evidence trail (every claim → on-chain artifact):
 [`docs/helios-v1-acceptance.md`](./docs/helios-v1-acceptance.md).
@@ -218,6 +231,7 @@ verify-trade command inline.
 - **Helios v1 acceptance** (the live-evidence trail) → [`docs/helios-v1-acceptance.md`](./docs/helios-v1-acceptance.md)
 - **Cold-start one-pager** (5-min reproduce) → [`docs/cold-start.md`](./docs/cold-start.md)
 - **Operator guide** (ship a strategy) → [`docs/operator-guide.md`](./docs/operator-guide.md)
+- **Agentic workflow** (ship an LLM-driven strategy) → [`docs/agentic-workflow.md`](./docs/agentic-workflow.md)
 - **Allocator guide** (ship a competing allocator) → [`docs/allocator-guide.md`](./docs/allocator-guide.md)
 - **Threat model** → [`docs/threat-model.md`](./docs/threat-model.md)
 
