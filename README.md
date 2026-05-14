@@ -219,15 +219,6 @@ Copy `.env.example` → `.env` and fill in at least `KITE_RPC_URL`,
 and operational defaults (rate limits, Nginx config, PM2 units)
 live in [`deploy/`](./deploy).
 
-## Status
-
-Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0`
-shipped Phase 5 cross-chain on 2026-05-08; `v0.6.0` tags Phase 6
-acceptance + multi-chain bring-up on 2026-05-14. See
-[`docs/phase6-acceptance.md`](./docs/phase6-acceptance.md) for the
-multi-chain evidence and
-[`docs/active-strategies.md`](./docs/active-strategies.md) for the
-per-vault breakdown.
 
 ## License
 
