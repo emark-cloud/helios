@@ -211,6 +211,8 @@ services:
     environment:
       ORACLE_ENDPOINT: http://oracle:8003
       PROVER_ENDPOINT: http://prover:8004
+      OPERATOR_PK: ${YIELD_ROT_OPERATOR_PK}
+      NAV_ORACLE_PK: ${YIELD_ROT_NAV_ORACLE_PK}
       STRATEGY_VAULT_ADDRESS: ${YIELD_ROTATION_STRATEGY_VAULT_ADDRESS}
     ports: ["127.0.0.1:8007:8007"]
     depends_on: [oracle, prover]
