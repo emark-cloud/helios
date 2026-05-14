@@ -141,24 +141,6 @@ vs per-user sends.
 users on any single strategy). Pre-v1 there's exactly one demo user; no
 amortization opportunity exists yet.
 
-## Out-of-scope levers
-
-Surveyed during the Tier 1+2 planning round but rejected:
-
-- **DVN reduction to 1-of-1.** Cuts ~0.4 KITE per send. Security risk
-  too high — KelpDAO's ~$290M loss precedent. Document in
-  `docs/threat-model.md` that we explicitly retain the default LZ Labs
-  DVN stack.
-- **Alternative bridges (Hyperlane / Across / CCIP / CCTP).** Zero
-  presence on Kite testnet. CCIP is mainnet-only. Not actionable until
-  Kite mainnet promotion materially expands the cross-chain options.
-- **Off-chain ledger settlement.** Major spec divergence from §12.1's
-  on-chain accounting story.
-- **Same-chain synthetic yield routing.** §12.1 explicitly states yield
-  venues live on Arbitrum. Reconsider only if Aave-on-Kite ever lands.
-- **lzRead pull model.** lzRead is read-only for view state, not
-  capital. Doesn't apply to the capital-flow use case.
-
 ## Verification — measuring the Tier 1+2 savings
 
 After the AllocatorVault batch impl lands on Kite:
