@@ -215,7 +215,6 @@ verify-trade command inline.
 - **Operator guide** (ship a strategy) → [`docs/operator-guide.md`](./docs/operator-guide.md)
 - **Allocator guide** (ship a competing allocator) → [`docs/allocator-guide.md`](./docs/allocator-guide.md)
 - **Threat model** → [`docs/threat-model.md`](./docs/threat-model.md)
-- **Cross-chain cost roadmap** → [`docs/cross-chain-cost-roadmap.md`](./docs/cross-chain-cost-roadmap.md)
 
 ## Quick start (developers)
 
