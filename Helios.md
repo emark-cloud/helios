@@ -1988,8 +1988,7 @@ helios/
 │   ├── allocator-guide.md          # How to build a competing allocator using AllocatorSDK
 │   ├── reputation-math.md
 │   ├── circuit-specs.md
-│   ├── threat-model.md
-│   └── audit-checklist.md
+│   └── threat-model.md
 └── docker-compose.yml              # Single-command full-stack local boot
 ```
 

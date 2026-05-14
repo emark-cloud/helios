@@ -1,9 +1,9 @@
 name: Security
 
 # Phase 6 polish — informational static-analysis pass. This workflow is a
-# triage signal, NOT a merge gate; the human-side gate is the
-# audit-checklist (`docs/audit-checklist.md`). Findings are reviewed there
-# and either marked as accepted-risk, mitigated, or queued for fix.
+# triage signal, NOT a merge gate; findings are reviewed by hand against
+# the threat-model in `docs/threat-model.md` and either marked as
+# accepted-risk, mitigated, or queued for fix.
 #
 # Triggered on every PR to `main` so reviewers get a fresh Slither report
 # without having to install the toolchain locally. Also exposed via
@@ -52,9 +52,9 @@ jobs:
 
       - name: Run Slither
         uses: crytic/slither-action@v0.4.0
-        # Phase 6: do NOT fail the build on findings. Triage happens in
-        # docs/audit-checklist.md. If we ever want to gate, switch
-        # `fail-on` to `high` (or `medium` after the AllocatorVault
+        # Phase 6: do NOT fail the build on findings. Triage happens by
+        # hand against docs/threat-model.md. If we ever want to gate,
+        # switch `fail-on` to `high` (or `medium` after the AllocatorVault
         # reentrancy-no-eth false positives are filtered).
         with:
           target: contracts/
@@ -72,8 +72,6 @@ jobs:
   #     Mythril's IR support is flaky enough that the runs frequently
   #     error out before producing a report.
   #   * For Phase 6 we run Mythril manually against `AllocatorVault`,
-  #     `UserVault`, and `StrategyVault` before tagging a release; the
-  #     procedure and results land in `docs/audit-checklist.md` under
-  #     the Mythril section.
+  #     `UserVault`, and `StrategyVault` before tagging a release.
   # If you want to enable a one-shot CI Mythril pass, scope it to a single
   # contract and pin `continue-on-error: true` so the build stays green.

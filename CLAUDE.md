@@ -38,7 +38,7 @@ Intended layout (being scaffolded in Phase 0; current state may be partial — c
 | `reference-strategies/` | The three reference strategy implementations built on `strategy-sdk`. |
 | `subgraph/` | Goldsky subgraph (`subgraph.yaml`, `schema.graphql`, mappings in `src/`). |
 | `deploy/` | VPS deployment scripts — PM2, Nginx, Dockerfiles per service. |
-| `docs/` | Long-form: operator-guide, allocator-guide, reputation-math, circuit-specs, threat-model, audit-checklist. |
+| `docs/` | Long-form: operator-guide, allocator-guide, reputation-math, circuit-specs, threat-model. |
 | `docker-compose.yml` | Single-command full-stack local boot. |
 
 ---

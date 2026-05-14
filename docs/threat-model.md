@@ -77,8 +77,7 @@ Auditors and operators wanting to reproduce or harden the running stack should c
 - **Phase-3 review HIGH-findings closure log:** `docs/phase-3-review.md` enumerates every HIGH issue and the redeploy that closed it; current address book in `CLAUDE.md` "Key addresses".
 - **Phase-5 cross-chain review:** `docs/phase-5-review.md` covers the C1/C2/H3/H4/H5/H6 cross-chain follow-ups closed in PR #90; `docs/phase5-acceptance.md` is the WS8 evidence bundle (preflight script, multi-chain e2e, allocator-decision test).
 - **Reputation v1→v2 cutover:** `docs/reputation-v1-v2-cutover.md` is the runbook for the Phase-5 redeploy that swaps the registry-bound anchor; today both `ReputationAnchor` (V1, registry-bound, `0x51c07adf…`) and `ReputationAnchorV2` (sidecar, `0x735680a3…`) are live.
-- **Static analysis:** Slither + Mythril run in CI from Phase 6 polish (gating tag `v0.5.0`). Echidna property suites are scheduled alongside the Phase-1 external audit and are explicitly out-of-scope for v1 (`Helios.md §16`).
-- **Audit checklist:** `docs/audit-checklist.md` is a planned post-hackathon deliverable (not yet shipped at the time of this review). Until it lands, this document plus `docs/phase-3-review.md` and `docs/phase-5-review.md` are the canonical pre-audit references.
+- **Static analysis:** Slither + Mythril run in CI from Phase 6 polish (gating tag `v0.5.0`). Echidna property suites are scheduled alongside the Phase-1 external audit and are explicitly out-of-scope for v1 (`Helios.md §16`). This document plus `docs/phase-3-review.md` and `docs/phase-5-review.md` are the canonical pre-audit references.
 - **Reproduce path:** `scripts/e2e-scenario.sh` (default) and `scripts/e2e-scenario.sh phase5` (cross-chain) run against a fresh stack. Phase-5 preflight in `scripts/preflight-phase5.sh` and latency profiling in `scripts/measure_xchain_latency.py`.
 
 ---

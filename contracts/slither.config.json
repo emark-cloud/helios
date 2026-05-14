@@ -1,5 +1,5 @@
 {
-  "_comment": "Slither config used by .github/workflows/security.yml. Filters out third-party libs, tests, scripts, and mocks so the report focuses on protocol contracts. Severity tuning lives in docs/audit-checklist.md.",
+  "_comment": "Slither config used by .github/workflows/security.yml. Filters out third-party libs, tests, scripts, and mocks so the report focuses on protocol contracts.",
   "filter_paths": "lib/|test/|script/|mocks/",
   "exclude_informational": false,
   "exclude_low": false,
