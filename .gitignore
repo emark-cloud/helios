@@ -75,3 +75,7 @@ pg-data/
 # ── Claude Code session ─────────────────────────────────────
 .claude/
 .vercel
+
+# ── Local-only planning docs (kept on disk, not pushed) ─────
+TODO.md
+DESIGN.md
