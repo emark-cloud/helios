@@ -64,7 +64,7 @@ From that single passkey approval — a Kite Passport login that funds and confi
 2. **Strategy Agents** receive their allocations and begin trading on whichever chain has the best venue (Kite, Base, or Arbitrum). Every trade comes with a **Groth16 proof** binding the executed calldata to the strategy's declared class.
 3. The **Reputation Engine**, indexed by Goldsky, continuously updates strategy scores based on realized, ZK-attested P&L.
 4. When a strategy hits its drawdown threshold, the allocator **automatically defunds it** and reroutes the capital to the next-best-ranked eligible strategy.
-5. Performance fees flow through **x402** — strategy agents earn from allocators only on realized profit above the high-water mark; allocators earn from users on the same basis.
+5. **Performance fees** are crystallized on-chain by the allocator and settled directly through `AllocatorVault.settleStrategyFee` — strategy agents earn from allocators only on realized profit above the high-water mark; allocators earn from users on the same basis. (x402-routed fee streaming is on the post-hackathon roadmap; v1 ships the HWM-gated fee math, not the x402 wrapper — see §2.1 and §17.)
 6. **LayerZero** carries reputation deltas back to Kite when strategies execute on other chains, keeping the registry canonical.
 
 The user approved once. Everything else happens autonomously, under cryptographic constraints, with every action auditable on-chain.
@@ -73,7 +73,7 @@ The user approved once. Everything else happens autonomously, under cryptographi
 
 This is not a trading bot. It's not a portfolio dashboard. It's not an AI fund service.
 
-Helios is **market infrastructure for the agentic economy** — the missing layer that makes AI trading agents a category instead of a collection of one-off products. The mechanism (reputation + auto-defund + ZK attestation + x402 fees) is the IP. The strategy agents are interchangeable participants. The users are end-consumers of a market, not customers of a service.
+Helios is **market infrastructure for the agentic economy** — the missing layer that makes AI trading agents a category instead of a collection of one-off products. The mechanism (reputation + auto-defund + ZK attestation + HWM-gated performance fees) is the IP. The strategy agents are interchangeable participants. The users are end-consumers of a market, not customers of a service.
 
 Three shifts make Helios different from anything currently shipping:
 
@@ -110,7 +110,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 
 **2. ERC-4337 smart-account spending bounds.** The AA wallet supports batched userOps; v1 uses discrete transactions for onboarding (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`) rather than a paymaster-sponsored batch — paymaster sponsorship is post-hackathon polish. Strategy operators submit `executeWithProof` directly from their operator EOA. Conditional triggers like "if strategy drawdown > 15%, freeze trades and trigger defund" live in `AllocatorVault` Solidity, not in the AA wallet itself.
 
-**3. x402 micropayments and state channels.** Performance fees flow through x402 — this is the protocol-level fee mechanism in v1, settled when the Allocator crystallizes performance fees above HWM. Strategy agents subscribe to data providers (price oracles, signal feeds) via x402 sessions issued through the same Passport wallet. Where applicable, allocator-to-strategy quote and rebalance signals can use state channels for sub-cent latency. Wrapping the prover, oracle, and audit endpoints as x402-paid services (so the Allocator literally pays for proofs through the Pieverse facilitator during the live demo) is a deferred polish track — see §16 and post-hackathon Phase 1 in §17.
+**3. x402 micropayments and state channels.** v1 ships the HWM-gated performance-fee mechanism on-chain — `AllocatorVault.settleStrategyFee` crystallizes the fee directly in mUSDC when the allocator detects new NAV above the per-(allocator, strategy, user) high-water mark. The intended end state is for the same fee call to be wrapped as an x402-paid invocation routed through the Pieverse facilitator (so the user's AA wallet "pays" the allocator and the allocator "pays" the strategy through x402 sessions), and for strategy agents to subscribe to data providers via x402 sessions issued from the same Passport wallet. Wrapping the prover, oracle, and audit endpoints as x402-paid services is part of the same track. All of that is deferred polish — see §16 and post-hackathon Phase 1 in §17. The fee math, HWM accounting, and on-chain settlement primitive are live in v1; only the x402 transport wrapper is post-hackathon.
 
 ---
 
@@ -240,7 +240,8 @@ Every 5 min:    Allocator polls strategy NAVs, checks drawdown thresholds
 Every 1 hour:   Reputation Engine emits ranking deltas; Allocator considers reallocation
 On drawdown breach: Allocator immediately defunds breached strategy and
                     reroutes capital to next-best eligible
-On new high NAV:    Allocator triggers performance fee accrual via x402
+On new high NAV:    Allocator crystallizes performance fee on-chain via
+                    `AllocatorVault.settleStrategyFee` (x402 wrapper deferred to §17)
 On rebalance window: Allocator reassesses target allocation against current ranks
 ```
 
@@ -280,7 +281,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 3. **Local backtesting.** Runs `helios backtest --strategy ./my_momentum.py --period 180d --capital 10000` to validate.
 4. **Stake and registration.** Posts $5,000 USDC stake (lower stake = lower visibility in allocator rankings). Registers strategy on the StrategyRegistry with manifest: declared class `momentum_v1`, asset universe `[BTC, ETH, SOL, BNB]`, max capacity $500k, fee rate 20%.
 5. **Deployment.** Runs `helios deploy --strategy ./my_momentum.py --vps user@his-server`. Docker image deploys, agent starts trading whenever it receives allocations.
-6. **Earning.** Allocators discover his strategy via the registry, allocate capital based on reputation. Ren earns 20% of realized profit above HWM per allocation. Fees stream via x402 and accumulate in his strategy operator wallet.
+6. **Earning.** Allocators discover his strategy via the registry, allocate capital based on reputation. Ren earns 20% of realized profit above HWM per allocation. Fees settle on-chain via `AllocatorVault.settleStrategyFee` into his strategy operator wallet (x402-routed streaming is post-hackathon polish — see §17).
 7. **Reputation building.** Initial reputation is low (no track record). After 30 days of consistent execution and proof validity, his reputation rises. Allocators progressively allocate more capital. After 90 days he's a top-10 momentum strategy and capacity becomes the binding constraint.
 
 **Why he stays.** Pure performance economy, no fundraising. He competes on actual returns, not on marketing. His track record is portable, on-chain, and ZK-attested.
@@ -299,7 +300,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 4. **Stake and registration.** Posts $10,000 USDC stake (allocator stake is required because users trust allocators with their capital — slashable on policy violations). Registers on the AllocatorRegistry with manifest: ranking function hash, allocator fee rate, supported strategy classes, max users.
 5. **Deployment.** Runs `helios-allocator deploy --vps user@her-server`. Docker image deploys, allocator runs continuously.
 6. **User onboarding.** Users discover Sara's allocator via the web app's allocator marketplace. They review her ranking function, fee rate, performance history, and stake before delegating to her.
-7. **Earning.** Sara earns 5% of net realized profit above HWM across all delegated capital. Fees stream via x402.
+7. **Earning.** Sara earns 5% of net realized profit above HWM across all delegated capital. Fees settle on-chain via `AllocatorVault.settleStrategyFee` (x402-routed streaming is post-hackathon polish — see §17).
 8. **Reputation building.** Sara's allocator earns its own reputation score, tracked separately from strategy reputations. Allocators with better aggregate user outcomes attract more delegations.
 
 **Why she stays.** Pure performance economy at the allocator layer. She competes with other allocators on the quality of her ranking function and risk management — not on marketing or sales. Her track record is portable and ZK-attested at the underlying strategy level.
