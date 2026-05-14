@@ -2,8 +2,7 @@
 
 Source-of-truth list of which StrategyVaults are *active* on Kite
 testnet (chain 2368) post-cutover, plus the rationale for the
-yield-rotation carve-out. Companion to
-`docs/phase6-realprice-plan.md`.
+yield-rotation carve-out.
 
 The chain holds the canonical truth — `StrategyRegistry.active(addr)`
 is the gate. This doc records the operator-side intent so a reader

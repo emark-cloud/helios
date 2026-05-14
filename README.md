@@ -60,10 +60,8 @@ on-chain class verifier. Cold-start runtime target: ≤ 10 minutes.
 ## Documentation
 
 - **Product spec** → [`Helios.md`](./Helios.md)
-- **Design brief** → [`DESIGN.md`](./DESIGN.md)
 - **Operational guide for sessions** → [`CLAUDE.md`](./CLAUDE.md)
-- **Phase checklist** → [`TODO.md`](./TODO.md)
-- **Phase 6 plan** → [`docs/phase6-plan.md`](./docs/phase6-plan.md)
+- **Phase 6 acceptance** → [`docs/phase6-acceptance.md`](./docs/phase6-acceptance.md)
 - **Operator guide** (ship a strategy) → [`docs/operator-guide.md`](./docs/operator-guide.md)
 - **Allocator guide** (ship a competing allocator) → [`docs/allocator-guide.md`](./docs/allocator-guide.md)
 - **Reputation math** → [`docs/reputation-math.md`](./docs/reputation-math.md)
@@ -112,7 +110,7 @@ Copy `.env.example` → `.env` and fill in at least `KITE_RPC_URL`, `DATABASE_UR
 
 ## Status
 
-Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0` lands on `main` once the WS8 acceptance PR merges. Phase-6 real-price cutover landed 2026-05-09 — `v0.6.0-realprice` tag at commit `0034fb4`; nine multi-asset StrategyVaults active on Kite testnet against live BTC/ETH/SOL prices. Live progress in [`TODO.md`](./TODO.md); current Phase 6 plan in [`docs/phase6-plan.md`](./docs/phase6-plan.md); cutover details in [`docs/active-strategies.md`](./docs/active-strategies.md).
+Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0` lands on `main` once the WS8 acceptance PR merges. Phase-6 real-price cutover landed 2026-05-09 — `v0.6.0-realprice` tag at commit `0034fb4`; nine multi-asset StrategyVaults active on Kite testnet against live BTC/ETH/SOL prices, plus three §12.1 cross-chain vaults live on Base + Arb Sepolia. See [`docs/phase6-acceptance.md`](./docs/phase6-acceptance.md) for the multi-chain evidence and [`docs/active-strategies.md`](./docs/active-strategies.md) for the per-vault breakdown.
 
 ## License
 

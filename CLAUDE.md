@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Operational guide for Claude Code sessions working in this repo. Read this first, then refer to `Helios.md` (spec) and `DESIGN.md` (design brief) for depth.
+Operational guide for Claude Code sessions working in this repo. Read this first, then refer to `Helios.md` (spec) for depth.
 
 ---
 
@@ -9,17 +9,15 @@ Operational guide for Claude Code sessions working in this repo. Read this first
 A programmatic capital market for AI trading agents on the Kite chain. Users sign one meta-strategy; an **Allocator Agent** autonomously routes their capital across competing **Strategy Agents**; every trade carries a Groth16 ZK proof binding it to the strategy's declared class; reputation accrues from realized, attested performance and flows across chains via LayerZero.
 
 - **Product spec** → `Helios.md` (source of truth for behavior, contract interfaces, reputation math, ZK circuits, economics)
-- **Design brief** → `DESIGN.md` (source of truth for aesthetic, density, motion, signature interactions)
-- **Current phase status** → `TODO.md`
 - **Build plan** → `/home/emark/.claude/plans/i-want-to-start-jiggly-hare.md`
 
-When these documents conflict with something in the code, the documents win unless there's a deliberate, reasoned deviation logged in the relevant phase in `TODO.md`.
+When the spec conflicts with something in the code, the spec wins unless there's a deliberate, reasoned deviation.
 
 ---
 
 ## Repo map
 
-Intended layout (being scaffolded in Phase 0; current state may be partial — check `TODO.md`):
+Intended layout (being scaffolded in Phase 0; current state may be partial):
 
 | Path | Purpose |
 |---|---|
@@ -131,7 +129,7 @@ Secrets never go in the repo. Use `.env` for local, Vercel/VPS env for prod.
 
 Deployed contract addresses per chain live in `contracts/deployments/*.json`, auto-written by deploy scripts. Frontend and services read from these files — no hardcoded addresses elsewhere. Current snapshot:
 
-- **Kite testnet (2368)** — Phase-6 real-price cutover live (broadcast 2026-05-09, `docs/phase6-realprice-plan.md`); full set in `contracts/deployments/kite-testnet.json`. **WS11 V1→V2 cutover live 2026-05-11** (`docs/phase5-xchain-verification.md` §WS11): fresh `reputationAnchorV2Bis` `0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D` + `strategyRegistryV3` `0xe6c2cfCa8fd59f4b6fCF0b5F83A515aBB7498D35` + `allocatorRegistryV2` `0xb673e6F8f11fb416B47f5d9C0a36400bF9485A06` (registries immutably bound to v2-bis at construction); AllocatorVault + 9 Phase-6 vaults rebound to SR-v3 via `setRegistry`/`setStrategyRegistry` setters added in `allocatorVaultImplWS11` / `strategyVaultImplWS11`; new `heliosOApp` `0x9845c0C697964464dCAF2602b4e516CaEA98E51E` (v2-bis-bound, peers re-wired Base + Arb); subgraph `helios/v0.9.0` (CXR-cost Tier 2 cutover 2026-05-14; v0.8.0 deleted from Goldsky after being superseded so the new entity slot fits under the 3-subgraph free-tier limit. v0.9.0 adds the `CrossChainAllocation` entity + `RemoteAllocationSent` handler so per-strategy cross-chain submits — single-call and batched — are queryable by `txHash` group; consumers compute batch size as the count of siblings sharing one tx hash. Pre-Tier-2 history — v0.7.0 srcChainId crash → v0.7.1 fix in commit `0375944` → v0.7.2 `handleStrategySlashed` in commit `88fc1e5` against phantom EOAs surveyed in `project_phantom_strategy_cleanup` → v0.8.0 CXR-4 chainId init for §12.1 venue routing — retained in commit log only). The legacy `strategyRegistry` (V1), `strategyRegistryV2` (WS9), `reputationAnchor` (V1), and `heliosOApp` predecessor (`0x7Bad5250…` null-anchor) are parked but no longer authoritative — engine + frontend + VPS all point at the WS11 surface. Pinned references:
+- **Kite testnet (2368)** — Phase-6 real-price cutover live (broadcast 2026-05-09); full set in `contracts/deployments/kite-testnet.json`. **WS11 V1→V2 cutover live 2026-05-11**: fresh `reputationAnchorV2Bis` `0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D` + `strategyRegistryV3` `0xe6c2cfCa8fd59f4b6fCF0b5F83A515aBB7498D35` + `allocatorRegistryV2` `0xb673e6F8f11fb416B47f5d9C0a36400bF9485A06` (registries immutably bound to v2-bis at construction); AllocatorVault + 9 Phase-6 vaults rebound to SR-v3 via `setRegistry`/`setStrategyRegistry` setters added in `allocatorVaultImplWS11` / `strategyVaultImplWS11`; new `heliosOApp` `0x9845c0C697964464dCAF2602b4e516CaEA98E51E` (v2-bis-bound, peers re-wired Base + Arb); subgraph `helios/v0.9.0` (CXR-cost Tier 2 cutover 2026-05-14; v0.8.0 deleted from Goldsky after being superseded so the new entity slot fits under the 3-subgraph free-tier limit. v0.9.0 adds the `CrossChainAllocation` entity + `RemoteAllocationSent` handler so per-strategy cross-chain submits — single-call and batched — are queryable by `txHash` group; consumers compute batch size as the count of siblings sharing one tx hash. Pre-Tier-2 history — v0.7.0 srcChainId crash → v0.7.1 fix in commit `0375944` → v0.7.2 `handleStrategySlashed` in commit `88fc1e5` against phantom EOAs surveyed in `project_phantom_strategy_cleanup` → v0.8.0 CXR-4 chainId init for §12.1 venue routing — retained in commit log only). The legacy `strategyRegistry` (V1), `strategyRegistryV2` (WS9), `reputationAnchor` (V1), and `heliosOApp` predecessor (`0x7Bad5250…` null-anchor) are parked but no longer authoritative — engine + frontend + VPS all point at the WS11 surface. Pinned references:
   - `userVault` `0x78b3515f4e9186d9870dcef02da58e4c8c5c6e8f` (impl `0x245a96310b228016d79f6b93d934eb26c1FcE209`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + setMeta tightening guard from HIGH #5/#10)
   - `allocatorVault` `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (impl `0x770E3078a285651c11863Ec4D8Be87D0aDE29Cb7`, Phase-3 Unit-1 redeploy 2026-05-08 with Pausable + `userTotalDeployed` view + capped `_unwindAndCredit` from HIGH #5/#8/#10)
   - `strategyRegistry` `0x3a0f5b9436eca0c8c0eced659dcc41e86e65e33d` (V1, Phase-1 deploy; predates `paramsHashOf`/`commitInitialParamsHash` from PR #70 / commit `4674f61`. AllocatorVault references this registry as immutable, so it stays the active-flag source of truth)
@@ -192,7 +190,7 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
 - **Kite testnet — Phase-5 cross-chain additions (2026-05-11)**:
   - `heliosOApp` `0x9D93F3f2254d7d6f6f4208938b7Ce7F9E33c43B3` (canonical-side OApp; wired to live V1 `reputationAnchor` `0x51c07adf…`. Constructor `kiteEid=40415`, `maxPendingPerStrategy=64`. Owner = deployer)
   - LZ V2 endpoint `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` (LZ EID `40415`)
-  - V1 `ReputationAnchor.setOApp(heliosOApp)` landed in tx `0xabc5f4fb…` 2026-05-11 — pre-WS10 the field was `0x0`, so any inbound `postCrossChainUpdate(...)` reverted `NotOApp()`. Live-network verification in `docs/phase5-xchain-verification.md`.
+  - V1 `ReputationAnchor.setOApp(heliosOApp)` landed in tx `0xabc5f4fb…` 2026-05-11 — pre-WS10 the field was `0x0`, so any inbound `postCrossChainUpdate(...)` reverted `NotOApp()`.
 
 ---
 
@@ -224,7 +222,7 @@ Full checklist — all must happen or the class is incomplete:
 It's spec'd in `Helios.md §8.2` with specific weights. Changes require updating: the engine (`services/reputation/`), the docs (`docs/reputation-math.md`), and the `/audit` page explainer. Any weight change is a v2 decision, not a drop-in edit.
 
 **Before changing motion or color:**
-Check `DESIGN.md §13` (motion) and `§4.3` (color). Amber is ~2–5% of pixels total; green/red are data-signal only; no smooth easings on anything that maps to a discrete on-chain event.
+Amber is ~2–5% of pixels total; green/red are data-signal only; no smooth easings on anything that maps to a discrete on-chain event.
 
 **Before integrating Kite Passport:**
 Passport supports Kite Testnet (chain 2368) and Kite Mainnet (chain 2366) with the **same** install / passkey / x402 flow — only the chain target differs. v1 runs real Passport against testnet through Phase 6; mainnet promotion is a stretch goal (flow is identical, only the chain target changes). There is no EIP-712 shim; the v0 spec's "user signs one meta-strategy" framing maps onto a Passport passkey-approved session, not a raw signing key. Reference: `Helios.md §12.1` (Passport on testnet subsection) and the testnet config table there.
@@ -254,17 +252,4 @@ lands on `main` once the WS8 acceptance PR merges. WS1–WS7 already on
 `scripts/measure_xchain_latency.py`,
 `services/sentinel/tests/test_phase5_xchain.py`, and the
 `scripts/e2e-scenario.sh phase5` mode. See `docs/phase5-acceptance.md`
-for the WS8 evidence and `TODO.md` for the live Phase 6 checklist.
-
-**WS9 — Autonomous attested trades** (active, gates WS5 + WS6). After
-the Phase-6 capacity-fix redeploy + sentinel decimals/allocate fixes
-landed 2026-05-10, the allocator chain works end-to-end (user →
-allocator → 9 vaults holding capital), but no strategy has fired a
-`TradeAttested` event yet because seven runtime misconfigs cascade.
-See `docs/phase6-plan.md` §WS9 + the design doc at
-`/home/emark/.claude/plans/dazzling-spinning-quokka.md`. Three layers:
-oracle aliases + cadence (`services/oracle/src/oracle/service.py`),
-strategy runtime wiring (`asset_universe_addresses`, `Web3BlockProvider`,
-autonomous `commitInitialParamsHash` lifespan hook in each
-`reference-strategies/*/service.py`), and VPS env updates (operator +
-NAV PKs, anchor cadence, `*_ASSET_UNIVERSE_ADDRESSES_JSON`).
+and `docs/phase6-acceptance.md` for the WS8 + multi-chain evidence.
