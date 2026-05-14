@@ -1780,7 +1780,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 ## 15. Security, trust, and threat model
 
-A protocol that handles capital must articulate its trust model honestly. This section is what mature judges (and serious users) will read first.
+A protocol that handles capital must articulate its trust model honestly. 
 
 ### 15.1 Trust assumptions
 
