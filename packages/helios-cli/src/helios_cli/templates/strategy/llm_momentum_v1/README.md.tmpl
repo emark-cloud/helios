@@ -1,0 +1,100 @@
+# {{NAME}}
+
+A Helios `llm_momentum_v1` strategy: **Claude decides every trade; the
+Kite chain enforces the bounds.** Reuses the existing `momentum_v1`
+Groth16 circuit + verifier — the only thing that changes vs. a
+deterministic strategy is the signal source. Scaffolded by
+`helios scaffold-strategy llm_momentum_v1`.
+
+## Quickstart
+
+```bash
+# 1. Install
+pip install -e .
+
+# 2. Set your Anthropic API key
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# 3. Backtest (use --mock-llm to skip API calls in CI)
+helios backtest --strategy src/{{NAME_SNAKE}}/strategy.py --period 90d
+
+# 4. Customize the on-chain environment
+cp .env.example .env
+$EDITOR .env
+
+# 5. Stake on Kite testnet + deploy to your VPS
+helios stake top-up --strategy src/{{NAME_SNAKE}}/strategy.py
+helios deploy --strategy src/{{NAME_SNAKE}}/strategy.py --target user@host
+```
+
+## Where the agent lives
+
+Open `src/{{NAME_SNAKE}}/strategy.py`. The only thing you typically
+edit is `SYSTEM_PROMPT` at the top of the file — that's the agent's
+behavior. The runtime layer (oracle polling, Groth16 proof generation,
+`executeWithProof` submission) is in the SDK and does not need to change.
+
+The model is called via the Anthropic SDK with a strict tool-use schema:
+
+```python
+{"action": "LONG" | "EXIT" | "HOLD",
+ "confidence": 0..1,
+ "rationale": "..."}
+```
+
+If `confidence < min_confidence` or `action == "HOLD"`, no trade fires.
+
+## Customize the prompt
+
+```python
+SYSTEM_PROMPT = """You are a contrarian momentum trader. LONG on dips
+with positive 10-bar mean reversion; EXIT on strength. Be conservative —
+only fire when confidence > 0.75."""
+```
+
+You can also override the model:
+
+```python
+{{NAME_PASCAL}}Strategy(model="claude-sonnet-4-6", min_confidence=0.75)
+```
+
+Default model is `claude-haiku-4-5-20251001` — cheap and fast at a
+1-minute bar cadence (~$0.50/day per vault). Switch to Sonnet 4.6 or
+Opus 4.7 for more deliberative decisions at higher cost.
+
+## What the chain enforces
+
+`momentum_v1.circom` commits each trade to the operator's declared bounds
+via a Poseidon `params_hash`:
+
+  * `max_position_size_usd`
+  * `max_slippage_bps`
+  * `signal_threshold` (proves *some* threshold exists for which the
+    trade is consistent — the LLM cannot escape this)
+  * `stop_loss_price`
+
+A hallucinated trade outside these bounds will fail proof verification
+on chain. You stake real mUSDC; the LLM operates within a bounded
+sandbox; reputation accrues from realized, attested performance.
+
+## Build iteratively with Claude Code
+
+```bash
+claude "Open src/{{NAME_SNAKE}}/strategy.py, rewrite SYSTEM_PROMPT to
+emphasize volatility-aware sizing, then run 'helios backtest
+--strategy src/{{NAME_SNAKE}}/strategy.py --period 90d' and report the
+Sharpe ratio."
+```
+
+## Layout
+
+```
+{{NAME_KEBAB}}/
+├── pyproject.toml
+├── Dockerfile               # produced by `helios deploy`
+├── .env.example             # includes ANTHROPIC_API_KEY
+└── src/
+    └── {{NAME_SNAKE}}/
+        ├── __init__.py
+        └── strategy.py      # SYSTEM_PROMPT + on_bar
+```

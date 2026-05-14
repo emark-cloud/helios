@@ -123,6 +123,11 @@ Live as of `v1` (2026-05-14):
   + oracle services on a Servarica Montreal VPS; Goldsky subgraphs
   `helios/v0.9.0` + `helios-base/v0.8.0` + `helios-arbitrum/v0.8.0`
   index all three chains.
+- **LLM strategy reference.** `reference-strategies/llm_momentum_v1/`
+  ships a Claude-driven `momentum_v1` strategy — the model decides
+  LONG/EXIT/HOLD per bar via Anthropic tool use; the on-chain
+  `params_hash` enforces the operator's declared bounds. Scaffold
+  your own with `helios scaffold-strategy llm_momentum_v1 --name <NAME>`.
 
 Full empirical evidence trail (every claim → on-chain artifact):
 [`docs/helios-v1-acceptance.md`](./docs/helios-v1-acceptance.md).
@@ -201,7 +206,7 @@ verify-trade command inline.
 | [`services/reputation/`](./services/reputation) | Reputation engine — Goldsky → signed scores → on-chain |
 | [`services/prover/`](./services/prover) | Groth16 proof-generation HTTP wrapper around snarkjs |
 | [`services/oracle/`](./services/oracle) | Helios-operated price + yield oracle |
-| [`reference-strategies/`](./reference-strategies) | Three reference strategy implementations |
+| [`reference-strategies/`](./reference-strategies) | Reference strategy implementations (deterministic + LLM-driven) |
 | [`subgraph/`](./subgraph) | Goldsky subgraph manifest, schema, mappings |
 | [`frontend/`](./frontend) | Next.js 14 App Router frontend |
 | [`scripts/`](./scripts) | E2E scenarios, verify-trade.js, preflight + measurement scripts |

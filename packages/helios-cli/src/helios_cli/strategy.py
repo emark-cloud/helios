@@ -584,7 +584,16 @@ def test_proof(
 
 
 _STRATEGY_TEMPLATES_DIR = _TEMPLATES_DIR / "strategy"
-_KNOWN_CLASSES = ("momentum_v1", "mean_reversion_v1", "yield_rotation_v1")
+_KNOWN_CLASSES = (
+    "momentum_v1",
+    "mean_reversion_v1",
+    "yield_rotation_v1",
+    # LLM-driven variants — same circuit + verifier as their base class,
+    # only the signal source changes (Anthropic SDK call). Pick these
+    # for agentic-workflow demos; pick the base classes for deterministic
+    # quant signals.
+    "llm_momentum_v1",
+)
 
 
 @app.command(name="scaffold-strategy")
