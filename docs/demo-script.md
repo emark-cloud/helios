@@ -125,7 +125,7 @@ in post.
   (~1.08 KITE per LZ V2 hop on testnet).
 - Canonical fallback material if a fresh take doesn't land: the
   three verified hops from 2026-05-14
-  (`docs/phase6-acceptance.md §2.2`):
+  (`docs/Helios v1 acceptance.md §2.2`):
   - mr.base — tx `0x6ef584a1…` (Kite block 21392016)
   - mom.base — tx `0xfee792dc…` (Kite block 21392017)
   - yr.arb — tx `0xcda2e6bd…` (Kite block 21392018)

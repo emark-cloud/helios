@@ -159,7 +159,7 @@ Deployed contract addresses per chain live in `contracts/deployments/*.json`, au
     - `phase6VaultMomentum` `0xa44ef042840c8c4f1a174daf66389efeb8375a5a` (current; supersedes the WS9-afternoon dual-registry vault `0x35c07f855d10da4b09e5d6322a2155f0396e4311`, parked under `phase6VaultMomentumLegacy_dedicated_op_predecessor`, which itself superseded the morning capacity-fix vault `0xdadeac5d…`. The 2026-05-10 evening redeploy added the per-class dedicated operator/navOracle EOA to break shared-deployer nonce contention — memory `project_phase6_ws9_dedicated_keys.md`. Authoritative source: `contracts/deployments/kite-testnet.json → addresses.phase6VaultMomentum`)
     - `phase6VaultMomentumVariant2` `0x7a18727375065b29526d816b713fad99cd247006` (supersedes morning `0x96ea2d19…`)
     - `phase6VaultMomentumVariant3` `0xecfeb975789cf058865830f985ba18299d8e1dca` (supersedes morning `0xc05862ef…`)
-    - `phase6VaultMeanReversion` `0x1717640c4f9cd9f84b028bc8dfdcea3fb0572c6a` (current; supersedes the WS9-afternoon dual-registry vault `0xe09ed1ecb4bd9e6d64f9fd0270c95e4f17d98015`, parked under `phase6VaultMeanReversionLegacy_dedicated_op_predecessor`, which itself superseded the morning capacity-fix vault `0xf6d714e8…`. Same dedicated-keys lineage as `phase6VaultMomentum` above. **This is the vault that fired the first eight autonomous `TradeAttested` events on 2026-05-12** — see `docs/phase6-acceptance.md`. Authoritative source: `contracts/deployments/kite-testnet.json → addresses.phase6VaultMeanReversion`)
+    - `phase6VaultMeanReversion` `0x1717640c4f9cd9f84b028bc8dfdcea3fb0572c6a` (current; supersedes the WS9-afternoon dual-registry vault `0xe09ed1ecb4bd9e6d64f9fd0270c95e4f17d98015`, parked under `phase6VaultMeanReversionLegacy_dedicated_op_predecessor`, which itself superseded the morning capacity-fix vault `0xf6d714e8…`. Same dedicated-keys lineage as `phase6VaultMomentum` above. **This is the vault that fired the first eight autonomous `TradeAttested` events on 2026-05-12** — see `docs/Helios v1 acceptance.md`. Authoritative source: `contracts/deployments/kite-testnet.json → addresses.phase6VaultMeanReversion`)
     - `phase6VaultMeanReversionVariant2` `0x4509c3e7b5e418c0701cf4d0145c570bac2f8fca` (supersedes morning `0xb95c141f…`)
     - `phase6VaultMeanReversionVariant3` `0x125b10809e3c6d70c51bf6385ed3cfb1c771d0f5` (supersedes morning `0x3d246570…`)
     - `phase6VaultYieldRotation` `0x2aff8735ed89451d359205dc6a80ae625e6f6e47` (morning `0x1caba93f…` retained `active=true` because it holds 55 mUSDC user NAV; deactivation deferred until defunded)
@@ -256,5 +256,5 @@ on 2026-05-14. WS1–WS7 of Phase 5 already on `main` via stacked PRs
 `scripts/measure_xchain_latency.py`,
 `services/sentinel/tests/test_phase5_xchain.py`, and the
 `scripts/e2e-scenario.sh phase5` mode. See `docs/phase5-acceptance.md`
-and `docs/phase6-acceptance.md` for the WS8 + multi-chain evidence, and
+and `docs/Helios v1 acceptance.md` for the WS8 + multi-chain evidence, and
 `TODO.md` for the live Phase 6 checklist.

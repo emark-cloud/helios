@@ -157,7 +157,7 @@ If you have one more minute, read these three sections of
 - **§14 — Demo scenario.** What the demo video shows + why
   scenario-mode is real-mechanism-not-cheating.
 
-If you have *another* minute, read `docs/phase6-acceptance.md` for
+If you have *another* minute, read `docs/Helios v1 acceptance.md` for
 the empirical evidence trail (every claim above traced to an
 on-chain artifact).
 
