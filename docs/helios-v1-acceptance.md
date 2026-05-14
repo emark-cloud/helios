@@ -280,11 +280,4 @@ Per the threat model (`docs/threat-model.md`):
   at 90.07% line / 87.72% branch on `main`.
 - Row 12 (ZK circuit bug) → mitigated; circuit unit tests + per-vault
   on-chain `TradeAttested` confirm wiring.
-- §12.1 cross-chain routing → no longer a "deliberate v1 cut"; live
-  on Base + Arb testnets with real LZ V2 messages.
 
-The Phase-6 acceptance tag `v0.6.0` lands on the current `main` HEAD
-once the WS5 demo deliverables are on disk (script, runbook,
-cold-start one-pager — recorded video links into `/judge` as a
-follow-up). `v0.5.0` already shipped Phase 5 cross-chain on
-2026-05-08, so v0.6.0 is the canonical Phase 6 release.
