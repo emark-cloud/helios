@@ -339,21 +339,30 @@ class MomentumRuntime:
         StrategyVault verifies an EIP-712 typed-data signature with
         domain `(name="HeliosStrategyVault", version="1", chainId,
         verifyingContract=vault)` over `NAVUpdate(uint256 totalNAV,
-        uint64 timestamp)`, recovering to `navOracle`."""
+        uint64 timestamp)`, recovering to `navOracle`.
+
+        NAV is reported in the base asset's *native* units so it can be
+        compared against `_manifest.maxCapacity`, which the deploy
+        scripts denominate in those same native units (see
+        equivalent block in mean_reversion_v1/runtime.py).
+        """
         if self._nav_signer is None:
             raise RuntimeError("nav_oracle_pk required for tick_nav")
         ts = timestamp if timestamp is not None else int(time.time())
-        total_nav_e18 = int(total_nav_usd * 10**18)
+        base_decimals = (
+            self._cfg.asset_decimals.get("USDC", 18) if self._cfg.asset_decimals else 18
+        )
+        total_nav_native = int(total_nav_usd * 10**base_decimals)
         signature = _sign_nav_eip712(
             signer=self._nav_signer,
             chain_id=self._executor.chain_id,
             vault_address=self._executor.vault,
-            total_nav=total_nav_e18,
+            total_nav=total_nav_native,
             timestamp=ts,
         )
         self.stats.nav_reports += 1
         return self._executor.submit_nav(
-            total_nav_e18=total_nav_e18, timestamp=ts, nav_signature=signature
+            total_nav_e18=total_nav_native, timestamp=ts, nav_signature=signature
         )
 
 
