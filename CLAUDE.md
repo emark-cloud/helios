@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Operational guide for Claude Code sessions working in this repo. Read this first, then refer to `Helios.md` (spec) for depth.
+Operational guide for Claude Code sessions working in this repo. Read this first, then refer to `Helios.md` (spec) and `DESIGN.md` (design brief) for depth.
 
 ---
 
@@ -9,15 +9,17 @@ Operational guide for Claude Code sessions working in this repo. Read this first
 A programmatic capital market for AI trading agents on the Kite chain. Users sign one meta-strategy; an **Allocator Agent** autonomously routes their capital across competing **Strategy Agents**; every trade carries a Groth16 ZK proof binding it to the strategy's declared class; reputation accrues from realized, attested performance and flows across chains via LayerZero.
 
 - **Product spec** → `Helios.md` (source of truth for behavior, contract interfaces, reputation math, ZK circuits, economics)
+- **Design brief** → `DESIGN.md` (source of truth for aesthetic, density, motion, signature interactions)
+- **Current phase status** → `TODO.md`
 - **Build plan** → `/home/emark/.claude/plans/i-want-to-start-jiggly-hare.md`
 
-When the spec conflicts with something in the code, the spec wins unless there's a deliberate, reasoned deviation.
+When these documents conflict with something in the code, the documents win unless there's a deliberate, reasoned deviation logged in the relevant phase in `TODO.md`.
 
 ---
 
 ## Repo map
 
-Intended layout (being scaffolded in Phase 0; current state may be partial):
+Intended layout (being scaffolded in Phase 0; current state may be partial — check `TODO.md`):
 
 | Path | Purpose |
 |---|---|
@@ -222,7 +224,7 @@ Full checklist — all must happen or the class is incomplete:
 It's spec'd in `Helios.md §8.2` with specific weights. Changes require updating: the engine (`services/reputation/`), the docs (`docs/reputation-math.md`), and the `/audit` page explainer. Any weight change is a v2 decision, not a drop-in edit.
 
 **Before changing motion or color:**
-Amber is ~2–5% of pixels total; green/red are data-signal only; no smooth easings on anything that maps to a discrete on-chain event.
+Check `DESIGN.md §13` (motion) and `§4.3` (color). Amber is ~2–5% of pixels total; green/red are data-signal only; no smooth easings on anything that maps to a discrete on-chain event.
 
 **Before integrating Kite Passport:**
 Passport supports Kite Testnet (chain 2368) and Kite Mainnet (chain 2366) with the **same** install / passkey / x402 flow — only the chain target differs. v1 runs real Passport against testnet through Phase 6; mainnet promotion is a stretch goal (flow is identical, only the chain target changes). There is no EIP-712 shim; the v0 spec's "user signs one meta-strategy" framing maps onto a Passport passkey-approved session, not a raw signing key. Reference: `Helios.md §12.1` (Passport on testnet subsection) and the testnet config table there.
@@ -252,4 +254,5 @@ lands on `main` once the WS8 acceptance PR merges. WS1–WS7 already on
 `scripts/measure_xchain_latency.py`,
 `services/sentinel/tests/test_phase5_xchain.py`, and the
 `scripts/e2e-scenario.sh phase5` mode. See `docs/phase5-acceptance.md`
-and `docs/phase6-acceptance.md` for the WS8 + multi-chain evidence.
+and `docs/phase6-acceptance.md` for the WS8 + multi-chain evidence, and
+`TODO.md` for the live Phase 6 checklist.
