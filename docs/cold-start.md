@@ -147,15 +147,14 @@ single LZ V2 hop. Evidence on Kitescan:
 
 ## Step 5 — The mechanism, top-down (60 s)
 
-If you have one more minute, read these three sections of
+If you have one more minute, read these sections of
 `Helios.md`:
 
 - **§3 — The breakthrough.** Why on-chain class enforcement via ZK
   is the unlocking primitive, not just a nice-to-have.
 - **§6.5 — `StrategyVault.executeWithProof`.** The single function
   that enforces every claim in this document.
-- **§14 — Demo scenario.** What the demo video shows + why
-  scenario-mode is real-mechanism-not-cheating.
+
 
 If you have *another* minute, read `docs/helios-v1-acceptance.md` for
 the empirical evidence trail (every claim above traced to an
