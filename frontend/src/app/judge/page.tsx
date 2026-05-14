@@ -269,10 +269,9 @@ function AddressTable(): JSX.Element {
       />
 
       <p className="font-mono text-[12px] text-fg-muted">
-        Kite mainnet (chain 2366) is a stretch — see{" "}
-        <code className="text-fg-secondary">docs/deployment-strategy.md</code>.
-        The v1 system promises identical wiring on mainnet; only the chain
-        target changes for Kite Passport.
+        Kite mainnet (chain 2366) is a stretch. The v1 system promises
+        identical wiring on mainnet; only the chain target changes for
+        Kite Passport.
       </p>
     </section>
   );

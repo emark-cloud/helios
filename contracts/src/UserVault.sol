@@ -33,8 +33,8 @@ interface IAllocatorVaultForUser {
 ///         Phase 1 simplification:
 ///         - Single base asset (USDC). Multi-asset handling deferred to v2.
 ///         - msg.sender is the user. Signature on setMetaStrategy is recorded
-///           but not verified — Kite Passport integration stubbed; see
-///           docs/kite-passport-notes.md. [PASSPORT-STUB]
+///           but not verified — Kite Passport integration stubbed.
+///           [PASSPORT-STUB]
 ///         - withdraw operates against the idle balance held here. Capital
 ///           that is currently allocated to a strategy lives in the strategy
 ///           vault and must be unwound through the AllocatorVault first.

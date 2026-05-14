@@ -11,8 +11,7 @@
  * component. Type re-exports are safe (types are stripped at build
  * time).
  *
- * Helios.md §6.1 (UserVault custody), `docs/kite-passport-notes.md`
- * §"Pattern 1" (the four-call onboarding batch).
+ * Helios.md §6.1 (UserVault custody).
  */
 
 import { type Hex } from "viem";

@@ -86,8 +86,8 @@ Three options, in order of cleanest to most pragmatic:
 Phase 5 executes path (1) on testnet (the registry redeploy happens
 regardless of mainnet timing — it's needed to bind V2 to the live
 contracts so allocator capital flow tracks v2 scores). Mainnet
-promotion is a stretch (see `docs/deployment-strategy.md`); if
-exercised it re-runs the same redeploy on chain 2366. Until path (1)
+promotion is a stretch; if exercised it re-runs the same redeploy
+on chain 2366. Until path (1)
 ships the codebase is in path (3): V2 publishes, V1 registries hold
 the legacy scalar, and the subgraph + audit page surface both.
 

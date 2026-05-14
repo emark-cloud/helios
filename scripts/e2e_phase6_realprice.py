@@ -342,8 +342,7 @@ def _send_deposit(_ctx: Ctx, _depositor: object, _amount_e18: int) -> None:
     raise NotImplementedError(
         "deposit driving requires Passport session wiring — "
         "use the frontend or `kpass` CLI to deposit, then re-run with "
-        "DEPOSITOR_PK unset to skip the driving phase. See "
-        "docs/kite-passport-integration.md for the deposit flow."
+        "DEPOSITOR_PK unset to skip the driving phase."
     )
 
 

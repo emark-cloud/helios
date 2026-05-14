@@ -7,8 +7,8 @@
  * `login()` call to keep `@particle-network/auth`'s `window` /
  * `navigator` accesses out of the SSR critical path.
  *
- * Pattern 1 of `docs/kite-passport-notes.md`: passkey login → AA
- * smart-account address → batched userOp via `gokite-aa-sdk`.
+ * Onboarding pattern: passkey login → AA smart-account address →
+ * batched userOp via `gokite-aa-sdk`.
  */
 
 "use client";
