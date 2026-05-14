@@ -1,4 +1,4 @@
-# Phase 6 — Acceptance evidence
+# Helios v1 — Acceptance evidence
 
 **Status (2026-05-14).** Mechanism end-to-end live on **three chains** —
 Kite testnet (autonomous attested trades) plus Base Sepolia and Arbitrum
@@ -7,10 +7,6 @@ closed the §12.1 venue-routing path: the sentinel allocator fired three
 real `RemoteAllocationSent` messages, LZ V2 delivered each, and the
 destination strategy vaults now hold real on-chain capital.
 
-Source-of-truth: `Helios.md §6`, `§9`, `§11.2`, `§12.1`; build plan `TODO.md`
-Phase 6; cross-decimal cutover memory `project_phase6_cross_decimal_cutover.md`;
-cross-chain bring-up memory `project_cxr0c_kite_faucet_blocker.md`;
-cost-optimization roadmap `docs/cross-chain-cost-roadmap.md`.
 
 ---
 
