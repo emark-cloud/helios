@@ -15,8 +15,8 @@
 
 | What you want to confirm | How (under 1 min each) |
 |---|---|
-| Real strategies with reputation scores | Open `https://helios.market/strategies` |
-| Real ZK-attested trades on Kite | Open `https://helios.market/judge`, scroll to "Recent attested trades" |
+| Real strategies with reputation scores | Open `https://helios-frontend-steel.vercel.app/strategies` |
+| Real ZK-attested trades on Kite | Open `https://helios-frontend-steel.vercel.app/judge`, scroll to "Recent attested trades" |
 | Verify a proof yourself | `node scripts/verify-trade.js <tx-hash>` from a clone |
 | Capital really moves cross-chain | Visit any `RemoteAllocationSent` tx on Kitescan + its LZScan trace |
 | Reputation really crosses chains | LZ GUID `0x24fd5344…` (Base → Kite) |

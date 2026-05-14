@@ -1702,7 +1702,7 @@ Kite is the source of truth. If a Base node reports inconsistent data, the Layer
 
 ### 13.1 Web app
 
-A Next.js 14 app deployed at `helios.market` (or similar). For users and auditors.
+A Next.js 14 app deployed at `https://helios-frontend-steel.vercel.app`. For users and auditors.
 
 **Pages:**
 
@@ -1774,7 +1774,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **Backup demo video.** A pre-recorded 90-second version exists for fallback if anything fails live. Submitted alongside the live demo.
 
-**The judge quick-eval link.** `helios.market/judge` — a single page that gives judges everything: video link, live URL, contract addresses on Kitescan, GitHub links, 5-minute eval checklist.
+**The judge quick-eval link.** `https://helios-frontend-steel.vercel.app/judge` — a single page that gives judges everything: video link, live URL, contract addresses on Kitescan, GitHub links, 5-minute eval checklist.
 
 ---
 
@@ -2002,10 +2002,10 @@ helios/
 For judges of the Kite AI Global Hackathon 2026 evaluating Helios.
 
 ### Step 1: Watch the 90-second video
-Link: [helios.market/demo-video](#)
+Link: [helios-frontend-steel.vercel.app/demo-video](https://helios-frontend-steel.vercel.app/demo-video)
 
 ### Step 2: Open the live app
-Link: [helios.market](#) → switch to Kite testnet
+Link: [helios-frontend-steel.vercel.app](https://helios-frontend-steel.vercel.app) → switch to Kite testnet
 
 ### Step 3: Try the demo flow
 Click "Run Demo Scenario" on the dashboard. Watch the 3-minute scripted scenario play out: cascade allocation → drawdown → auto-defund → cross-chain reputation update.
@@ -2018,7 +2018,7 @@ Click "Run Demo Scenario" on the dashboard. Watch the 3-minute scripted scenario
 
 ### Step 5: Re-verify a ZK proof yourself
 ```
-git clone https://github.com/helios-market/helios
+git clone https://github.com/emark-cloud/helios
 cd helios
 npm install
 node scripts/verify-trade.js <txhash>
