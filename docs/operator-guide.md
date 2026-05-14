@@ -87,6 +87,150 @@ trades.
 
 ---
 
+## 1b. LLM-driven decisions (optional)
+
+The protocol is indifferent to what generates your signal. The
+on-chain verifier only checks that each trade satisfies the class
+circuit's public inputs — an LLM, a rule, or an RL policy are
+interchangeable from its point of view. To swap a rule-based `on_bar`
+for an LLM call:
+
+```python
+# my_llm_strategy.py
+import json
+
+import anthropic
+from pydantic import BaseModel, ValidationError
+
+from helios import Direction, StrategyAgent, TradeIntent
+
+
+SYSTEM_PROMPT = """You are a momentum strategy agent. Given a window
+of recent price bars and the current portfolio, decide whether to
+open or exit a long position. Respond with ONLY a JSON object
+matching this schema:
+{"fire": bool, "asset": str, "side": "long"|"exit",
+ "size_bps": int, "rationale": str}
+size_bps is the fraction (0–10000) of available_capital to deploy.
+"""
+
+
+class _Decision(BaseModel):
+    fire: bool
+    asset: str
+    side: str
+    size_bps: int
+    rationale: str
+
+
+class LLMMomentum(StrategyAgent):
+    declared_class = "momentum_v1"
+    asset_universe = ("USDC", "WKITE", "WETH")
+    max_position_size_usd = 5_000
+    fee_rate_bps = 2_000
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.llm = anthropic.Anthropic()
+
+    def on_bar(self, asset, snapshot):
+        if asset == "USDC":
+            return None
+
+        ctx = {
+            "asset": asset,
+            "bars": snapshot.last(16),
+            "position": self.position_for(asset),
+            "available_capital": self.available_capital,
+            "class_threshold_bps": 100,
+            "universe": list(self.asset_universe),
+        }
+        resp = self.llm.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(ctx)}],
+        )
+        try:
+            decision = _Decision.model_validate_json(resp.content[0].text)
+        except (ValidationError, IndexError):
+            return None  # malformed output is a no-op
+
+        if not decision.fire or decision.asset not in self.asset_universe:
+            return None
+
+        # Local pre-check: do not pay for a proof the verifier will reject.
+        recent_return = snapshot.return_over(bars=10)
+        if decision.side == "long" and recent_return <= 0.010:
+            return None
+        if decision.side == "exit" and self.position_for(decision.asset) <= 0:
+            return None
+
+        size = min(
+            self.max_position_size_usd,
+            self.available_capital * decision.size_bps / 10_000,
+        )
+        if decision.side == "long":
+            return TradeIntent(
+                asset_in="USDC",
+                asset_out=decision.asset,
+                amount_in_usd=size,
+                direction=Direction.LONG,
+                max_slippage_bps=30,
+            )
+        return TradeIntent(
+            asset_in=decision.asset,
+            asset_out="USDC",
+            amount_in_asset=self.position_for(decision.asset),
+            direction=Direction.EXIT,
+            max_slippage_bps=30,
+        )
+```
+
+**What the class circuit enforces, regardless of LLM output:**
+
+- `declared_class` is pinned to `momentum_v1` — the LLM cannot
+  impersonate a different class.
+- `asset_universe_hash` is pinned to your registered universe — the
+  LLM cannot trade an off-universe token.
+- `params_hash` pins your `signal_threshold`, `max_slippage_bps`,
+  `max_position_size` — the LLM cannot widen these at runtime.
+- The momentum signal constraint is checked inside the circuit
+  against the committed oracle window — the LLM cannot fabricate
+  prices.
+
+If the LLM proposes a trade violating any of these, the prover
+refuses to build a witness, or the on-chain verifier rejects the
+proof. The worst a hallucinating LLM can do is burn API credit and
+miss opportunities — never drain the vault, never trade outside the
+universe, never masquerade as a different class.
+
+### Operational considerations
+
+- **Latency.** Inference is seconds; bar cadence is 60s. Fine for
+  the three v1 classes. For sub-minute classes, move the LLM to a
+  slower regime-detection role and keep a deterministic firing rule
+  on the hot path.
+- **Cost.** You pay for inference. At a 60s tick across N vaults,
+  Sonnet-class API calls add up — cache identical windows or gate
+  the LLM behind a cheap pre-filter.
+- **Structured output.** Use tool-use / JSON-schema modes and
+  validate with pydantic. One bad parse must be a no-op, not a
+  default-fire.
+- **Replay evidence.** The on-chain proof is deterministic; the
+  decision isn't. Log prompt + completion + model + seed alongside
+  every fired trade so slashing disputes can reconstruct intent.
+- **Reputation arbitrates.** An LLM-driven strategy competes
+  head-to-head with rule-based ones in the same `StrategyRegistry`.
+  Capital flows toward whichever scores higher on the §8.2
+  reputation formula — Helios doesn't know or care that an LLM made
+  the decision.
+
+Everything from §2 onward (backtest, simulate, test-proof, deploy,
+register, stake) works identically.
+
+---
+
 ## 2. Backtest
 
 Run the SDK's synthetic-bar engine and write a markdown report under
