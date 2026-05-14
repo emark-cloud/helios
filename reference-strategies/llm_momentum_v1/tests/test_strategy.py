@@ -35,7 +35,9 @@ class _FakeAnthropic:
     being a list of blocks; tool_use blocks carry `.type` and `.input`.
     """
 
-    def __init__(self, tool_input: dict[str, Any] | None, *, raise_exc: Exception | None = None) -> None:
+    def __init__(
+        self, tool_input: dict[str, Any] | None, *, raise_exc: Exception | None = None
+    ) -> None:
         self._tool_input = tool_input
         self._raise = raise_exc
         self.calls: list[dict[str, Any]] = []
@@ -47,9 +49,7 @@ class _FakeAnthropic:
             raise self._raise
         if self._tool_input is None:
             return SimpleNamespace(content=[SimpleNamespace(type="text", text="no tool")])
-        return SimpleNamespace(
-            content=[SimpleNamespace(type="tool_use", input=self._tool_input)]
-        )
+        return SimpleNamespace(content=[SimpleNamespace(type="tool_use", input=self._tool_input)])
 
 
 def _strategy(client: Any, **kwargs: Any) -> LLMMomentumStrategy:

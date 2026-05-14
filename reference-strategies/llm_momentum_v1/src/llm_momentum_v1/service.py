@@ -44,7 +44,9 @@ class Settings(BaseServiceSettings):
     operator_pk: str = Field(default="", validation_alias="LLM_MOMENTUM_OPERATOR_PK")
     nav_oracle_pk: str = Field(default="", validation_alias="NAV_ORACLE_PK")
     allocator_address: str = Field(default="0x" + "0" * 40, validation_alias="ALLOCATOR_ADDRESS")
-    declared_class_field: int = Field(default=0, validation_alias="LLM_MOMENTUM_DECLARED_CLASS_FIELD")
+    declared_class_field: int = Field(
+        default=0, validation_alias="LLM_MOMENTUM_DECLARED_CLASS_FIELD"
+    )
     # Phase-5: when running on Base Sepolia, set venue_kind=uniswap_v3 +
     # pool_fee_bps to the chosen pool's fee tier (e.g. 500 for
     # ETH/USDC 0.05%). Defaults preserve Kite/Algebra behavior.
@@ -60,7 +62,9 @@ class Settings(BaseServiceSettings):
     # Set to e.g. '{"USDC":18,"WBTC":8,"WETH":18,"WSOL":9}' on Kite testnet
     # to switch the runtime into raw-tokenIn mode so on-chain `amountIn`
     # matches `publicInputs[PI_AMOUNT_IN]`.
-    asset_decimals_json: str = Field(default="", validation_alias="LLM_MOMENTUM_ASSET_DECIMALS_JSON")
+    asset_decimals_json: str = Field(
+        default="", validation_alias="LLM_MOMENTUM_ASSET_DECIMALS_JSON"
+    )
     # 8-entry on-chain ERC-20 address list mapped 1:1 to
     # `LLMMomentumStrategy.asset_universe`. The runtime needs the real
     # addresses (not just symbols) to embed `assetIn`/`assetOut` in
