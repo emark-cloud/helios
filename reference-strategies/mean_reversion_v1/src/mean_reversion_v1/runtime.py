@@ -334,9 +334,7 @@ class MeanReversionRuntime:
         if self._nav_signer is None:
             raise RuntimeError("nav_oracle_pk required for tick_nav")
         ts = timestamp if timestamp is not None else int(time.time())
-        base_decimals = (
-            self._cfg.asset_decimals.get("USDC", 18) if self._cfg.asset_decimals else 18
-        )
+        base_decimals = self._cfg.asset_decimals.get("USDC", 18) if self._cfg.asset_decimals else 18
         total_nav_native = int(total_nav_usd * 10**base_decimals)
         signature = _sign_nav_eip712(
             signer=self._nav_signer,

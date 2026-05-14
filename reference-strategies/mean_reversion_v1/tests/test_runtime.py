@@ -317,9 +317,7 @@ def test_runtime_accepts_aligned_2_asset_universe() -> None:
         oracle=_StubOracle({}),
         prover=_StubProver(),
         executor=_executor(),
-        config=RuntimeConfig(
-            bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC
-        ),
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
         allocator_address="0x" + "11" * 20,
         asset_universe_addresses=base_2,
     )

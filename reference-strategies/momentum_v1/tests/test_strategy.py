@@ -98,9 +98,7 @@ def test_default_asset_universe_unchanged() -> None:
 
 
 def test_asset_universe_override_accepted() -> None:
-    s = MomentumStrategy(
-        signal_threshold=0.015, lookback_bars=10, asset_universe=("USDC", "WETH")
-    )
+    s = MomentumStrategy(signal_threshold=0.015, lookback_bars=10, asset_universe=("USDC", "WETH"))
     assert s.asset_universe == ("USDC", "WETH")
 
 
@@ -108,9 +106,7 @@ def test_asset_universe_must_start_with_usdc() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="USDC"):
-        MomentumStrategy(
-            signal_threshold=0.015, lookback_bars=10, asset_universe=("WETH", "USDC")
-        )
+        MomentumStrategy(signal_threshold=0.015, lookback_bars=10, asset_universe=("WETH", "USDC"))
 
 
 def test_asset_universe_rejects_empty() -> None:
