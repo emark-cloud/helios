@@ -123,8 +123,15 @@ _CXR_ACTION_ALLOCATE: int = 0
 _DEFAULT_LZ_EXTRA_OPTIONS: bytes = bytes.fromhex(
     "0003"
     "010011" "01" "00000000000000000000000000030d40"  # lzReceive 200_000
-    "010013" "03" "0000" "0000000000000000000000000007a120"  # lzCompose 500_000
+    "010013" "03" "0000" "00000000000000000000000000030d40"  # lzCompose 200_000
 )
+# The compose handler (`HeliosBridgeReceiver._allocate`) does a single
+# ERC20.safeTransfer + try-call into the StrategyVault's
+# onCrossChainAllocate (state write + event emit) + catch-fallthrough
+# to recoverable[]. Measured envelope: ~120-180k gas (cold storage
+# user-mapping slot dominates). 200_000 covers that with margin; the
+# old 500_000 was a CXR-0c scaffold default that overpaid the Kite
+# testnet executor fee ~2× (~1.2 KITE/call → ~0.5 KITE).
 
 # CXR-0c — local fragment for `allocateToRemoteStrategy`. The shared
 # `IAllocatorVault_ABI` only ships interface methods; the cross-chain
