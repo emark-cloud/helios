@@ -61,7 +61,7 @@ These risks remain open by design and are enumerated honestly per `Helios.md §1
 - **Insurance fund.** No backstop for stake-exhaustion edge cases in v1 (`Helios.md §16`).
 - **Strategy class versioning.** No on-chain migration path — a v2 momentum circuit would require a new class id and a fresh `StrategyVault` deployment.
 
-Hackathon judges should read these alongside `Helios.md §15.3` ("What we explicitly don't claim") before scoring.
+
 
 ---
 
