@@ -248,9 +248,11 @@ Passport supports Kite Testnet (chain 2368) and Kite Mainnet (chain 2366) with t
 
 ## Current phase
 
-Phase 6 — Polish + submission. Phases 0–5 complete; `v0.5.0` tag
-lands on `main` once the WS8 acceptance PR merges. WS1–WS7 already on
-`main` via stacked PRs #82–#88; WS8 ships `scripts/preflight-phase5.sh`,
+Phase 6 — Polish + submission. Phases 0–5 complete; `v0.5.0` tagged
+Phase 5 cross-chain on 2026-05-08, `v0.6.0-realprice` tagged the
+real-price cutover on 2026-05-09, `v0.6.0` tagged Phase 6 acceptance
+on 2026-05-14. WS1–WS7 of Phase 5 already on `main` via stacked PRs
+#82–#88; WS8 ships `scripts/preflight-phase5.sh`,
 `scripts/measure_xchain_latency.py`,
 `services/sentinel/tests/test_phase5_xchain.py`, and the
 `scripts/e2e-scenario.sh phase5` mode. See `docs/phase5-acceptance.md`

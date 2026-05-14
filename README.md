@@ -110,7 +110,7 @@ Copy `.env.example` → `.env` and fill in at least `KITE_RPC_URL`, `DATABASE_UR
 
 ## Status
 
-Phase 6 — polish + submission. Phases 0–5 complete; `v0.5.0` lands on `main` once the WS8 acceptance PR merges. Phase-6 real-price cutover landed 2026-05-09 — `v0.6.0-realprice` tag at commit `0034fb4`; nine multi-asset StrategyVaults active on Kite testnet against live BTC/ETH/SOL prices, plus three §12.1 cross-chain vaults live on Base + Arb Sepolia. See [`docs/phase6-acceptance.md`](./docs/phase6-acceptance.md) for the multi-chain evidence and [`docs/active-strategies.md`](./docs/active-strategies.md) for the per-vault breakdown.
+Phase 6 — polish + submission. Phases 0–5 complete (`v0.5.0` shipped Phase 5 cross-chain on 2026-05-08); Phase-6 real-price cutover landed 2026-05-09 (`v0.6.0-realprice` at `0034fb4`); Phase-6 acceptance + multi-chain bring-up tagged `v0.6.0` on 2026-05-14. Nine multi-asset StrategyVaults active on Kite testnet against live BTC/ETH/SOL prices, plus three §12.1 cross-chain vaults live on Base + Arb Sepolia. See [`docs/phase6-acceptance.md`](./docs/phase6-acceptance.md) for the multi-chain evidence and [`docs/active-strategies.md`](./docs/active-strategies.md) for the per-vault breakdown.
 
 ## License
 
