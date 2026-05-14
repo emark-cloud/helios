@@ -55,6 +55,33 @@ query StrategyDirectory {
 """
 
 
+# Map each chain to the decimals of its mUSDC base asset. Subgraphs index
+# raw on-chain values (e.g. stakeAmount in baseAsset wei), so a Base/Arb
+# vault with 6-dec mUSDC surfaces a stake of 5000e6 while a Kite vault
+# with 18-dec mUSDC surfaces 5000e18 for the same nominal exposure. The
+# allocator's bootstrap pool weights by stake — without normalization,
+# remote candidates get ~3.3e-13 of the share that Kite candidates do,
+# producing a dust amount that fails the OFT adapter's sharedDecimals
+# guard with `SlippageExceeded`. Project all *_usd fields onto a 18-dec
+# canonical wei base so a 5000 mUSDC stake reads as 5000e18 regardless
+# of which chain hosts the vault.
+_CANONICAL_DECIMALS = 18
+_BASE_ASSET_DECIMALS_BY_CHAIN: dict[int, int] = {
+    2368: 18,  # Kite testnet — mUSDC mock at 18-dec
+    2366: 18,  # Kite mainnet (stretch) — same convention
+    84_532: 6,  # Base Sepolia mUSDC
+    421_614: 6,  # Arbitrum Sepolia mUSDC
+}
+
+
+def _canonical_scale_for(chain_id: int) -> int:
+    """Return the multiplier that scales `chain_id`'s base-asset wei to
+    the 18-dec canonical base. Unknown chains default to 1 (no scaling
+    — safer than guessing a decimal mismatch into existence)."""
+    src = _BASE_ASSET_DECIMALS_BY_CHAIN.get(chain_id, _CANONICAL_DECIMALS)
+    return 10 ** (_CANONICAL_DECIMALS - src) if src <= _CANONICAL_DECIMALS else 1
+
+
 @dataclass(frozen=True, slots=True)
 class StrategyDirectoryRow:
     strategy_id: str
@@ -122,15 +149,20 @@ class AllocatorGoldsky:
         # which initializes chainId=0 for Trade-bootstrapped strategies).
         raw_chain_id = _to_int(raw.get("chainId"))
         chain_id = raw_chain_id if raw_chain_id > 0 else self._chain_id
+        # Normalize *_usd fields to 18-dec canonical wei so a 6-dec Base/Arb
+        # vault's stake compares apples-to-apples with an 18-dec Kite vault.
+        # Without this, bootstrap stake-weighting collapses remote candidates
+        # to dust and `allocateToRemoteStrategy` reverts SlippageExceeded.
+        scale = _canonical_scale_for(chain_id)
         return StrategyDirectoryRow(
             strategy_id=str(raw.get("id")),
             declared_class=str(raw.get("declaredClass") or ""),
             chain_id=chain_id,
             operator=str(raw.get("operator") or "0x" + "0" * 40),
             fee_rate_bps=_to_int(raw.get("feeRateBps")),
-            stake_amount_usd=_to_int(raw.get("stakeAmount")),
-            max_capacity_usd=_to_int(raw.get("maxCapacity")),
-            current_allocations_usd=deployed,
+            stake_amount_usd=_to_int(raw.get("stakeAmount")) * scale,
+            max_capacity_usd=_to_int(raw.get("maxCapacity")) * scale,
+            current_allocations_usd=deployed * scale,
             reputation_score_e4=_to_int(raw.get("currentReputation")),
             trades_attested=_to_int(raw.get("totalAttestedTrades")),
             last_nav_update_ts=last_nav_ts,
