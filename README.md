@@ -159,7 +159,7 @@ Full detail in [`Helios.md §17`](./Helios.md).
 
 Five-minute reproduce path, no VPS required:
 [`docs/cold-start.md`](./docs/cold-start.md). Or click straight to
-the live eval page: [`/judge`](https://helios.market/judge) — it
+the live eval page: [`/judge`](https://helios-frontend-steel.vercel.app/judge) — it
 lists deployed addresses, recent attested trades, and the
 verify-trade command inline.
 
