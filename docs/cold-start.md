@@ -175,23 +175,4 @@ on-chain artifact).
 
 ---
 
-## Known omissions from the public clone
 
-- `TODO.md` and `DESIGN.md` are gitignored (local-only planning
-  docs). `CLAUDE.md` still references them — those references are
-  broken from a fresh clone. Everything load-bearing for evaluation
-  is in `Helios.md` + the documents under `docs/`.
-- Phase planning docs (`phase5-xchain-verification.md`,
-  `phase6-plan.md`, `phase6-realprice-plan.md`,
-  `post-demo-tav-restore.md`) were retired into
-  `docs/phase6-acceptance.md` on 2026-05-14. If you find references
-  to them anywhere, prefer `phase6-acceptance.md`.
-
----
-
-## Help
-
-- Verify-trade.js failures: open an issue with the tx hash + the
-  full output.
-- Frontend bugs: include the page URL + browser console output.
-- Anything else: `eakinleye97dami@gmail.com`.
