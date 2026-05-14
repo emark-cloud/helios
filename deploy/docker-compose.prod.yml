@@ -272,16 +272,6 @@ services:
       # through to the env_file value (the Kite navOracle EOA), causing
       # every reportNAV to revert `NavSignatureInvalid()` (selector
       # 0x201a422e).
-      # Base-scoped asset universe + decimals — same latent bug as
-      # mean_reversion_v1_base (see that block for the full chain of
-      # causation). mom.base hasn't tripped yet only because momentum's
-      # breakout signal fires less often than mr's z-score; without
-      # these overrides the runtime would compute amount_in from a
-      # 6-dec on-chain mUSDC balance using 18-dec scaling, round to
-      # 0 wei, and overflow Num2Bits(96) at momentum_v1.circom's
-      # `amount_in > 0` constraint.
-      MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON: '["0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd","0x4200000000000000000000000000000000000006","","","","","",""]'
-      MOMENTUM_ASSET_DECIMALS_JSON: '{"USDC":6,"WETH":18}'
       MOMENTUM_OPERATOR_PK: ${MOMENTUM_BASE_OPERATOR_PK}
       NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
     ports: ["127.0.0.1:8015:8005"]
@@ -299,23 +289,6 @@ services:
       STRATEGY_REGISTRY: ${MEAN_REV_BASE_STRATEGY_REGISTRY}
       STRATEGY_VAULT_ADDRESS: ${MEAN_REV_BASE_STRATEGY_VAULT_ADDRESS}
       ALLOCATOR_ADDRESS: ${MEAN_REV_BASE_ALLOCATOR_ADDRESS}
-      # Base-scoped asset universe + decimals — must override the
-      # 4-asset / 18-dec-USDC defaults in /srv/helios/.env, which match
-      # the Kite vault but not Base. Without these:
-      #   - mr.base computes amount_in from a 6-dec on-chain mUSDC
-      #     balance using 18-dec scaling → rounds to 0 wei → the
-      #     prover's `amount_in > 0` constraint (Constraint 0,
-      #     mean_reversion_v1.circom:166) overflows Num2Bits(96) on
-      #     `amount_in - 1 ≡ p-1` (BN254 underflow) → HTTP 503.
-      #   - When the strategy picks a non-WBTC arm, on-chain
-      #     executeWithProof reverts AssetIndexOOB (selector 0x22007c74)
-      #     because the index space differs from the on-chain universe.
-      # The on-chain phase6VaultMeanReversionBase universe is exactly
-      # [Base mUSDC (6-dec), WETH9 OP-Stack predeploy (18-dec)]; the
-      # SDK requires 8-entry arity (mean_reversion_v1/service.py:74),
-      # so trailing slots are padded with empty strings.
-      MEAN_REV_ASSET_UNIVERSE_ADDRESSES_JSON: '["0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd","0x4200000000000000000000000000000000000006","","","","","",""]'
-      MEAN_REV_ASSET_DECIMALS_JSON: '{"USDC":6,"WETH":18}'
       # NAV_ORACLE_PK (unprefixed) — see comment on momentum_v1_base above.
       MEAN_REV_OPERATOR_PK: ${MEAN_REV_BASE_OPERATOR_PK}
       NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
