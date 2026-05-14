@@ -64,6 +64,14 @@ EventKind = Literal[
     # is the human label for which dst chain (e.g. "base-sepolia",
     # "arbitrum-sepolia").
     "CROSS_CHAIN_ALLOCATION_DEFERRED",
+    # CXR-0c — the bridge-live counterpart to `CROSS_CHAIN_ALLOCATION_DEFERRED`.
+    # Emitted when the loop submits a real `allocateToRemoteStrategy` tx
+    # on the local AllocatorVault. `strategy_id` is the remote vault
+    # address (matches the on-chain `strategyId` bytes32), `amount_usd`
+    # is the bridged amount, `tx_hash` is the Kite-side OFT.send tx
+    # (destination delivery is a follow-up `lzCompose` observed by the
+    # remote chain watcher).
+    "CROSS_CHAIN_ALLOCATION_SUBMITTED",
 ]
 
 

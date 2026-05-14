@@ -71,6 +71,76 @@ _STRATEGY_VAULT_LAST_NAV_ABI: tuple[dict[str, Any], ...] = (
     },
 )
 
+# CXR-0c — Minimal OFT.quoteSend fragment so the allocator can price an
+# `allocateToRemoteStrategy` call before submitting. The result feeds the
+# `MessagingFee` calldata arg + the tx `value` field.
+_OFT_QUOTE_SEND_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "quoteSend",
+        "stateMutability": "view",
+        "inputs": [
+            {
+                "name": "_sendParam",
+                "type": "tuple",
+                "components": [
+                    {"name": "dstEid", "type": "uint32"},
+                    {"name": "to", "type": "bytes32"},
+                    {"name": "amountLD", "type": "uint256"},
+                    {"name": "minAmountLD", "type": "uint256"},
+                    {"name": "extraOptions", "type": "bytes"},
+                    {"name": "composeMsg", "type": "bytes"},
+                    {"name": "oftCmd", "type": "bytes"},
+                ],
+            },
+            {"name": "_payInLzToken", "type": "bool"},
+        ],
+        "outputs": [
+            {
+                "name": "msgFee",
+                "type": "tuple",
+                "components": [
+                    {"name": "nativeFee", "type": "uint256"},
+                    {"name": "lzTokenFee", "type": "uint256"},
+                ],
+            },
+        ],
+    },
+)
+
+# Solidity-side: `CXR_ACTION_ALLOCATE = 0`. Mirror here so we encode the
+# compose payload the way HeliosBridgeReceiver.sol expects.
+_CXR_ACTION_ALLOCATE: int = 0
+
+# CXR-0c — local fragment for `allocateToRemoteStrategy`. The shared
+# `IAllocatorVault_ABI` only ships interface methods; the cross-chain
+# entry point lives on the concrete contract. Inline here so the runner
+# doesn't depend on a fresh ABI regen + workspace install round-trip.
+_ALLOCATE_TO_REMOTE_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "allocateToRemoteStrategy",
+        "stateMutability": "payable",
+        "inputs": [
+            {"name": "user", "type": "address"},
+            {"name": "strategyId", "type": "bytes32"},
+            {"name": "amount", "type": "uint256"},
+            {"name": "dstEid", "type": "uint32"},
+            {"name": "remoteVault", "type": "address"},
+            {"name": "extraOptions", "type": "bytes"},
+            {
+                "name": "lzFee",
+                "type": "tuple",
+                "components": [
+                    {"name": "nativeFee", "type": "uint256"},
+                    {"name": "lzTokenFee", "type": "uint256"},
+                ],
+            },
+        ],
+        "outputs": [],
+    },
+)
+
 _log = structlog.get_logger(__name__)
 
 
@@ -92,6 +162,13 @@ class OnChainCall:
     tx_hash: str = ""
     submitted: bool = False
     error: str = ""
+    # CXR-0c — extra fields used only by `allocateToRemoteStrategy`.
+    dst_eid: int = 0
+    remote_vault: str = ""
+    extra_options: bytes = b""
+    lz_native_fee: int = 0
+    lz_token_fee: int = 0
+    strategy_id_bytes32: bytes = b""
 
 
 class AllocatorOnChain:
@@ -111,6 +188,9 @@ class AllocatorOnChain:
         allocator_registry_address: str,
         chain_id: int,
         user_vault_address: str = "",
+        oft_adapter_address: str = "",
+        remote_chain_eids: dict[int, int] | None = None,
+        remote_vault_overrides: dict[str, str] | None = None,
     ) -> None:
         self._rpc_url = rpc_url
         self._operator_pk = operator_pk
@@ -121,6 +201,18 @@ class AllocatorOnChain:
         self._live = bool(rpc_url and operator_pk and allocator_vault_address)
         self.pending: list[OnChainCall] = []
 
+        # CXR-0c — remote allocation wiring. Allocator can flip to a live
+        # `allocateToRemoteStrategy` send only when ALL three are set:
+        # OFT adapter address, an entry in the `remote_chain_eids` map for
+        # the destination chain, and a `remote_vault_overrides` entry for
+        # the strategy id (or the strategy id itself is already the vault
+        # address). Otherwise the loop falls back to defer-mode.
+        self._oft_adapter = oft_adapter_address
+        self._remote_chain_eids = dict(remote_chain_eids or {})
+        self._remote_vault_overrides = {
+            k.lower(): v for k, v in (remote_vault_overrides or {}).items()
+        }
+
         # Live-mode handles initialised lazily on first submit so dry-run
         # tests don't need to spin up an RPC client.
         self._w3: Web3 | None = None
@@ -128,6 +220,7 @@ class AllocatorOnChain:
         self._vault_contract: Any = None
         self._registry_contract: Any = None
         self._user_vault_contract: Any = None
+        self._oft_contract: Any = None
 
     @property
     def live(self) -> bool:
@@ -141,6 +234,36 @@ class AllocatorOnChain:
         the target lives on a remote chain that requires the CXR-0a/0b
         bridge pipe."""
         return self._chain_id
+
+    def supports_remote_chain(self, chain_id: int) -> bool:
+        """True if `allocateToRemoteStrategy` is wired for `chain_id`.
+
+        Wiring requires an OFT adapter address + an EID map entry for
+        the destination chain. Live tx submission additionally needs
+        `self._live` — stub mode still records the planned call. The
+        decision loop checks this to flip a strategy from defer-mode
+        to a real `allocate_to_remote` invocation.
+        """
+        return (
+            bool(self._oft_adapter)
+            and chain_id != self._chain_id
+            and chain_id in self._remote_chain_eids
+        )
+
+    def resolve_remote_vault(self, strategy_id: str) -> str:
+        """Return the remote-chain vault address for `strategy_id`.
+
+        For Helios strategyIds the id IS the vault address — so by
+        default this round-trips through `Web3.to_checksum_address`.
+        Overrides via `remote_vault_overrides` let an operator unwire
+        the convention (e.g. point a strategyId at a different
+        execution vault) without redeploying.
+        """
+        sid_lower = strategy_id.lower()
+        override = self._remote_vault_overrides.get(sid_lower)
+        if override:
+            return Web3.to_checksum_address(override)
+        return Web3.to_checksum_address(strategy_id)
 
     @property
     def allocator_vault(self) -> str:
@@ -158,6 +281,41 @@ class AllocatorOnChain:
         return self._submit(
             OnChainCall(method="allocateToStrategy", user=user, strategy=strategy, amount=amount)
         )
+
+    def allocate_to_remote(
+        self,
+        user: str,
+        strategy: str,
+        amount: int,
+        chain_id: int,
+        remote_vault: str,
+    ) -> OnChainCall:
+        """CXR-0c — Send `amount` USDC across the LayerZero OFT bridge to
+        `remote_vault` on the chain identified by `chain_id`. Encodes the
+        strategyId as bytes32 of the strategy address, mirroring the
+        spec's "remote vault address as bytes32" convention.
+
+        Live mode quotes the LZ native fee via `OFT.quoteSend` and passes
+        it as `msg.value`. Stub mode records the call with zero fee.
+        """
+        sid_bytes = bytes.fromhex(Web3.to_checksum_address(strategy)[2:].rjust(64, "0"))
+        dst_eid = self._remote_chain_eids.get(chain_id, 0)
+        call = OnChainCall(
+            method="allocateToRemoteStrategy",
+            user=user,
+            strategy=strategy,
+            amount=amount,
+            dst_eid=dst_eid,
+            remote_vault=remote_vault,
+            strategy_id_bytes32=sid_bytes,
+        )
+        if self._live and dst_eid:
+            native_fee, lz_token_fee = self._quote_remote_fee(
+                dst_eid, remote_vault, user, sid_bytes, amount
+            )
+            call.lz_native_fee = native_fee
+            call.lz_token_fee = lz_token_fee
+        return self._submit(call)
 
     def defund(self, user: str, strategy: str, reason: str) -> OnChainCall:
         return self._submit(
@@ -207,6 +365,18 @@ class AllocatorOnChain:
 
     async def settle_fee_async(self, user: str, strategy: str) -> OnChainCall:
         return await asyncio.to_thread(self.settle_fee, user, strategy)
+
+    async def allocate_to_remote_async(
+        self,
+        user: str,
+        strategy: str,
+        amount: int,
+        chain_id: int,
+        remote_vault: str,
+    ) -> OnChainCall:
+        return await asyncio.to_thread(
+            self.allocate_to_remote, user, strategy, amount, chain_id, remote_vault
+        )
 
     def read_user_vault_balance(self, user: str) -> int | None:
         """Idle UserVault balance for `user`, in raw asset wei.
@@ -402,7 +572,10 @@ class AllocatorOnChain:
             raise RuntimeError(f"invalid OPERATOR_PK: {type(exc).__name__}") from None
         self._vault_contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self._allocator_vault),
-            abi=IAllocatorVault_ABI,
+            # Concat the local `allocateToRemoteStrategy` fragment with
+            # the shared interface ABI — see comment above on
+            # `_ALLOCATE_TO_REMOTE_ABI`.
+            abi=list(IAllocatorVault_ABI) + list(_ALLOCATE_TO_REMOTE_ABI),
         )
 
     def _send_live(self, call: OnChainCall) -> None:
@@ -412,11 +585,16 @@ class AllocatorOnChain:
         assert self._vault_contract is not None
 
         fn = self._build_function(call)
+        tx_overrides: dict[str, Any] = {
+            "from": self._account.address,
+            "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
+            "chainId": self._chain_id,
+        }
+        if call.method == "allocateToRemoteStrategy" and call.lz_native_fee:
+            tx_overrides["value"] = int(call.lz_native_fee)
         tx = fn.build_transaction(
             {
-                "from": self._account.address,
-                "nonce": self._w3.eth.get_transaction_count(self._account.address, "pending"),
-                "chainId": self._chain_id,
+                **tx_overrides,
                 # Anvil + Kite both honour legacy gasPrice; explicit value avoids
                 # web3's EIP-1559 fee estimation hitting `eth_feeHistory` which
                 # some forks (and our anvil container) don't implement.
@@ -465,7 +643,76 @@ class AllocatorOnChain:
                 [Web3.to_checksum_address(s) for s in call.strategies],
                 [int(w) for w in call.weights_bps],
             )
+        if call.method == "allocateToRemoteStrategy":
+            # The Sentinel-facing tuple is (nativeFee, lzTokenFee); web3.py
+            # auto-encodes the named struct from this ordered pair.
+            return self._vault_contract.functions.allocateToRemoteStrategy(
+                Web3.to_checksum_address(call.user),
+                call.strategy_id_bytes32,
+                int(call.amount),
+                int(call.dst_eid),
+                Web3.to_checksum_address(call.remote_vault),
+                call.extra_options,
+                (int(call.lz_native_fee), int(call.lz_token_fee)),
+            )
         raise ValueError(f"unknown onchain method: {call.method}")
+
+    def _quote_remote_fee(
+        self,
+        dst_eid: int,
+        remote_vault: str,
+        user: str,
+        sid_bytes: bytes,
+        amount: int,
+    ) -> tuple[int, int]:
+        """Return (nativeFee, lzTokenFee) from `OFT.quoteSend`.
+
+        We rebuild the same `SendParam` shape the AllocatorVault will
+        encode at execution time — to → `destinationReceiver[dstEid]`,
+        composeMsg → `(action=0, sid, vault, user)`. We don't read the
+        on-chain `destinationReceiver` slot here; the OFT only uses
+        `to` for fee calculation, and any non-zero bytes32 produces the
+        same quote — so we pass `bytes32(remote_vault)` directly to
+        keep the call self-contained.
+        """
+        self._ensure_oft_live()
+        assert self._w3 is not None
+        assert self._oft_contract is not None
+        compose_msg = self._w3.codec.encode(
+            ["uint8", "bytes32", "address", "address"],
+            [
+                _CXR_ACTION_ALLOCATE,
+                sid_bytes,
+                Web3.to_checksum_address(remote_vault),
+                Web3.to_checksum_address(user),
+            ],
+        )
+        to_bytes32 = bytes.fromhex(
+            Web3.to_checksum_address(remote_vault)[2:].rjust(64, "0")
+        )
+        send_param = (
+            int(dst_eid),
+            to_bytes32,
+            int(amount),
+            int(amount),
+            b"",
+            compose_msg,
+            b"",
+        )
+        result = self._oft_contract.functions.quoteSend(send_param, False).call()
+        return int(result[0]), int(result[1])
+
+    def _ensure_oft_live(self) -> None:
+        self._ensure_live()
+        if self._oft_contract is not None:
+            return
+        if not self._oft_adapter:
+            raise RuntimeError("oft_adapter_address not configured")
+        assert self._w3 is not None
+        self._oft_contract = self._w3.eth.contract(
+            address=Web3.to_checksum_address(self._oft_adapter),
+            abi=list(_OFT_QUOTE_SEND_ABI),
+        )
 
 
 def _require_strategy(call: OnChainCall) -> str:

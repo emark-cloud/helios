@@ -379,6 +379,55 @@ async def test_remote_chain_allocation_defers_and_skips_onchain_submit() -> None
 
 
 @pytest.mark.asyncio
+async def test_remote_chain_with_cxr_wired_submits_live_allocate_to_remote() -> None:
+    """CXR-0c — when the OFT bridge is wired (OFT adapter + EID map),
+    the loop flips a remote target from defer-mode to a real
+    `allocateToRemoteStrategy` call. The OnChainCall captures
+    method=allocateToRemoteStrategy, the dstEid, and the strategy id
+    encoded as bytes32 of the vault address. The event emitted is
+    `CROSS_CHAIN_ALLOCATION_SUBMITTED`, not `DEFERRED`.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+        oft_adapter_address="0x" + "ee" * 20,
+        remote_chain_eids={84_532: 40_245, 421_614: 40_231},
+    )
+    base_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(base_sid, 84_532)])
+    loop = AllocatorLoop(
+        store=store, allocator=_AlwaysFirstAllocator(), goldsky=goldsky, onchain=onchain
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # The one pending call is the cross-chain submission, not the
+    # local allocateToStrategy.
+    assert len(onchain.pending) == 1
+    call = onchain.pending[0]
+    assert call.method == "allocateToRemoteStrategy"
+    assert call.dst_eid == 40_245  # Base EID
+    assert call.remote_vault.lower() == base_sid.lower()
+    # strategyId is the bytes32 left-padding of the vault address.
+    assert call.strategy_id_bytes32.endswith(bytes.fromhex(base_sid[2:]))
+
+    events = store.recent_events(user.meta.user_address)
+    submitted = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_SUBMITTED"]
+    assert len(submitted) == 1
+    assert submitted[0].strategy_id == base_sid
+    # Defer event should NOT also be emitted.
+    deferred = [e for e in events if e.kind == "CROSS_CHAIN_ALLOCATION_DEFERRED"]
+    assert deferred == []
+
+
+@pytest.mark.asyncio
 async def test_remote_chain_deferral_doesnt_block_local_allocation() -> None:
     """When a tick produces a mixed local + remote target list, the
     local side still allocates normally and the remote side defers.

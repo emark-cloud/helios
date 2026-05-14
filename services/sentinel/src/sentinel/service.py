@@ -110,6 +110,17 @@ class Settings(BaseServiceSettings):
     # mainnet promotion is a stretch; if exercised, override both.
     base_chain_id: int = Field(default=84_532, validation_alias="BASE_SEPOLIA_CHAIN_ID")
     arbitrum_chain_id: int = Field(default=421_614, validation_alias="ARBITRUM_SEPOLIA_CHAIN_ID")
+    # CXR-0c (2026-05-14) — live remote-allocation wiring. The
+    # AllocatorVault on Kite is on the CXR-0c impl (per-EID
+    # destinationReceiver). Setting `kite_oft_adapter_address` flips
+    # the loop from defer-mode to live OFT.send; the LZ EIDs below
+    # tell the runner which dstEid to target per supported chain. All
+    # three blank → loop falls back to `CROSS_CHAIN_ALLOCATION_DEFERRED`.
+    kite_oft_adapter_address: str = Field(
+        default="", validation_alias="SENTINEL_KITE_OFT_ADAPTER_ADDRESS"
+    )
+    base_lz_eid: int = Field(default=40_245, validation_alias="BASE_LZ_EID")
+    arbitrum_lz_eid: int = Field(default=40_231, validation_alias="ARBITRUM_LZ_EID")
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -130,6 +141,11 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         allocator_registry_address=cfg.allocator_registry_address,
         chain_id=cfg.kite_chain_id,
         user_vault_address=cfg.user_vault_address,
+        oft_adapter_address=cfg.kite_oft_adapter_address,
+        remote_chain_eids={
+            cfg.base_chain_id: cfg.base_lz_eid,
+            cfg.arbitrum_chain_id: cfg.arbitrum_lz_eid,
+        },
     )
     loop = AllocatorLoop(
         store=store,

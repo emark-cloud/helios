@@ -1004,7 +1004,51 @@ IAllocatorVault_ABI = [
   },
   {
     "type": "event",
+    "name": "DestinationReceiverUpdated",
+    "inputs": [
+      {
+        "name": "dstEid",
+        "type": "uint32",
+        "indexed": True,
+        "internalType": "uint32"
+      },
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "OftAdapterUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
+    "name": "OperatorUpdated",
     "inputs": [
       {
         "name": "previous",

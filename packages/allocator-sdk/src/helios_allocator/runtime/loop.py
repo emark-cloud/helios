@@ -500,6 +500,58 @@ class AllocatorLoop:
             # fast-path, _apply_diffs target_by_id lookup for kind
             # tagging) only see local entries.
             target_by_id.pop(sid, None)
+            # CXR-0c — try a live remote allocation if the runner has the
+            # bridge wired for this destination chain. Fall back to the
+            # deferred event on any failure (mis-wired OFT, no LZ fee
+            # native gas, revert) so the dashboard still shows intent.
+            if delta > 0 and self._onchain.supports_remote_chain(tgt.chain_id):
+                try:
+                    remote_vault = self._onchain.resolve_remote_vault(sid)
+                    call = self._onchain.allocate_to_remote(
+                        user.meta.user_address,
+                        sid,
+                        int(delta),
+                        tgt.chain_id,
+                        remote_vault,
+                    )
+                    if not call.error:
+                        self._store.emit_event(
+                            AllocatorEvent(
+                                user_address=user.meta.user_address,
+                                kind="CROSS_CHAIN_ALLOCATION_SUBMITTED",
+                                strategy_id=sid,
+                                amount_usd=delta,
+                                reason=f"chain={tgt.chain_id}; OFT send on Kite",
+                                timestamp=ts,
+                                tx_hash=call.tx_hash,
+                            )
+                        )
+                        _log.info(
+                            "allocator.allocation.cross_chain.submitted",
+                            user=user.meta.user_address,
+                            strategy=sid,
+                            amount=delta,
+                            dst_chain_id=tgt.chain_id,
+                            tx_hash=call.tx_hash,
+                        )
+                        continue
+                    _log.warning(
+                        "allocator.allocation.cross_chain.live_failed",
+                        user=user.meta.user_address,
+                        strategy=sid,
+                        amount=delta,
+                        dst_chain_id=tgt.chain_id,
+                        err=call.error,
+                    )
+                except Exception as exc:
+                    _log.warning(
+                        "allocator.allocation.cross_chain.live_exception",
+                        user=user.meta.user_address,
+                        strategy=sid,
+                        amount=delta,
+                        dst_chain_id=tgt.chain_id,
+                        err=str(exc),
+                    )
             # Only emit on the "add capital" direction. A delta<0 against
             # a remote strategy would mean we somehow accounted for a
             # remote allocation locally — currently impossible since we
