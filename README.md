@@ -104,7 +104,7 @@ commitment + ZK class enforcement + auto-defund.
 
 ## What works today
 
-Live as of `v0.6.0` (2026-05-14):
+Live as of `v1` (2026-05-14):
 
 - **12 strategy vaults** across three chains: 9 on Kite testnet
   (momentum + mean-reversion + yield-rotation × 3 variants each), 2
