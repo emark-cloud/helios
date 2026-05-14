@@ -161,7 +161,7 @@ cold-start cross-chain broadcast cost 3.2 KITE before optimization.
 
 ## Roadmap
 
-Helios is built as v1 of a real protocol, not a hackathon throwaway.
+Helios is built as v1 of a real protocol
 
 **Phase 1 (next 1–3 months).** Production trusted-setup ceremony,
 multi-sig reputation signer, AllocatorSDK adoption push (5–10
