@@ -125,7 +125,7 @@ Live as of `v0.6.0` (2026-05-14):
   index all three chains.
 
 Full empirical evidence trail (every claim → on-chain artifact):
-[`docs/Helios v1 acceptance.md`](./docs/Helios%20v1%20acceptance.md).
+[`docs/helios-v1-acceptance.md`](./docs/helios-v1-acceptance.md).
 
 ## Current limitations & mitigations
 
@@ -210,7 +210,7 @@ verify-trade command inline.
 ## Documentation
 
 - **Spec** (read this if you want the depth) → [`Helios.md`](./Helios.md)
-- **Helios v1 acceptance** (the live-evidence trail) → [`docs/Helios v1 acceptance.md`](./docs/Helios%20v1%20acceptance.md)
+- **Helios v1 acceptance** (the live-evidence trail) → [`docs/helios-v1-acceptance.md`](./docs/helios-v1-acceptance.md)
 - **Cold-start one-pager** (5-min reproduce) → [`docs/cold-start.md`](./docs/cold-start.md)
 - **Operator guide** (ship a strategy) → [`docs/operator-guide.md`](./docs/operator-guide.md)
 - **Allocator guide** (ship a competing allocator) → [`docs/allocator-guide.md`](./docs/allocator-guide.md)
