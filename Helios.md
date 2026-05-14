@@ -64,7 +64,7 @@ From that single passkey approval — a Kite Passport login that funds and confi
 2. **Strategy Agents** receive their allocations and begin trading on whichever chain has the best venue (Kite, Base, or Arbitrum). Every trade comes with a **Groth16 proof** binding the executed calldata to the strategy's declared class.
 3. The **Reputation Engine**, indexed by Goldsky, continuously updates strategy scores based on realized, ZK-attested P&L.
 4. When a strategy hits its drawdown threshold, the allocator **automatically defunds it** and reroutes the capital to the next-best-ranked eligible strategy.
-5. **Performance fees** are crystallized on-chain by the allocator and settled directly through `AllocatorVault.settleStrategyFee` — strategy agents earn from allocators only on realized profit above the high-water mark; allocators earn from users on the same basis. (x402-routed fee streaming is on the post-hackathon roadmap; v1 ships the HWM-gated fee math, not the x402 wrapper — see §2.1 and §17.)
+5. **Performance fees** are crystallized on-chain by the allocator and settled directly through `AllocatorVault.settleStrategyFee` — strategy agents earn from allocators only on realized profit above the high-water mark; allocators earn from users on the same basis. (x402-routed fee streaming is on the post-hackathon roadmap; v1 ships the HWM-gated fee math, not the x402 wrapper — see §2.1 and §16.)
 6. **LayerZero** carries reputation deltas back to Kite when strategies execute on other chains, keeping the registry canonical.
 
 The user approved once. Everything else happens autonomously, under cryptographic constraints, with every action auditable on-chain.
@@ -110,7 +110,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 
 **2. ERC-4337 smart-account spending bounds.** The AA wallet supports batched userOps; v1 uses discrete transactions for onboarding (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`) rather than a paymaster-sponsored batch — paymaster sponsorship is post-hackathon polish. Strategy operators submit `executeWithProof` directly from their operator EOA. Conditional triggers like "if strategy drawdown > 15%, freeze trades and trigger defund" live in `AllocatorVault` Solidity, not in the AA wallet itself.
 
-**3. x402 micropayments and state channels.** v1 ships the HWM-gated performance-fee mechanism on-chain — `AllocatorVault.settleStrategyFee` crystallizes the fee directly in mUSDC when the allocator detects new NAV above the per-(allocator, strategy, user) high-water mark. The intended end state is for the same fee call to be wrapped as an x402-paid invocation routed through the Pieverse facilitator (so the user's AA wallet "pays" the allocator and the allocator "pays" the strategy through x402 sessions), and for strategy agents to subscribe to data providers via x402 sessions issued from the same Passport wallet. Wrapping the prover, oracle, and audit endpoints as x402-paid services is part of the same track. All of that is deferred polish — see §16 and post-hackathon Phase 1 in §17. The fee math, HWM accounting, and on-chain settlement primitive are live in v1; only the x402 transport wrapper is post-hackathon.
+**3. x402 micropayments and state channels.** v1 ships the HWM-gated performance-fee mechanism on-chain — `AllocatorVault.settleStrategyFee` crystallizes the fee directly in mUSDC when the allocator detects new NAV above the per-(allocator, strategy, user) high-water mark. The intended end state is for the same fee call to be wrapped as an x402-paid invocation routed through the Pieverse facilitator (so the user's AA wallet "pays" the allocator and the allocator "pays" the strategy through x402 sessions), and for strategy agents to subscribe to data providers via x402 sessions issued from the same Passport wallet. Wrapping the prover, oracle, and audit endpoints as x402-paid services is part of the same track. All of that is deferred polish — see §15 and post-hackathon Phase 1 in §16. The fee math, HWM accounting, and on-chain settlement primitive are live in v1; only the x402 transport wrapper is post-hackathon.
 
 ---
 
@@ -217,7 +217,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 | **L4: Verification** | TradeAttestationVerifier (per chain), Groth16 verifier contracts | Mathematical — invalid proofs cannot pass |
 | **L5: Reputation** | ReputationEngine (off-chain compute, on-chain anchoring) | Deterministic given attested trade history |
 | **L6: Coordination** | Allocator agents, strategy agents, off-chain services | Hosted by anyone; on-chain logic enforces constraints |
-| **L7: User surface** | Web app + activity rail, REST/WebSocket API (Telegram bot deferred — see §16) | UX layer; no security responsibility |
+| **L7: User surface** | Web app + activity rail, REST/WebSocket API (Telegram bot deferred — see §15) | UX layer; no security responsibility |
 
 ### 4.3 The data flow lifecycle
 
@@ -241,7 +241,7 @@ Every 1 hour:   Reputation Engine emits ranking deltas; Allocator considers real
 On drawdown breach: Allocator immediately defunds breached strategy and
                     reroutes capital to next-best eligible
 On new high NAV:    Allocator crystallizes performance fee on-chain via
-                    `AllocatorVault.settleStrategyFee` (x402 wrapper deferred to §17)
+                    `AllocatorVault.settleStrategyFee` (x402 wrapper deferred to §16)
 On rebalance window: Allocator reassesses target allocation against current ranks
 ```
 
@@ -260,10 +260,10 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 **Journey.**
 
 1. **Discovery.** Maya finds Helios via the hackathon demo, the live web app, or a Telegram referral.
-2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. v1 ships and demos on Kite Testnet (chain 2368, network identifier `kite-testnet`); mainnet promotion (chain 2366) is a stretch deliverable, not a planned phase (see roadmap §17). Funds the wallet with 1,000 USDC (testnet faucet at `https://faucet.gokite.ai`; Banxa fiat or `bridge.gokite.ai` cross-chain only if the mainnet stretch is exercised). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
-3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves via passkey — the frontend submits discrete txs (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`), each signed through the Passport AA session. A paymaster-sponsored batched userOp is post-hackathon polish (§17).
+2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. v1 ships and demos on Kite Testnet (chain 2368, network identifier `kite-testnet`); mainnet promotion (chain 2366) is a stretch deliverable, not a planned phase (see roadmap §16). Funds the wallet with 1,000 USDC (testnet faucet at `https://faucet.gokite.ai`; Banxa fiat or `bridge.gokite.ai` cross-chain only if the mainnet stretch is exercised). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
+3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves via passkey — the frontend submits discrete txs (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`), each signed through the Passport AA session. A paymaster-sponsored batched userOp is post-hackathon polish (§16).
 4. **Activation.** Within 30 seconds, dashboard shows her capital allocated across 3-5 strategies. Dashboard shows current NAV, allocated capital per strategy, recent trades, current reputation rankings.
-5. **Ongoing.** The dashboard activity rail surfaces meaningful events live: strategy added, strategy defunded, weekly P&L summary, fee accrued. She can adjust meta-strategy at any time (next rebalance picks up changes). A Telegram-bot fan-out for the same events is on the post-hackathon Phase 1 roadmap (§17).
+5. **Ongoing.** The dashboard activity rail surfaces meaningful events live: strategy added, strategy defunded, weekly P&L summary, fee accrued. She can adjust meta-strategy at any time (next rebalance picks up changes). A Telegram-bot fan-out for the same events is on the post-hackathon Phase 1 roadmap (§16).
 6. **Withdrawal.** Hits "Withdraw" — capital pulls from all strategies, performance fees settle, USDC returns to her wallet. End-to-end ~10 minutes.
 
 **Why she stays.** She can see exactly what her capital is doing, every fee is performance-gated, and bad strategies get fired automatically. The transparency is unprecedented for AI-managed capital.
@@ -281,7 +281,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 3. **Local backtesting.** Runs `helios backtest --strategy ./my_momentum.py --period 180d --capital 10000` to validate.
 4. **Stake and registration.** Posts $5,000 USDC stake (lower stake = lower visibility in allocator rankings). Registers strategy on the StrategyRegistry with manifest: declared class `momentum_v1`, asset universe `[BTC, ETH, SOL, BNB]`, max capacity $500k, fee rate 20%.
 5. **Deployment.** Runs `helios deploy --strategy ./my_momentum.py --vps user@his-server`. Docker image deploys, agent starts trading whenever it receives allocations.
-6. **Earning.** Allocators discover his strategy via the registry, allocate capital based on reputation. Ren earns 20% of realized profit above HWM per allocation. Fees settle on-chain via `AllocatorVault.settleStrategyFee` into his strategy operator wallet (x402-routed streaming is post-hackathon polish — see §17).
+6. **Earning.** Allocators discover his strategy via the registry, allocate capital based on reputation. Ren earns 20% of realized profit above HWM per allocation. Fees settle on-chain via `AllocatorVault.settleStrategyFee` into his strategy operator wallet (x402-routed streaming is post-hackathon polish — see §16).
 7. **Reputation building.** Initial reputation is low (no track record). After 30 days of consistent execution and proof validity, his reputation rises. Allocators progressively allocate more capital. After 90 days he's a top-10 momentum strategy and capacity becomes the binding constraint.
 
 **Why he stays.** Pure performance economy, no fundraising. He competes on actual returns, not on marketing. His track record is portable, on-chain, and ZK-attested.
@@ -300,7 +300,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 4. **Stake and registration.** Posts $10,000 USDC stake (allocator stake is required because users trust allocators with their capital — slashable on policy violations). Registers on the AllocatorRegistry with manifest: ranking function hash, allocator fee rate, supported strategy classes, max users.
 5. **Deployment.** Runs `helios-allocator deploy --vps user@her-server`. Docker image deploys, allocator runs continuously.
 6. **User onboarding.** Users discover Sara's allocator via the web app's allocator marketplace. They review her ranking function, fee rate, performance history, and stake before delegating to her.
-7. **Earning.** Sara earns 5% of net realized profit above HWM across all delegated capital. Fees settle on-chain via `AllocatorVault.settleStrategyFee` (x402-routed streaming is post-hackathon polish — see §17).
+7. **Earning.** Sara earns 5% of net realized profit above HWM across all delegated capital. Fees settle on-chain via `AllocatorVault.settleStrategyFee` (x402-routed streaming is post-hackathon polish — see §16).
 8. **Reputation building.** Sara's allocator earns its own reputation score, tracked separately from strategy reputations. Allocators with better aggregate user outcomes attract more delegations.
 
 **Why she stays.** Pure performance economy at the allocator layer. She competes with other allocators on the quality of her ranking function and risk management — not on marketing or sales. Her track record is portable and ZK-attested at the underlying strategy level.
@@ -313,7 +313,7 @@ For the MVP demo, the Helios team operates **Helios Sentinel**, the reference al
 
 **Sentinel's ranking function** is the reference implementation described in Section 11.2. It's deliberately legible and conservative: a clean reputation-weighted top-K with capacity factor and fee-fit gating. Allocators that ship more sophisticated algorithms (correlation-aware allocation, regime-adaptive weights, ML-based strategy fit) can demonstrate clear improvements over Sentinel and attract users on that basis.
 
-**For the MVP demo, Sentinel is the only allocator running.** A second reference allocator ("Helios Helix") was scoped to demonstrate the marketplace mechanism within the hackathon, but was cut to finish the cross-chain surface; the AllocatorSDK and `AllocatorRegistry` permit third-party allocators to register on the same surface, so the marketplace is open even though only one allocator currently inhabits it. Restoring Helix is the first post-hackathon milestone (§17).
+**For the MVP demo, Sentinel is the only allocator running.** A second reference allocator ("Helios Helix") was scoped to demonstrate the marketplace mechanism within the hackathon, but was cut to finish the cross-chain surface; the AllocatorSDK and `AllocatorRegistry` permit third-party allocators to register on the same surface, so the marketplace is open even though only one allocator currently inhabits it. Restoring Helix is the first post-hackathon milestone (§16).
 
 ### 5.4 Cross-cutting: the Auditor
 
@@ -369,7 +369,7 @@ struct MetaStrategy {
     uint256 maxFeeRateBps;          // e.g., 2500 = 25%
     uint256 rebalanceCadenceSec;
     uint64  validUntil;
-    uint16  defundTwapBars;         // §6.3 anti-grief bars — schema landed in build phase 2; enforcement in build phase 4 (see TODO.md; distinct from §17 post-hackathon roadmap phases)
+    uint16  defundTwapBars;         // §6.3 anti-grief bars — schema landed in build phase 2; enforcement in build phase 4 (see TODO.md; distinct from §16 post-hackathon roadmap phases)
     uint16  defundBondBps;          // §6.3 anti-grief bond
     uint32  defundConfirmBlocks;    // §6.3 anti-grief confirmation window
     uint16  defundRewardCapUsd;     // §6.3 reward cap on permissionless trigger (default 500 USDC, 6 decimals)
@@ -432,8 +432,8 @@ function withdrawAllocatorFees() external;
 
 - Only the allocator EOA (or its session keys) can call `allocateToStrategy`, `defundStrategy`, `rebalance`.
 - All allocation amounts are checked against the user's meta-strategy.
-- `defundStrategy` is callable by anyone (permissionless trigger), but only when the drawdown breach is **persistent** — held across at least `defundTwapBars` consecutive observations spaced ≥ `MIN_BAR_BLOCKS` apart (default 3 bars × 300 blocks ≈ 15 minutes on Kite's 1s blocks) — and the caller posts a forfeit bond. The permissionless path is split into `triggerDefund` (each call is one observation; the first call posts the bond, subsequent calls advance the breach counter; a non-breaching observation clears the entry and refunds the bond) and `finalizeDefund` (callable once the entry is armed and `defundConfirmBlocks` have elapsed since the last observation). The bond is refunded plus a reward of **50 bps of the defunded notional, capped at $500 USDC** if the breach is confirmed at finalize; slashed to the user's vault if NAV recovers above threshold by the time finalize runs. **Reward source — v1 deviation:** the original §6.3 design routed the reward from the strategy's stake (so the user is held harmless and the bad operator pays). In v1 the reward is instead routed from `AllocatorVault._accruedFees` — the allocator's own pool of unharvested fees — because `StrategyRegistry` is immutable in Phase 3 and adding a `payDefundReward` path would require a full registry redeploy + re-registration of every existing strategy. The economics still work: the allocator's incentive to keep their accruedFees pool high is to avoid going offline (an offline allocator gets defund-watchdog'd, losing fees to the watchdog) — pressure flows in the right direction. The user remains held harmless either way (their principal isn't touched). v2 migrates to the original "from stake" routing once the registry is rebuilt (see §17 Phase 1). If the allocator's accruedFees are insufficient, the reward is paid down to whatever is available (bond is always refunded in full). This preserves the safety property (anyone can fire if the allocator goes offline) while closing a griefing surface where a competitor times a transient mark-to-market dip to lock in losses that would have mean-reverted. The persistence depth, bond size, confirmation window, and reward cap are configurable per-user in the meta-strategy (`defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`, `defundRewardCapUsd`); `MIN_BAR_BLOCKS` and `MAX_STALENESS_SEC` are owner-tuned vault constants.
-- **Drawdown source.** Drawdown is sampled from `IStrategyVault.navOf(address(this))` on each observation and compared against the allocation's `strategyHighWaterMark`. Phase 2 oracle ships Poseidon-root commitments only, not per-asset on-chain TWAP prices, so a fully on-chain-priced "marked NAV" path is not available in v1 — the Phase 4 implementation relies on the operator's `reportNAV`-driven `navOf()` for the observation signal and on the §6.4 NAV-divergence slash path (`NAV_DIVERGENCE_THRESHOLD_BPS`, two-consecutive trigger) as the deterrent against a malicious operator signing a flattering NAV to suppress defund. The oracle is still consulted: `OraclePriceAnchor.latest().committedAt` gates the *first* observation as a coarse "the oracle hasn't gone offline" signal — if `block.timestamp - committedAt > MAX_STALENESS_SEC` the trigger reverts. A genuine TWAP-priced "marked NAV" computed on-chain (Algebra V3 pool TWAPs on Kite mainnet, or a per-asset price-anchor service) is roadmap (§17 Phase 1).
+- `defundStrategy` is callable by anyone (permissionless trigger), but only when the drawdown breach is **persistent** — held across at least `defundTwapBars` consecutive observations spaced ≥ `MIN_BAR_BLOCKS` apart (default 3 bars × 300 blocks ≈ 15 minutes on Kite's 1s blocks) — and the caller posts a forfeit bond. The permissionless path is split into `triggerDefund` (each call is one observation; the first call posts the bond, subsequent calls advance the breach counter; a non-breaching observation clears the entry and refunds the bond) and `finalizeDefund` (callable once the entry is armed and `defundConfirmBlocks` have elapsed since the last observation). The bond is refunded plus a reward of **50 bps of the defunded notional, capped at $500 USDC** if the breach is confirmed at finalize; slashed to the user's vault if NAV recovers above threshold by the time finalize runs. **Reward source — v1 deviation:** the original §6.3 design routed the reward from the strategy's stake (so the user is held harmless and the bad operator pays). In v1 the reward is instead routed from `AllocatorVault._accruedFees` — the allocator's own pool of unharvested fees — because `StrategyRegistry` is immutable in Phase 3 and adding a `payDefundReward` path would require a full registry redeploy + re-registration of every existing strategy. The economics still work: the allocator's incentive to keep their accruedFees pool high is to avoid going offline (an offline allocator gets defund-watchdog'd, losing fees to the watchdog) — pressure flows in the right direction. The user remains held harmless either way (their principal isn't touched). v2 migrates to the original "from stake" routing once the registry is rebuilt (see §16 Phase 1). If the allocator's accruedFees are insufficient, the reward is paid down to whatever is available (bond is always refunded in full). This preserves the safety property (anyone can fire if the allocator goes offline) while closing a griefing surface where a competitor times a transient mark-to-market dip to lock in losses that would have mean-reverted. The persistence depth, bond size, confirmation window, and reward cap are configurable per-user in the meta-strategy (`defundTwapBars`, `defundBondBps`, `defundConfirmBlocks`, `defundRewardCapUsd`); `MIN_BAR_BLOCKS` and `MAX_STALENESS_SEC` are owner-tuned vault constants.
+- **Drawdown source.** Drawdown is sampled from `IStrategyVault.navOf(address(this))` on each observation and compared against the allocation's `strategyHighWaterMark`. Phase 2 oracle ships Poseidon-root commitments only, not per-asset on-chain TWAP prices, so a fully on-chain-priced "marked NAV" path is not available in v1 — the Phase 4 implementation relies on the operator's `reportNAV`-driven `navOf()` for the observation signal and on the §6.4 NAV-divergence slash path (`NAV_DIVERGENCE_THRESHOLD_BPS`, two-consecutive trigger) as the deterrent against a malicious operator signing a flattering NAV to suppress defund. The oracle is still consulted: `OraclePriceAnchor.latest().committedAt` gates the *first* observation as a coarse "the oracle hasn't gone offline" signal — if `block.timestamp - committedAt > MAX_STALENESS_SEC` the trigger reverts. A genuine TWAP-priced "marked NAV" computed on-chain (Algebra V3 pool TWAPs on Kite mainnet, or a per-asset price-anchor service) is roadmap (§16 Phase 1).
 - `reason` is logged on-chain (e.g., `"DRAWDOWN_BREACH"`, `"RANK_DROP"`, `"USER_REBALANCE"`).
 
 ### 6.4 `StrategyVault`
@@ -478,7 +478,7 @@ function slash(string calldata reason) external onlyRegistry;
 **Trust constraints.**
 
 - `executeWithProof` requires a valid Groth16 proof binding the trade calldata to the strategy's declared class. The verifier contract is set at deploy time and cannot be changed (immutable on the manifest). If the proof is invalid, execution reverts and the trade does not happen.
-- `reportNAV` is signed by the **strategy operator** and is used both for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers) and — in Phase 4's caller-cadence defund path (§6.3) — as the on-chain NAV signal the permissionless trigger samples. The Phase 2 oracle architecture commits Poseidon roots only, not per-asset on-chain TWAP prices, so a fully oracle-priced "marked NAV" comparison is not available in v1. Operator-signed NAV is therefore in the trust path for defund observation. The Phase 4 deterrent is a **one-sided NAV-divergence slash path**: long-only spot classes (momentum / mean-reversion / yield-rotation) satisfy the invariant `NAV ≥ cashHeld`, so a signed NAV that falls below the strategy vault's `baseAsset.balanceOf(this)` cash floor by more than **`NAV_DIVERGENCE_THRESHOLD_BPS = 500` (5%)** for two consecutive snapshots emits `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. The Helios multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` (no on-chain queue — `StrategyRegistry` is immutable in Phase 3 and adding `queueSlash` would require a full redeploy + re-registration; deferred to v2 alongside the §17 registry rebuild). The cash-floor check catches **operator under-reporting** (an attack vector against drawdown calculations and fee suppression). The complementary attack — **operator over-reporting** to hide a real drawdown and suppress defund — requires an upper-bound NAV recomputation, i.e., a per-asset on-chain price source for the non-cash legs of the strategy's asset universe. That source doesn't exist on Kite testnet/mainnet in v1 (no Pyth/Chainlink, no Algebra-pool-TWAP read), so over-reporting detection is deferred to v2 / post-hackathon (`§17` Phase 1) when the per-asset TWAP anchor ships. The 5% threshold is calibrated to be wider than typical legitimate sources of divergence (intra-bar price moves, in-flight swaps) but tight enough that sustained dishonesty is unambiguous; the parameter is owner-controlled in v1 (Helios multi-sig) with a clear v2 path to per-class governance — see §15.1 for the centralization callout.
+- `reportNAV` is signed by the **strategy operator** and is used both for performance attribution (off-chain Sharpe, P&L curves, fee crystallization triggers) and — in Phase 4's caller-cadence defund path (§6.3) — as the on-chain NAV signal the permissionless trigger samples. The Phase 2 oracle architecture commits Poseidon roots only, not per-asset on-chain TWAP prices, so a fully oracle-priced "marked NAV" comparison is not available in v1. Operator-signed NAV is therefore in the trust path for defund observation. The Phase 4 deterrent is a **one-sided NAV-divergence slash path**: long-only spot classes (momentum / mean-reversion / yield-rotation) satisfy the invariant `NAV ≥ cashHeld`, so a signed NAV that falls below the strategy vault's `baseAsset.balanceOf(this)` cash floor by more than **`NAV_DIVERGENCE_THRESHOLD_BPS = 500` (5%)** for two consecutive snapshots emits `NavDivergenceObserved(strategy, signed, marked, snapshotNonce)`. The Helios multi-sig watches the event off-chain and executes `StrategyRegistry.slash(strategy, amount, "NAV_DIVERGENCE")` (no on-chain queue — `StrategyRegistry` is immutable in Phase 3 and adding `queueSlash` would require a full redeploy + re-registration; deferred to v2 alongside the §16 registry rebuild). The cash-floor check catches **operator under-reporting** (an attack vector against drawdown calculations and fee suppression). The complementary attack — **operator over-reporting** to hide a real drawdown and suppress defund — requires an upper-bound NAV recomputation, i.e., a per-asset on-chain price source for the non-cash legs of the strategy's asset universe. That source doesn't exist on Kite testnet/mainnet in v1 (no Pyth/Chainlink, no Algebra-pool-TWAP read), so over-reporting detection is deferred to v2 / post-hackathon (`§16` Phase 1) when the per-asset TWAP anchor ships. The 5% threshold is calibrated to be wider than typical legitimate sources of divergence (intra-bar price moves, in-flight swaps) but tight enough that sustained dishonesty is unambiguous; the parameter is owner-controlled in v1 (Helios multi-sig) with a clear v2 path to per-class governance — see §14.1 for the centralization callout.
 - `slash` can only be called by `StrategyRegistry` (e.g., on detected misbehavior — invalid NAV reports, repeated proof failures, manifest-divergent trades).
 - All capital flows are tracked per-allocator so multiple allocators can co-invest in the same strategy.
 
@@ -529,7 +529,7 @@ function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external on
 - Params rotation is two-phase: `initiateParamsRotation` arms the new `paramsHash` and starts a public cooldown; `completeParamsRotation` activates it once the cooldown elapses. Rotation emits `ParamsRotationInitiated` and `ParamsRotated` events and creates a clean break in the strategy's track record: the reputation engine resets `AgeScore` and `PerformanceScore` on the new params slot, and allocators see the rotation timestamp so they can choose whether to keep or pull capital. This forecloses the "pick a threshold to fit each trade" attack because the threshold is fixed across all trades under a given `paramsHash` and any change is publicly visible before the next trade.
 - `slash` is owner-controlled in the MVP (Helios team multi-sig), with a clear path to community governance post-hackathon.
 - `withdrawStake` has a 7-day cooldown to prevent rug-pulls after taking allocations.
-- `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4). Owner-only in v1 (Helios multi-sig curates the lending venues for `yield_rotation_v1`); see §15.1 for the centralization implications and the v2 path to per-class governance.
+- `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4). Owner-only in v1 (Helios multi-sig curates the lending venues for `yield_rotation_v1`); see §14.1 for the centralization implications and the v2 path to per-class governance.
 
 ### 6.6 `AllocatorRegistry`
 
@@ -697,7 +697,7 @@ Strategy vaults on Base/Arbitrum push their NAV updates and trade attestations t
 
 The two oracle-anchor contracts publish the canonical commitments that the rest of the system reads from. Both are immutable (no UUPS proxy), permissioned to a single registered Helios oracle signer (rotation requires owner-multi-sig), and emit one event per snapshot so Goldsky and the dashboard can stream them.
 
-**`OraclePriceAnchor`** is load-bearing in two places in v1: (a) every Groth16 proof's `oracle_root` public input must equal a root anchored here within a freshness window enforced by `StrategyVault.executeWithProof` (and validated against the per-root `freshness(root)` view), and (b) the auto-defund permissionless trigger (§6.3) reads `latest().committedAt` as a coarse "the oracle hasn't gone offline" gate. A compromised price oracle falsifies proof validation and corrupts the freshness gate — see §15.2. *Note:* the v1 anchor commits Poseidon roots only — per-asset on-chain price reads are not exposed. The auto-defund path therefore samples NAV from `IStrategyVault.navOf()` (§6.3) rather than recomputing from on-chain prices; a fully on-chain-priced TWAP path is roadmap.
+**`OraclePriceAnchor`** is load-bearing in two places in v1: (a) every Groth16 proof's `oracle_root` public input must equal a root anchored here within a freshness window enforced by `StrategyVault.executeWithProof` (and validated against the per-root `freshness(root)` view), and (b) the auto-defund permissionless trigger (§6.3) reads `latest().committedAt` as a coarse "the oracle hasn't gone offline" gate. A compromised price oracle falsifies proof validation and corrupts the freshness gate — see §14.2. *Note:* the v1 anchor commits Poseidon roots only — per-asset on-chain price reads are not exposed. The auto-defund path therefore samples NAV from `IStrategyVault.navOf()` (§6.3) rather than recomputing from on-chain prices; a fully on-chain-priced TWAP path is roadmap.
 
 ```solidity
 struct Commit {
@@ -724,11 +724,11 @@ function unrevokeRoot(bytes32 root) external;   // owner-gated; reverses a miscl
 
 **Trust constraints.**
 
-- Only the registered oracle EOA can sign `commit`. Rotation goes through the Helios multi-sig (same model as the reputation signer in §15.1).
+- Only the registered oracle EOA can sign `commit`. Rotation goes through the Helios multi-sig (same model as the reputation signer in §14.1).
 - `freshness(root)` is the per-root staleness query that `StrategyVault.executeWithProof` uses — proofs whose `oracle_root` is older than `MAX_STALENESS_SEC` (default 180s) revert. The defund permissionless trigger separately reads `block.timestamp - latest().committedAt` against the same window and reverts with `OracleStale` on its first observation if the oracle has gone quiet.
 - `revokeRoot` / `unrevokeRoot` let the owner kill (and resurrect) a single committed root without touching the signer key — the recovery path for an oracle compromise where the offending roots are known.
 - `OracleYieldAnchor` commits are posted on a 5-minute cadence; yield-rotation proofs include the snapshot nonce in their public inputs and the contract validates monotonicity via `windowStart >= prev.windowEnd`.
-- Both anchors are listed as v1 trust assumptions in §15.1 and as threat-model entries in §15.2. Post-hackathon roadmap (§17) replaces the Helios-operated oracles with Pyth/Chainlink adapters and adds a per-asset on-chain TWAP anchor for defund marked-NAV.
+- Both anchors are listed as v1 trust assumptions in §14.1 and as threat-model entries in §14.2. Post-hackathon roadmap (§16) replaces the Helios-operated oracles with Pyth/Chainlink adapters and adds a per-asset on-chain TWAP anchor for defund marked-NAV.
 
 ---
 
@@ -1289,7 +1289,7 @@ Operators can implement their own variants of these classes. They cannot invent 
 
 ## 11. The Allocator Agent
 
-The allocator is the autonomous capital router — the second-most-important agent class in Helios after strategy agents. The MVP ships **Helios Sentinel** as the reference allocator and **the AllocatorSDK** as a public v1 deliverable so third parties can ship competing allocators from day one. A second branded reference allocator ("Helios Helix") was scoped to seed the marketplace within the hackathon but was cut to finish the cross-chain surface — the SDK + registry remain open for third-party allocators, and the post-hackathon roadmap restores Helix as the first follow-on milestone (§17).
+The allocator is the autonomous capital router — the second-most-important agent class in Helios after strategy agents. The MVP ships **Helios Sentinel** as the reference allocator and **the AllocatorSDK** as a public v1 deliverable so third parties can ship competing allocators from day one. A second branded reference allocator ("Helios Helix") was scoped to seed the marketplace within the hackathon but was cut to finish the cross-chain surface — the SDK + registry remain open for third-party allocators, and the post-hackathon roadmap restores Helix as the first follow-on milestone (§16).
 
 ### 11.1 Allocator responsibilities
 
@@ -1300,7 +1300,7 @@ Every allocator (Sentinel or third-party) must perform six functions:
 3. **Drawdown enforcement.** Continuously monitor each strategy's NAV against the per-allocation HWM. Trigger defunds the moment the user's drawdown threshold is breached.
 4. **Periodic rebalancing.** On the user's `rebalanceCadenceSec` cycle, recompute target allocation and migrate capital.
 5. **Fee crystallization.** Trigger `settleStrategyFee` when NAV exceeds HWM by a configurable threshold.
-6. **User communication.** Emit events that the dashboard activity rail consumes (and that the post-hackathon Telegram bot will fan out — see §17).
+6. **User communication.** Emit events that the dashboard activity rail consumes (and that the post-hackathon Telegram bot will fan out — see §16).
 
 The *what* (these six functions) is shared. The *how* (especially the ranking function) is where allocators compete.
 
@@ -1464,7 +1464,7 @@ helios-allocator logs                       # Live tail of operational events
 
 ### 11.4 Helios Helix — cut from v1, restored post-hackathon
 
-> **Status:** Helix was scoped as a second branded reference allocator (continuous fee-fit factor + correlation-aware greedy pick + regime-adaptive weighting on top of the AllocatorSDK) but was cut during Phase 6 to finish the cross-chain surface. The AllocatorSDK still exposes the underlying hooks (`detect_regime`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`) so any third-party allocator can adopt them today, and the `AllocatorRegistry` reserves the "Helios Helix" name. Restoring Helix is the first post-hackathon milestone (§17).
+> **Status:** Helix was scoped as a second branded reference allocator (continuous fee-fit factor + correlation-aware greedy pick + regime-adaptive weighting on top of the AllocatorSDK) but was cut during Phase 6 to finish the cross-chain surface. The AllocatorSDK still exposes the underlying hooks (`detect_regime`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`) so any third-party allocator can adopt them today, and the `AllocatorRegistry` reserves the "Helios Helix" name. Restoring Helix is the first post-hackathon milestone (§16).
 
 The marketplace mechanism — third parties shipping competing allocators on a shared registry — is intact even with only Sentinel running. Any new allocator built on the AllocatorSDK can register on `AllocatorRegistry`, attract delegations, and accrue its own reputation through the same `ReputationAnchor` pipe Sentinel uses. The point — **Helios doesn't pick winners among allocator strategies; the market does** — does not depend on Helix specifically; it depends on the registry being open, which it is.
 
@@ -1493,7 +1493,7 @@ The rule: **Kite is identity + accounting + small-position execution. Base is la
 
 | Chain | Function in Helios | Why this chain |
 |---|---|---|
-| **Kite (2368 testnet; 2366 mainnet is a stretch, not planned)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies also *execute* here — momentum and mean-reversion vaults trading a mUSDC / mWBTC / mWETH / mSOL universe through a `MockSwapRouter` that the off-chain `RouterPriceMirror` keeper feeds with oracle-derived prices each bar (5 bps spread per leg). The mock router is used because Kite testnet does not yet expose a deep on-chain spot venue and an Algebra-Integral integration is post-v1; the on-chain swap path is otherwise identical to a real DEX router. | Kite is the only chain with the **Passport-issued ERC-4337 smart-account stack + x402** we lean on for one-passkey onboarding and the agent-economy demo beat. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX or deep spot DEX yet** — v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 17). |
+| **Kite (2368 testnet; 2366 mainnet is a stretch, not planned)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies also *execute* here — momentum and mean-reversion vaults trading a mUSDC / mWBTC / mWETH / mSOL universe through a `MockSwapRouter` that the off-chain `RouterPriceMirror` keeper feeds with oracle-derived prices each bar (5 bps spread per leg). The mock router is used because Kite testnet does not yet expose a deep on-chain spot venue and an Algebra-Integral integration is post-v1; the on-chain swap path is otherwise identical to a real DEX router. | Kite is the only chain with the **Passport-issued ERC-4337 smart-account stack + x402** we lean on for one-passkey onboarding and the agent-economy demo beat. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX or deep spot DEX yet** — v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 16). |
 | **Base (8453 mainnet, 84532 Sepolia testnet)** | **Deep-liquidity spot execution.** Strategy agents trading large-cap pairs (ETH/USDC, WBTC/USDC, SOL/USDC) on **Uniswap V3 SwapRouter02**. This is where momentum and mean-reversion strategies that need real liquidity execute. Per-chain TradeAttestationVerifier deployments verify Groth16 proofs locally; trade attestations and NAV deltas batch back to Kite via LayerZero V2 OApp. (Uniswap V4 hooks were the original target — V3 SwapRouter02 was selected for v1 because the hook-based path was not yet stable on Base Sepolia at cutover; the `allowedRouter` slot is a one-line flip once V4 is production-ready.) | Base has the **deepest spot liquidity** in the L2 ecosystem. **Coinbase Ventures is the lead hackathon partner** — using Base meaningfully (not decoratively) is a narrative win. Cheap gas, fast finality, and a maturing agent-tooling ecosystem (Base Account, OnchainKit) align with our identity model. |
 | **Arbitrum (42161 mainnet, 421614 Sepolia testnet)** | **Yield surface.** The `yield_rotation_v1` vault lives here. v1 routes through a `MockYieldVault` shaped like Aave V3's lending interface — the Aave Arb-Sepolia faucet is admin-gated, which blocked an end-to-end Aave swap at cutover; the `allowedRouter` slot is a one-line flip once the faucet opens up. The cross-chain rate-differential thesis (Arbitrum vs other yield venues) is the same whether the underlying is Aave or the mock. | Arbitrum has the **deepest set of mature lending markets** in the L2 ecosystem (Aave V3 alone has billions in TVL there). Yield rotation strategies need a venue with multiple competing protocols to be meaningful. |
 
@@ -1609,9 +1609,9 @@ A Next.js 14 app deployed at `https://helios-frontend-steel.vercel.app`. For use
 
 ### 13.2 Activity rail (dashboard event stream)
 
-The dashboard's persistent activity rail is the v1 event surface. It consumes the Allocator Service's WebSocket feed and prints each event as a single dense row — strategy allocations, defunds, rebalances, fees accrued, withdrawals ready. The same five event types that v2's Telegram bot will fan out (see Phase 1 post-hackathon roadmap, §17) drive the rail today; the formatting rules in `DESIGN.md §15` (≤200 chars, one event per row, restrained ⚡/⚠️/✓ status markers, Kitescan/BaseScan/Arbiscan trade links) apply to rail rows verbatim. During the demo, judges see the cascade and the auto-defund land in the activity rail in real time, with no second device or notification surface required.
+The dashboard's persistent activity rail is the v1 event surface. It consumes the Allocator Service's WebSocket feed and prints each event as a single dense row — strategy allocations, defunds, rebalances, fees accrued, withdrawals ready. The same five event types that v2's Telegram bot will fan out (see Phase 1 post-hackathon roadmap, §16) drive the rail today; the formatting rules in `DESIGN.md §15` (≤200 chars, one event per row, restrained ⚡/⚠️/✓ status markers, Kitescan/BaseScan/Arbiscan trade links) apply to rail rows verbatim. During the demo, judges see the cascade and the auto-defund land in the activity rail in real time, with no second device or notification surface required.
 
-A standalone Telegram bot (`@helios_market_bot`) is deferred to post-hackathon Phase 1 — see §17. It will subscribe to the same WS feed and reuse the §15 templates without behavioural change to the rail.
+A standalone Telegram bot (`@helios_market_bot`) is deferred to post-hackathon Phase 1 — see §16. It will subscribe to the same WS feed and reuse the §15 templates without behavioural change to the rail.
 
 ### 13.3 REST/WebSocket API
 
@@ -1627,41 +1627,11 @@ WS   /v1/events                    — global event stream (allocations, defunds
 
 ---
 
-## 14. Demo scenario and stagecraft
-
-The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund as the headline beat. Judges need to leave remembering one image: "the system fired a bad strategy by itself."
-
-### 14.1 The 3-minute script
-
-**[0:00–0:20] The setup.** Web app open, dashboard view. Voiceover: *"Maya wants to put $1,000 to work in AI trading agents. She doesn't want to babysit it. She doesn't want to give up custody. She wants policy guardrails. Let's see what one signature gets her."*
-
-**[0:20–0:50] The approval.** Open the meta-strategy builder. Pick the "Balanced" template, customize asset universe to BTC/ETH/SOL. The allocator panel shows Sentinel ("Official Reference") plus the `AllocatorRegistry` directory — Sentinel is the only allocator running in v1, with the registry open for third parties. Approve via Kite Passport — one passkey prompt, no MetaMask popup. The frontend submits the discrete txs `USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator` through the Passport AA session (paymaster-sponsored batching is post-hackathon). Voiceover: *"She chooses an allocator — Sentinel is the reference, and the marketplace is open. One passkey approval is the only thing she does. From here, everything is autonomous and on-chain."*
-
-**[0:50–1:30] The cascade.** Dashboard updates in real-time. Show Sentinel picking 4 strategies across the three chains. Show the first ZK-attested trade landing on each. The activity rail prints each allocation as it confirms: *"⚡ Sentinel → MomentumKite-A $300", "⚡ Sentinel → MeanRevBase-B $250", "⚡ Sentinel → MomentumArb-C $250", "⚡ Sentinel → YieldRotationArb-D $200"*. Voiceover: *"Each trade carries a ZK proof binding it to the strategy's declared class. A momentum agent literally cannot execute a yield rotation and have it count. This is the trustless layer underneath."*
-
-**[1:30–2:10] The drawdown.** Switch the demo into "scenario mode" (deterministic market replay — see 14.2). MomentumKite-A's NAV starts dropping. Dashboard's drawdown indicator flashes amber, then red. At -15%: the activity rail prints two rows in sequence: *"⚠️ MomentumKite-A defunded at -15.2%"* and *"⚡ MeanRevArb-E ← reallocated $300"*. Sentinel pulls capital, reroutes to the next-best-ranked strategy. Dashboard shows the migration happen in real-time. Voiceover: *"This is the headline behavior. No human pressed a button. Sentinel saw the threshold breach, defunded the bad strategy, and rerouted capital — autonomously, in 12 seconds. If Sentinel itself had gone offline, anyone could trigger the same defund: it's enforced on-chain."*
-
-**[2:10–2:40] The cross-chain reputation.** Show MomentumArb-C landing a profitable trade on Arbitrum. Reputation update flows from Arbitrum → Kite via LayerZero. Dashboard's strategy ranking updates; MomentumArb-C climbs two positions. Voiceover: *"Strategies trade where venue is best — momentum where liquidity is deep, yield rotation where lending rates compete. Reputation lives canonically on Kite. LayerZero stitches it together so a track record earned on Arbitrum becomes capital on Kite, instantly."*
-
-**[2:40–3:00] The audit close.** Switch to Kitescan. Show the verified contracts. Show a TradeAttested event with the proof signals. Voiceover: *"Every claim is verifiable on-chain. Helios is open infrastructure for the agentic economy — the first capital market where AI traders earn capital by performance, lose it by failure, and operate under cryptographic constraints. Built on Kite. Powered by ZK. Cross-chain by design."*
-
-### 14.2 Demo stagecraft
-
-**Scenario mode.** The demo runs against a deterministic market replay so the auto-defund triggers reliably during the live presentation. This is **not cheating** — the mechanism is real, the on-chain transactions are real, the proofs are real. What's curated is the *market scenario* used to trigger the behavior. The README clearly distinguishes "live mode" (real market data) from "scenario mode" (replayed historical data) and ships both. Judges can run either.
-
-**Pre-demo state.** Before the demo, we pre-deploy all contracts (Kite, Base, Arbitrum), pre-fund Maya's wallet with $1,000 USDC, pre-register the Phase-6 strategy universe (9 strategies across mom/mr/yr × 3 variants, plus the Base + Arbitrum siblings — 4 initial allocation targets + reserve candidates for post-defund reallocation), pre-deploy strategy agents on the VPS, and pre-register Sentinel on `AllocatorRegistry`. The demo starts from a clean dashboard but a warm system. This is standard hackathon practice and what every winner we studied did.
-
-**Backup demo video.** A pre-recorded 90-second version exists for fallback if anything fails live. Submitted alongside the live demo.
-
-**The judge quick-eval link.** `https://helios-frontend-steel.vercel.app/judge` — a single page that gives judges everything: video link, live URL, contract addresses on Kitescan, GitHub links, 5-minute eval checklist.
-
----
-
-## 15. Security, trust, and threat model
+## 14. Security, trust, and threat model
 
 A protocol that handles capital must articulate its trust model honestly. 
 
-### 15.1 Trust assumptions
+### 14.1 Trust assumptions
 
 | Component | Trust required | Why |
 |---|---|---|
@@ -1671,13 +1641,13 @@ A protocol that handles capital must articulate its trust model honestly.
 | Strategy operator | **Limited trust** — they can't violate class invariants (ZK-enforced) but they can run a strategy that loses money | The economic model handles this: bad strategies lose reputation and capital |
 | Allocator operator | **Limited trust** — they can't violate user's meta-strategy (on-chain enforced) but they can rank suboptimally | Multiple allocators allow market competition |
 | Reputation Engine signer | **Trusted** in v1 (single signer); **trust-minimized** in v2 (multi-sig); **trustless** in v3 (ZK-attested computation) | Documented limitation with clear roadmap |
-| Price oracle | **Trusted** in v1 (Helios-operated); **trust-minimized** in v2 (Chainlink/Pyth). Load-bearing for both ZK proof validation (`oracle_root`) and the auto-defund TWAP trigger — see threat-model entry in §15.2. | Documented limitation |
+| Price oracle | **Trusted** in v1 (Helios-operated); **trust-minimized** in v2 (Chainlink/Pyth). Load-bearing for both ZK proof validation (`oracle_root`) and the auto-defund TWAP trigger — see threat-model entry in §14.2. | Documented limitation |
 | Yield-market allowlist | **Trusted** in v1 — `StrategyRegistry.setMarketAllowlistRoot` is owner-only (Helios multi-sig); v2 path is per-class governance | A malicious allowlist could whitelist an unaudited Aave fork; honest framing is "Helios curates the lending venues for `yield_rotation_v1` in v1" |
 | NAV divergence threshold | **Trusted** in v1 — the 5% slashable-divergence threshold is owner-set; the `slash` call itself is `onlyRegistry` and routes through the Helios multi-sig | Threshold change requires a multi-sig action; v2 considers per-class governance |
 | LayerZero DVN set | Trust LayerZero's default DVN configuration | Standard for LayerZero apps |
 | Helios trusted setup | **Trusted ceremony** in v1 (local PTAU); production needs a real ceremony | Documented limitation |
 
-### 15.2 Threat model
+### 14.2 Threat model
 
 **Threat: Malicious strategy operator drains user funds via class violation.**
 Defense: Impossible. Trades require valid Groth16 proofs of class compliance. Invalid proof = revert.
@@ -1695,22 +1665,22 @@ Defense: `defundStrategy` is permissionless when drawdown threshold is breached.
 Defense: v1 limitation. Mitigated by: (a) the engine code is open-source and the inputs are public on-chain, so any inflation is detectable by re-running the math; (b) the v2 multi-sig model; (c) the v3 ZK computation.
 
 **Threat: Helios price oracle is compromised.**
-Defense: A compromised oracle is a high-impact trust failure in v1 because it controls the canonical `oracle_root` bound into every ZK proof — `OraclePriceAnchor.commit()` is the only path to mint a root that verifies, so a bad root could validate fraudulent trades. The auto-defund trigger has a *narrower* dependency: it reads `latest().committedAt` only as a "is the oracle online" gate (§6.3, §6.10), not as a price source — drawdown observation samples `StrategyVault.navOf()` instead. A compromised oracle therefore can falsify proofs, but cannot directly suppress or fire a defund except by going silent (which trips `OracleStale` on the first observation, freezing rather than firing the trigger). v1 mitigations: (i) the oracle key is documented in §15.1 as a centralization point, (ii) `freshness(root)` enforces a 180s max-staleness window on every proof — stale oracle = proofs revert, (iii) `revokeRoot` / `unrevokeRoot` let the multi-sig kill (and unkill) specific committed roots without rotating the signer, (iv) every commit is a single signed event indexed by Goldsky so any manipulation is publicly observable in real time. v2 replaces the Helios oracle with a Pyth/Chainlink adapter with native staleness and circuit-breaker guarantees and adds a per-asset on-chain TWAP anchor that lets the defund path migrate from operator-NAV to oracle-priced marked NAV (§17 Phase 1).
+Defense: A compromised oracle is a high-impact trust failure in v1 because it controls the canonical `oracle_root` bound into every ZK proof — `OraclePriceAnchor.commit()` is the only path to mint a root that verifies, so a bad root could validate fraudulent trades. The auto-defund trigger has a *narrower* dependency: it reads `latest().committedAt` only as a "is the oracle online" gate (§6.3, §6.10), not as a price source — drawdown observation samples `StrategyVault.navOf()` instead. A compromised oracle therefore can falsify proofs, but cannot directly suppress or fire a defund except by going silent (which trips `OracleStale` on the first observation, freezing rather than firing the trigger). v1 mitigations: (i) the oracle key is documented in §14.1 as a centralization point, (ii) `freshness(root)` enforces a 180s max-staleness window on every proof — stale oracle = proofs revert, (iii) `revokeRoot` / `unrevokeRoot` let the multi-sig kill (and unkill) specific committed roots without rotating the signer, (iv) every commit is a single signed event indexed by Goldsky so any manipulation is publicly observable in real time. v2 replaces the Helios oracle with a Pyth/Chainlink adapter with native staleness and circuit-breaker guarantees and adds a per-asset on-chain TWAP anchor that lets the defund path migrate from operator-NAV to oracle-priced marked NAV (§16 Phase 1).
 
 **Threat: Strategy operator signs a flattering NAV during defund observation to suppress the trigger.**
-Defense: **Partial in v1.** The Phase 4 caller-cadence defund path samples NAV from `StrategyVault.navOf()` — the same value the operator's `reportNAV` writes (§6.4). An operator who signs a NAV above threshold during a real drawdown can suppress observation, and the v1 NAV-divergence check (§6.4) does not catch this — it's a one-sided cash-floor check that catches under-reporting only, because there is no on-chain per-asset price source for an upper-bound recomputation. Mitigations available in v1: (a) reputation engine penalizes inconsistent NAV reports off-chain — a strategy with a divergent post-realization P&L vs reported NAV trajectory accrues reputation decay, which directly reduces allocator capital flow; (b) operators can't stop reporting indefinitely without freezing fee crystallization (HWM doesn't update) and accruing age-decay reputation hits; (c) when the strategy realizes (via fee settlement or unwind), the cash-on-hand reveals the gap and the same divergence check fires retroactively in the under-reporting direction. v2 closes the residual gap by reading `markedNAV` from a per-asset on-chain TWAP anchor (Algebra V3 pools on Kite mainnet, or a separate per-asset price-anchor service) so divergence is bidirectional — see §17 Phase 1.
+Defense: **Partial in v1.** The Phase 4 caller-cadence defund path samples NAV from `StrategyVault.navOf()` — the same value the operator's `reportNAV` writes (§6.4). An operator who signs a NAV above threshold during a real drawdown can suppress observation, and the v1 NAV-divergence check (§6.4) does not catch this — it's a one-sided cash-floor check that catches under-reporting only, because there is no on-chain per-asset price source for an upper-bound recomputation. Mitigations available in v1: (a) reputation engine penalizes inconsistent NAV reports off-chain — a strategy with a divergent post-realization P&L vs reported NAV trajectory accrues reputation decay, which directly reduces allocator capital flow; (b) operators can't stop reporting indefinitely without freezing fee crystallization (HWM doesn't update) and accruing age-decay reputation hits; (c) when the strategy realizes (via fee settlement or unwind), the cash-on-hand reveals the gap and the same divergence check fires retroactively in the under-reporting direction. v2 closes the residual gap by reading `markedNAV` from a per-asset on-chain TWAP anchor (Algebra V3 pools on Kite mainnet, or a separate per-asset price-anchor service) so divergence is bidirectional — see §16 Phase 1.
 
 **Threat: Strategy operator under-reports NAV to inflate drawdown and grief allocations.**
 Defense: The §6.4 cash-floor NAV-divergence check fires when `signedNAV < baseAsset.balanceOf(strategyVault) × (1 - NAV_DIVERGENCE_THRESHOLD_BPS/10_000)` for two consecutive snapshots. The strategy class invariant `NAV ≥ cashHeld` (long-only spot) makes this an unambiguous lie. `NavDivergenceObserved` emits, multi-sig executes `slash` per §6.4. Cost to the operator: stake.
 
 **Threat: User's Passport credentials are compromised.**
-Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw — and in v1, with `setMetaStrategy` signature verification stubbed (§15.1), they can also widen the meta-strategy bounds (e.g. add risky strategy classes or raise `maxCapital`) before re-allocating. This is the same custodial-MPC threat surface as Particle / Privy / Magic, plus the additional surface created by the stubbed signature path. Mitigations: Particle's email + passkey 2FA; the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time; tightening `setMetaStrategy` is blocked while capital is deployed (HIGH #5/#10 from Phase-3 review). Post-hackathon hardening adds EIP-1271 verification against the Passport session and an "external owner" flow for a hardware-held EOA.
+Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw — and in v1, with `setMetaStrategy` signature verification stubbed (§14.1), they can also widen the meta-strategy bounds (e.g. add risky strategy classes or raise `maxCapital`) before re-allocating. This is the same custodial-MPC threat surface as Particle / Privy / Magic, plus the additional surface created by the stubbed signature path. Mitigations: Particle's email + passkey 2FA; the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time; tightening `setMetaStrategy` is blocked while capital is deployed (HIGH #5/#10 from Phase-3 review). Post-hackathon hardening adds EIP-1271 verification against the Passport session and an "external owner" flow for a hardware-held EOA.
 
 **Threat: Allocator's delegation key is compromised.**
 Defense: The on-chain ACL bounds the attacker to the meta-strategy — they cannot exceed `maxCapital`, allocate to disallowed asset classes, or change the user's drawdown threshold. The user revokes by calling `delegateToAllocator(address(0))`.
 
 **Threat: Smart contract bug.**
-Defense: The Solidity surface is intentionally small (~2,830 LoC, per the §6.1 inventory). Audit-friendly. Pre-launch we run static analysis (Slither, Mythril) and aim for a community audit pass; Echidna property fuzz suites are scheduled alongside the Phase 1 external audit (see §16, §17).
+Defense: The Solidity surface is intentionally small (~2,830 LoC, per the §6.1 inventory). Audit-friendly. Pre-launch we run static analysis (Slither, Mythril) and aim for a community audit pass; Echidna property fuzz suites are scheduled alongside the Phase 1 external audit (see §15, §16).
 
 **Threat: ZK circuit bug.**
 Defense: Each circuit is small and reviewed. Unit tests cover edge cases (zero amounts, max amounts, boundary conditions). The trusted setup is a known limitation requiring future ceremony.
@@ -1721,7 +1691,7 @@ Defense: Allocator transactions are gas-batched and use Kite's bundler. On Kite,
 **Threat: Cross-chain message replay.**
 Defense: LayerZero's standard nonce/replay protection. Plus per-strategy update sequence numbers in HeliosOApp.
 
-### 15.3 What we explicitly don't claim
+### 14.3 What we explicitly don't claim
 
 - **We don't claim the strategies will be profitable.** Markets are risky. Helios is infrastructure for capital allocation, not a return guarantee.
 - **We don't claim the reputation system can't be gamed at all.** We claim it raises the cost of gaming above any rational gain, and we document the specific gaming vectors and their mitigations.
@@ -1730,7 +1700,7 @@ Defense: LayerZero's standard nonce/replay protection. Plus per-strategy update 
 
 ---
 
-## 16. Out-of-scope for MVP
+## 15. Out-of-scope for MVP
 
 To be brutally clear about what we are *not* doing, so judges can score what's there fairly and so post-hackathon planning has a clear backlog.
 
@@ -1742,7 +1712,7 @@ To be brutally clear about what we are *not* doing, so judges can score what's t
 - `/docs` route with embedded operator + allocator guides (`/judge` links out to GitHub markdown instead)
 - Echidna property tests (Slither + Mythril clean is the v1 contract security bar; Echidna fuzz suites are post-audit work, post-hackathon Phase 2)
 - Permissionless strategy class registration (permissioned to the three classes for v1)
-- Perpetuals / derivatives strategies (Kite has no native perp DEX; Hyperliquid integration deferred to roadmap — see Section 17)
+- Perpetuals / derivatives strategies (Kite has no native perp DEX; Hyperliquid integration deferred to roadmap — see Section 16)
 - Inter-strategy correlation in allocator ranking (Sentinel doesn't do this; the SDK exposes hooks so allocators *can*)
 - Capacity-adjusted Sharpe in reputation
 - Production trusted setup (uses local PTAU)
@@ -1758,7 +1728,7 @@ To be brutally clear about what we are *not* doing, so judges can score what's t
 
 ---
 
-## 17. Post-hackathon roadmap
+## 16. Post-hackathon roadmap
 
 Helios is designed as v1 of a real protocol. The post-hackathon path:
 
@@ -1775,7 +1745,7 @@ Helios is designed as v1 of a real protocol. The post-hackathon path:
 - Permissionless strategy class registration with circuit-submission gating
 - Chainlink-backed price oracle adapter
 - **Per-asset on-chain TWAP price anchor for defund marked NAV.** v1 ships caller-cadence persistence over `StrategyVault.navOf()` (§6.3) because the Phase 2 oracle commits Poseidon roots only — no per-asset on-chain reads. v2 adds an `OracleAssetPriceAnchor` (or reads Algebra V3 pool TWAPs on Kite mainnet directly) so the auto-defund path computes a fully on-chain-priced marked NAV and the §6.4 NAV-divergence slash deterrent stops being load-bearing for trigger correctness.
-- **`StrategyRegistry.payDefundReward` (defund reward from strategy stake).** v1 routes the §6.3 defund reward from `AllocatorVault._accruedFees` instead, because the registry is immutable in Phase 3 and adding the helper requires a full registry redeploy + re-registration of every strategy. v2 rebuilds the registry (alongside the per-class governance + slashing-dispute work in §16) and restores the original "reward from strategy stake" routing.
+- **`StrategyRegistry.payDefundReward` (defund reward from strategy stake).** v1 routes the §6.3 defund reward from `AllocatorVault._accruedFees` instead, because the registry is immutable in Phase 3 and adding the helper requires a full registry redeploy + re-registration of every strategy. v2 rebuilds the registry (alongside the per-class governance + slashing-dispute work in §15) and restores the original "reward from strategy stake" routing.
 - Independent smart contract audit (Trail of Bits or equivalent)
 
 ### Phase 2 (Months 4-6)
@@ -1801,7 +1771,7 @@ The roadmap demonstrates that v1 is the foundation of a real product, not an asp
 
 ---
 
-## 18. Repository layout
+## 17. Repository layout
 
 ```
 helios/
@@ -1842,7 +1812,7 @@ helios/
 │   ├── prover/                     # The Prover Service (Node + snarkjs)
 │   └── oracle/                     # The reference price + yield oracle
 │   # services/helix and services/bot are post-hackathon: Helix was cut from v1
-│   # (§11.4); the Telegram bot is deferred to Phase 1 (§17). Neither directory
+│   # (§11.4); the Telegram bot is deferred to Phase 1 (§16). Neither directory
 │   # ships on the v1 main branch.
 ├── frontend/                       # Next.js 14 web app
 │   └── src/
@@ -1875,7 +1845,7 @@ helios/
 
 ---
 
-## 19. Judge quick-evaluation guide
+## 18. Judge quick-evaluation guide
 
 > *Time required: 5 minutes.*
 
@@ -1910,7 +1880,7 @@ This re-runs the Groth16 verification off-chain and confirms it matches the on-c
 Three sections worth your time, in order:
 - Section 9 — the ZK strategy attestation (the technical moat)
 - Section 8 — the reputation engine (the IP moat)
-- Section 15 — the threat model (the credibility moat)
+- Section 14 — the threat model (the credibility moat)
 
 ### Step 7: Score
 Helios's bid for the Trading track rests on:
