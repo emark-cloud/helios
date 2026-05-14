@@ -234,6 +234,15 @@ class AllocatorLoop:
         if balance is not None:
             user.delegated_capital_usd = balance
 
+        _log.info(
+            "allocator.tick_user",
+            user=user.meta.user_address,
+            balance=str(balance) if balance is not None else "none",
+            delegated=str(user.delegated_capital_usd),
+            allocations=len(user.allocations),
+            last_rebalance_ts=user.last_rebalance_ts,
+        )
+
         # Step 4: drawdown check first — before any rebalancing logic.
         await self._enforce_drawdown(user, ts)
 
@@ -241,6 +250,13 @@ class AllocatorLoop:
         if self._should_rebalance(user, ts):
             target = self._compute_target(user)
             ops = self._diff(user, target)
+            _log.info(
+                "allocator.tick_user.diff",
+                user=user.meta.user_address,
+                targets=len(target),
+                ops=len(ops),
+                candidate_count=len(self._candidates),
+            )
             if ops:
                 await self._apply_diffs(user, target, ops, ts)
                 user.last_rebalance_ts = ts
