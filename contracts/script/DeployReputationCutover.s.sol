@@ -14,8 +14,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///         at v2-bis, then wires v2-bis to those registries via the
 ///         one-shot `setRegistries`. The existing V2 anchor
 ///         (`0x735680a3…`) is locked to V1 registries by an earlier
-///         (foot-gun) `setRegistries(V1, V1)` call — see
-///         `docs/reputation-v1-v2-cutover.md`.
+///         (foot-gun) `setRegistries(V1, V1)` call.
 ///
 ///         Side-effect on `kite-testnet.json` (additive — no key
 ///         overwrites the WS10 set):

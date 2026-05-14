@@ -31,8 +31,6 @@ import { IAllocatorRegistry } from "./interfaces/IAllocatorRegistry.sol";
 ///         `ReputationPosted`/`ComponentsAnchored`) and leaves the
 ///         registries' on-chain `currentReputation` last-touched by V1.
 ///         The full v1→v2 cutover (registry redeploy) lands in Phase 5.
-///         See docs/reputation-v1-v2-cutover.md for the failure mode and
-///         operator checklist.
 contract ReputationAnchorV2 is IReputationAnchor, Ownable, EIP712 {
     bytes32 private constant _UPDATE_TYPEHASH = keccak256(
         "ReputationUpdate(address actor,uint8 actorType,int256 currentScore,uint256 lastUpdateBlock,uint256 totalAttestedTrades,uint256 totalRealizedPnL,uint256 maxDrawdownBps,uint256 proofValidityRateBps,bytes32 componentsHash)"

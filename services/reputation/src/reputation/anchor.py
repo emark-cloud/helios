@@ -18,8 +18,8 @@ Two on-chain shapes coexist (see `signer.py` typehash_version):
   `0xcc177986`. This is the registry-bound anchor.
 - **v2** (Phase 2 WS3.A onwards): 8-field struct with `componentsHash`.
   Function selector `0x2dab51f6`. Deployed as a sidecar at
-  0x735680a3… on Kite testnet; not registry-bound until a Phase-5/6
-  mainnet cutover (`docs/reputation-v1-v2-cutover.md`).
+  0x735680a3… on Kite testnet; superseded by ReputationAnchorV2Bis at
+  WS11, which is the registry-bound anchor on SR-v3 + AR-v2.
 
 The shared `helios_contracts_abi.abis.IReputationAnchor_ABI` reflects
 the **v2** shape because the Foundry artifacts mirror the current

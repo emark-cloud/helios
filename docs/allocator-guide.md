@@ -380,9 +380,8 @@ signer and posted to `ReputationAnchor.postReputationUpdate(...)` with
 field updates atomically (`AllocatorRegistry.sol:174-183`).
 
 > **Note:** the V1 `ReputationAnchor` is the source of truth for the
-> allocator score; `ReputationAnchorV2` is deployed but not yet
-> registry-bound — see `docs/reputation-v1-v2-cutover.md` for the
-> Phase 5 migration path.
+> allocator score on the AR-v1 registry; the WS11 v1→v2 cutover moved
+> the registry binding to `ReputationAnchorV2Bis` on SR-v3 + AR-v2.
 
 ---
 

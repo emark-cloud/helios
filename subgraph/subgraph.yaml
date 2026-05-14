@@ -941,7 +941,7 @@ dataSources:
 
   # ── WS11 V1→V2 ReputationAnchor cutover datasources ───────────
   #
-  # docs/reputation-v1-v2-cutover.md Path A landed 2026-05-11:
+  # Path A landed 2026-05-11:
   #   - ReputationAnchorV2Bis (fresh anchor; supersedes legacy
   #     V2 0x735680a3… which is foot-gunned by setRegistries(V1,V1))
   #   - StrategyRegistry V3 (anchor → v2-bis; supersedes V1
