@@ -287,3 +287,40 @@ def test_parse_asset_decimals_helper() -> None:
         _parse_asset_decimals('{"USDC":-1}')
     with _pt.raises(ValueError):
         _parse_asset_decimals('{"USDC":"6"}')
+
+
+# ── Lockstep guard: symbols and addresses must align by index ──
+def test_runtime_rejects_symbol_address_lockstep_violation() -> None:
+    strategy = MomentumStrategy(signal_threshold=0.005, lookback_bars=5)  # 4-symbol default
+    base_2 = ["0x" + "ab" * 20, "0x" + "cd" * 20] + [""] * 6
+    with pytest.raises(ValueError, match="lockstep"):
+        MomentumRuntime(
+            strategy=strategy,
+            oracle=_StubOracle({}),
+            prover=_StubProver(),
+            executor=_executor(),
+            config=RuntimeConfig(
+                bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC
+            ),
+            allocator_address="0x" + "11" * 20,
+            asset_universe_addresses=base_2,
+        )
+
+
+def test_runtime_accepts_aligned_2_asset_universe() -> None:
+    strategy = MomentumStrategy(
+        signal_threshold=0.005, lookback_bars=5, asset_universe=("USDC", "WETH")
+    )
+    base_2 = ["0x" + "ab" * 20, "0x" + "cd" * 20] + [""] * 6
+    rt = MomentumRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({}),
+        prover=_StubProver(),
+        executor=_executor(),
+        config=RuntimeConfig(
+            bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC
+        ),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=base_2,
+    )
+    assert rt is not None

@@ -129,6 +129,15 @@ class MomentumRuntime:
             )
         if len(self._universe) != 8:
             raise ValueError("asset_universe_addresses must produce exactly 8 entries")
+        # Symbol↔address lockstep — see equivalent block in
+        # mean_reversion_v1/runtime.py for the full rationale (Base
+        # vault wiring incident).
+        for i, sym in enumerate(strategy.asset_universe):
+            if not self._universe[i]:
+                raise ValueError(
+                    f"asset_universe symbol/address lockstep violated: strategy "
+                    f"index {i} ({sym!r}) has no address in the universe override"
+                )
         self._asset_idx = {a: i for i, a in enumerate(strategy.asset_universe)}
         self._nav_signer = Account.from_key(_normalize_pk(nav_oracle_pk)) if nav_oracle_pk else None
         self._block_provider = block_provider or _DummyBlockProvider()

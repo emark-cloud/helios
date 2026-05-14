@@ -38,10 +38,15 @@ LOOKBACK_BARS = 16
 
 class MeanReversionStrategy(StrategyAgent):
     declared_class = "mean_reversion_v1"
-    # Phase-6 multi-asset universe (Kite testnet real-P&L). Same shape
-    # as momentum_v1; USDC stays as base, WBTC/WETH/SOL get real
-    # oracle prices.
-    asset_universe = ("USDC", "WBTC", "WETH", "WSOL")
+    # Phase-6 multi-asset default universe (Kite testnet real-P&L). Same
+    # shape as momentum_v1; USDC stays as base, WBTC/WETH/SOL get real
+    # oracle prices. Per-deploy chains override via the `asset_universe`
+    # __init__ arg — e.g. Base mr ships `("USDC","WETH")` because the
+    # on-chain phase6VaultMeanReversionBase universe is just
+    # [Base mUSDC, WETH9]. The symbolic order MUST match the address
+    # order in `MEAN_REV_ASSET_UNIVERSE_ADDRESSES_JSON`; the runtime
+    # asserts lockstep at startup.
+    asset_universe: tuple[str, ...] = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 
@@ -51,6 +56,7 @@ class MeanReversionStrategy(StrategyAgent):
         stop_loss_price_usd: float = 0.0,
         max_slippage_bps: int = 30,
         position_fraction: float = 0.5,
+        asset_universe: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__()
         # n_sigma_x100 = 200 ⇒ 2.00σ. Stored as int because the circuit's
@@ -59,6 +65,17 @@ class MeanReversionStrategy(StrategyAgent):
         self._stop_loss_price = stop_loss_price_usd
         self._max_slippage_bps = max_slippage_bps
         self._position_fraction = position_fraction
+        if asset_universe is not None:
+            # Instance override shadows the class default. Must include
+            # the base asset symbol ("USDC") at index 0 so on_bar's
+            # base-asset short-circuit and the runtime's symbol→address
+            # mapping stay consistent with the on-chain vault layout.
+            if not asset_universe or asset_universe[0] != "USDC":
+                raise ValueError(
+                    "asset_universe must be a non-empty tuple beginning with 'USDC' "
+                    f"(got {asset_universe!r})"
+                )
+            self.asset_universe = tuple(asset_universe)
 
     # Bound exposure used by both the witness builder and
     # `ensure_params_committed` on container start (`StrategyVault.sol:470`

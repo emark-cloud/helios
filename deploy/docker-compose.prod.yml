@@ -274,6 +274,17 @@ services:
       # 0x201a422e).
       MOMENTUM_OPERATOR_PK: ${MOMENTUM_BASE_OPERATOR_PK}
       NAV_ORACLE_PK: ${MOMENTUM_BASE_NAV_ORACLE_PK}
+      # Base-scoped universe override. Three env vars must stay in
+      # lockstep — the runtime asserts symbol[i] ↔ address[i] at
+      # startup (momentum_v1/runtime.py). The on-chain Base vault
+      # universe is `[Base mUSDC (6-dec), WETH9 OP-Stack predeploy
+      # (18-dec)]`. Without this triplet the container inherits the
+      # 4-symbol Kite universe, computes amount_in from a 6-dec
+      # balance using 18-dec scaling, rounds to 0 wei, and overflows
+      # Num2Bits(96) at the prover's `amount_in > 0` constraint.
+      MOMENTUM_ASSET_UNIVERSE_SYMBOLS_JSON: '["USDC","WETH"]'
+      MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON: '["0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd","0x4200000000000000000000000000000000000006","","","","","",""]'
+      MOMENTUM_ASSET_DECIMALS_JSON: '{"USDC":6,"WETH":18}'
     ports: ["127.0.0.1:8015:8005"]
     depends_on: [oracle, prover]
 
@@ -292,6 +303,13 @@ services:
       # NAV_ORACLE_PK (unprefixed) — see comment on momentum_v1_base above.
       MEAN_REV_OPERATOR_PK: ${MEAN_REV_BASE_OPERATOR_PK}
       NAV_ORACLE_PK: ${MEAN_REV_BASE_NAV_ORACLE_PK}
+      # Base-scoped universe override — see momentum_v1_base for the
+      # full rationale. Three env vars stay in lockstep; runtime asserts
+      # symbol[i] ↔ address[i] (mean_reversion_v1/runtime.py) so a Base
+      # deploy can never silently route WBTC signals to WETH9's slot.
+      MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON: '["USDC","WETH"]'
+      MEAN_REV_ASSET_UNIVERSE_ADDRESSES_JSON: '["0xe8cf8a5711f08d5211d46a2835ecc9c9af1b91cd","0x4200000000000000000000000000000000000006","","","","","",""]'
+      MEAN_REV_ASSET_DECIMALS_JSON: '{"USDC":6,"WETH":18}'
     ports: ["127.0.0.1:8016:8006"]
     depends_on: [oracle, prover]
 

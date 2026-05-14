@@ -140,3 +140,36 @@ def test_position_fraction_limits_size() -> None:
     intent = s.on_bar("WETH", snap)
     assert intent is not None
     assert intent.amount_in_usd == 2_000  # 25% of 8k
+
+
+# ── asset_universe override (Base/Arb-scoped deploys) ──────────
+def test_default_asset_universe_unchanged() -> None:
+    """Class default stays at the Kite 4-asset universe — backtests,
+    `params_hash`, and the legacy 4-asset Kite vault all depend on it."""
+    s = MeanReversionStrategy(n_sigma_x100=200)
+    assert s.asset_universe == ("USDC", "WBTC", "WETH", "WSOL")
+
+
+def test_asset_universe_override_accepted() -> None:
+    """Base mr's on-chain vault universe is `[mUSDC, WETH9]`; the
+    container ships the matching 2-symbol override so the runtime's
+    `_asset_idx` aligns with the address slot order."""
+    s = MeanReversionStrategy(n_sigma_x100=200, asset_universe=("USDC", "WETH"))
+    assert s.asset_universe == ("USDC", "WETH")
+
+
+def test_asset_universe_must_start_with_usdc() -> None:
+    """`on_bar` short-circuits on the base asset by symbolic name; the
+    runtime also assumes index 0 holds the base asset for NAV-seeding.
+    Reject any override that puts a non-base symbol at index 0."""
+    import pytest
+
+    with pytest.raises(ValueError, match="USDC"):
+        MeanReversionStrategy(n_sigma_x100=200, asset_universe=("WETH", "USDC"))
+
+
+def test_asset_universe_rejects_empty() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="USDC"):
+        MeanReversionStrategy(n_sigma_x100=200, asset_universe=())

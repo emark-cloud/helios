@@ -281,3 +281,46 @@ def test_parse_asset_decimals_helper() -> None:
         _parse_asset_decimals("[1,2,3]")
     with _pt.raises(ValueError):
         _parse_asset_decimals('{"USDC":-1}')
+
+
+# ── Lockstep guard: symbols and addresses must align by index ──
+def test_runtime_rejects_symbol_address_lockstep_violation() -> None:
+    """Base mr ships a 2-symbol strategy override + 2-real-address +
+    6-empty padding. The lockstep guard must catch the inverse case
+    where the 4-symbol default strategy is paired with a 2-address
+    universe — left unchecked, this silently routes WBTC signals to
+    WETH9's address slot."""
+    strategy = MeanReversionStrategy(n_sigma_x100=200)  # 4-symbol default
+    base_2 = ["0x" + "ab" * 20, "0x" + "cd" * 20] + [""] * 6  # only 2 real
+    with pytest.raises(ValueError, match="lockstep"):
+        MeanReversionRuntime(
+            strategy=strategy,
+            oracle=_StubOracle({}),
+            prover=_StubProver(),
+            executor=_executor(),
+            config=RuntimeConfig(
+                bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC
+            ),
+            allocator_address="0x" + "11" * 20,
+            asset_universe_addresses=base_2,
+        )
+
+
+def test_runtime_accepts_aligned_2_asset_universe() -> None:
+    """The matching shape — Base-style 2-symbol strategy + 2-real-address
+    + 6-empty padding — must construct cleanly so the production Base
+    deploy path works."""
+    strategy = MeanReversionStrategy(n_sigma_x100=200, asset_universe=("USDC", "WETH"))
+    base_2 = ["0x" + "ab" * 20, "0x" + "cd" * 20] + [""] * 6
+    rt = MeanReversionRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({}),
+        prover=_StubProver(),
+        executor=_executor(),
+        config=RuntimeConfig(
+            bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC
+        ),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=base_2,
+    )
+    assert rt is not None

@@ -27,12 +27,15 @@ from helios.sizing import nav_target_notional
 
 class MomentumStrategy(StrategyAgent):
     declared_class = "momentum_v1"
-    # Phase-6 multi-asset universe (Kite testnet real-P&L). USDC remains
-    # the base asset (the `if asset == "USDC"` guard in `on_bar` keeps
-    # it out of the signal subjects). WBTC/WETH/SOL gain real oracle
-    # prices via the BTC/ETH/SOL Binance/Coingecko sources, so the
-    # strategy actually moves NAV when those markets move.
-    asset_universe = ("USDC", "WBTC", "WETH", "WSOL")
+    # Phase-6 multi-asset default universe (Kite testnet real-P&L). USDC
+    # remains the base asset (the `if asset == "USDC"` guard in `on_bar`
+    # keeps it out of the signal subjects). WBTC/WETH/SOL gain real
+    # oracle prices via the BTC/ETH/SOL Binance/Coingecko sources, so
+    # the strategy actually moves NAV when those markets move.
+    # Per-deploy chains override via the `asset_universe` __init__ arg
+    # — symbolic order MUST match `MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON`
+    # slot order; the runtime asserts lockstep at startup.
+    asset_universe: tuple[str, ...] = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000  # 20% of realized PnL above HWM
 
@@ -43,6 +46,7 @@ class MomentumStrategy(StrategyAgent):
         max_slippage_bps: int = 30,
         position_fraction: float = 0.5,
         stop_loss_price: float = 0.0,
+        asset_universe: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__()
         # `signal_threshold` is private witness data — not serialized
@@ -52,6 +56,13 @@ class MomentumStrategy(StrategyAgent):
         self._max_slippage_bps = max_slippage_bps
         self._position_fraction = position_fraction
         self._stop_loss_price = stop_loss_price
+        if asset_universe is not None:
+            if not asset_universe or asset_universe[0] != "USDC":
+                raise ValueError(
+                    "asset_universe must be a non-empty tuple beginning with 'USDC' "
+                    f"(got {asset_universe!r})"
+                )
+            self.asset_universe = tuple(asset_universe)
 
     # ── Bound exposure (used both by the witness builder + by
     # `ensure_params_committed` on container start). The on-chain

@@ -58,6 +58,17 @@ class Settings(BaseServiceSettings):
         default="",
         validation_alias="MEAN_REV_ASSET_UNIVERSE_ADDRESSES_JSON",
     )
+    # Optional Base/Arb-scoped symbolic universe override. The default
+    # `MeanReversionStrategy.asset_universe` is `("USDC","WBTC","WETH","WSOL")`
+    # — correct for Kite, but on Base the on-chain vault universe is
+    # `[Base mUSDC, WETH9]`. Setting `MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON`
+    # to e.g. `["USDC","WETH"]` realigns the strategy's symbol→index
+    # mapping with the address slot order so signals don't get
+    # silently routed to the wrong asset (see runtime lockstep guard).
+    asset_universe_symbols_json: str = Field(
+        default="",
+        validation_alias="MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON",
+    )
     strategy_registry_address: str = Field(default="", validation_alias="STRATEGY_REGISTRY")
 
 
@@ -83,6 +94,26 @@ def _parse_asset_universe_addresses(raw: str) -> list[str] | None:
             )
         out.append(entry)
     return out
+
+
+def _parse_asset_universe_symbols(raw: str) -> tuple[str, ...] | None:
+    """Parse `MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON` into the strategy's
+    symbolic universe tuple. Empty input returns `None` (use the
+    strategy's class default). Wrong shape raises so a half-configured
+    deploy fails loudly at startup."""
+    if not raw or not raw.strip():
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list) or not parsed:
+        raise ValueError("MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON must be a non-empty JSON list")
+    out: list[str] = []
+    for entry in parsed:
+        if not isinstance(entry, str) or not entry:
+            raise ValueError(
+                "MEAN_REV_ASSET_UNIVERSE_SYMBOLS_JSON entries must be non-empty symbol strings"
+            )
+        out.append(entry)
+    return tuple(out)
 
 
 def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
@@ -122,6 +153,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     strategy = MeanReversionStrategy(
         n_sigma_x100=cfg.n_sigma_x100,
         stop_loss_price_usd=cfg.stop_loss_price_usd,
+        asset_universe=_parse_asset_universe_symbols(cfg.asset_universe_symbols_json),
     )
     w3: Web3 | None = None
     block_provider: Web3BlockProvider | None = None

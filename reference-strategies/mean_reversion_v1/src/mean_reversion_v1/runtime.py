@@ -121,6 +121,23 @@ class MeanReversionRuntime:
             )
         if len(self._universe) != 8:
             raise ValueError("asset_universe_addresses must produce exactly 8 entries")
+        # Symbol↔address lockstep: every symbol in the strategy's
+        # universe must map to a non-empty address slot at the same
+        # index. Without this guard, a Base-scoped address override
+        # (e.g. `[Base mUSDC, WETH9, "", ...]`) paired with the default
+        # 4-symbol strategy universe would silently route WBTC signals
+        # to the WETH9 address (slot 1 holds WETH9 in the override but
+        # `_asset_idx["WBTC"] == 1`), executing a USDC→WETH9 swap that
+        # the on-chain vault accepts (witness addr[1] == vault.universe[1])
+        # while the strategy's mental model thinks it bought WBTC.
+        # Slippage doesn't catch the miswiring because actual WETH
+        # output far exceeds the strategy's WBTC-priced min_out.
+        for i, sym in enumerate(strategy.asset_universe):
+            if not self._universe[i]:
+                raise ValueError(
+                    f"asset_universe symbol/address lockstep violated: strategy "
+                    f"index {i} ({sym!r}) has no address in the universe override"
+                )
         self._asset_idx = {a: i for i, a in enumerate(strategy.asset_universe)}
         self._nav_signer = Account.from_key(_normalize_pk(nav_oracle_pk)) if nav_oracle_pk else None
         self._block_provider = block_provider or _DummyBlockProvider()

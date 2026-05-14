@@ -89,3 +89,32 @@ def test_max_position_caps_size() -> None:
     assert intent is not None
     # Capped at max_position_size_usd (10_000), not capital × fraction.
     assert intent.amount_in_usd == 10_000
+
+
+# ── asset_universe override (Base/Arb-scoped deploys) ──────────
+def test_default_asset_universe_unchanged() -> None:
+    s = MomentumStrategy(signal_threshold=0.015, lookback_bars=10)
+    assert s.asset_universe == ("USDC", "WBTC", "WETH", "WSOL")
+
+
+def test_asset_universe_override_accepted() -> None:
+    s = MomentumStrategy(
+        signal_threshold=0.015, lookback_bars=10, asset_universe=("USDC", "WETH")
+    )
+    assert s.asset_universe == ("USDC", "WETH")
+
+
+def test_asset_universe_must_start_with_usdc() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="USDC"):
+        MomentumStrategy(
+            signal_threshold=0.015, lookback_bars=10, asset_universe=("WETH", "USDC")
+        )
+
+
+def test_asset_universe_rejects_empty() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="USDC"):
+        MomentumStrategy(signal_threshold=0.015, lookback_bars=10, asset_universe=())
