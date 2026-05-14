@@ -21,12 +21,11 @@
 11. [The Allocator Agent](#11-the-allocator-agent)
 12. [Cross-chain architecture](#12-cross-chain-architecture)
 13. [Frontend and event surfaces](#13-frontend-and-event-surfaces)
-14. [Demo scenario and stagecraft](#14-demo-scenario-and-stagecraft)
-15. [Security, trust, and threat model](#15-security-trust-and-threat-model)
-16. [Out-of-scope for MVP](#16-out-of-scope-for-mvp)
-17. [Post-hackathon roadmap](#17-post-hackathon-roadmap)
-18. [Repository layout](#18-repository-layout)
-19. [Judge quick-evaluation guide](#19-judge-quick-evaluation-guide)
+14. [Security, trust, and threat model](#14-security-trust-and-threat-model)
+15. [Out-of-scope for MVP](#15-out-of-scope-for-mvp)
+16. [Post-hackathon roadmap](#16-post-hackathon-roadmap)
+17. [Repository layout](#17-repository-layout)
+18. [Judge quick-evaluation guide](#18-judge-quick-evaluation-guide)
 
 ---
 
