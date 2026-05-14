@@ -1,6 +1,6 @@
 # Helios — Threat model
 
-This document is a standalone, forensic-grade threat model for the Helios protocol intended for external auditors and hackathon judges. It restates and expands the threats enumerated in `Helios.md §15.2` and binds each row to a concrete on-chain mitigation, modifier, or test in this repo. Authoritative source-of-truth remains `Helios.md §15` (trust assumptions, threats, explicit non-claims); when this file and the spec disagree, the spec wins. Last reviewed: **2026-05-08** 
+This document is a standalone, forensic-grade threat model for the Helios protocol intended for external auditors. It restates and expands the threats enumerated in `Helios.md §15.2` and binds each row to a concrete on-chain mitigation, modifier, or test in this repo. Authoritative source-of-truth remains `Helios.md §15` (trust assumptions, threats, explicit non-claims); when this file and the spec disagree, the spec wins. Last reviewed: **2026-05-08** 
 
 ---
 
