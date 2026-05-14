@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 from helios.types import Direction, MarketSnapshot
-
 from llm_momentum_v1.strategy import LLMMomentumStrategy
 
 
@@ -43,7 +42,7 @@ class _FakeAnthropic:
         self.calls: list[dict[str, Any]] = []
         self.messages = self  # so `client.messages.create(...)` works
 
-    def create(self, **kwargs: Any) -> Any:  # noqa: ANN401
+    def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if self._raise is not None:
             raise self._raise
