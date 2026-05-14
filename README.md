@@ -77,6 +77,31 @@ land. (5) Reputation derives from realized, attested P&L, computed
 off-chain by the Reputation Engine, signed, and posted on-chain;
 LayerZero V2 carries updates from execution chains back to Kite.
 
+## Agent taxonomy
+
+Two roles, both fully autonomous on-chain:
+
+- **Allocator agent** (Sentinel) — hybrid **utility-based +
+  model-based reflex** with a hard goal envelope. Each 60 s tick
+  scores live strategies on `f(reputation, stake, capacity,
+  freshness)` and allocates by rank, inside the user's
+  meta-strategy constraints. Third parties ship competing
+  allocators via `helios-allocator-sdk`.
+- **Strategy agent** (one per vault) — **model-based reflex** in
+  the reference implementations: a rolling price window plus a
+  fixed rule per class (momentum return, mean-reversion z-score,
+  yield-rotation Δ). The protocol is indifferent to the signal
+  source — rules, RL, or LLM all work — as long as each trade
+  satisfies the class circuit. The ZK class binding is what
+  defines an agent's type from the protocol's point of view.
+
+Mapped onto the finance multi-agent split: Sentinel is a
+**portfolio-construction agent with execution authority**;
+strategy agents are **trader agents with class-bound autonomy**.
+Helios's contribution is removing the fiduciary human-in-the-loop
+typical at both layers, replacing it with the meta-strategy
+commitment + ZK class enforcement + auto-defund.
+
 ## What works today
 
 Live as of `v0.6.0` (2026-05-14):
