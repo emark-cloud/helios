@@ -63,9 +63,7 @@ executor floor dominates.
 
 ## Roadmap (Tier 3 + Tier 4 — deferred past v1)
 
-These were enumerated in the planning round but deferred to a future
-session. Re-engage them post-v1 when LZ V2 cost economics matter for
-production scale.
+
 
 ### Tier 3 — Drop the lzCompose hop (architectural)
 
