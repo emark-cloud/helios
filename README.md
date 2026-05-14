@@ -130,7 +130,7 @@ Full empirical evidence trail (every claim → on-chain artifact):
 ## Current limitations & mitigations
 
 **LayerZero V2 cross-chain cost.** Each `OFT.send` on Kite testnet
-costs ~1.0 KITE (~$0.50–$2 mainnet equivalent), driven by the LZ
+costs 1.0 KITE (~$0.50–$2 mainnet equivalent), driven by the LZ
 DVN fee floor + executor base fee, not by gas. A 3-candidate
 cold-start cross-chain broadcast cost 3.2 KITE before optimization.
 
