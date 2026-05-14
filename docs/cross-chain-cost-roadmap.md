@@ -1,8 +1,7 @@
 # Cross-chain cost roadmap
 
 Cost-reduction levers for Helios's §12.1 cross-chain capital routing.
-Tier 1 + Tier 2 shipped in this round; Tier 3 + Tier 4 are tracked here so a
-follow-up doesn't lose context.
+Tier 1 + Tier 2 shipped already; Tier 3 + Tier 4 are tracked here 
 
 ## Cost shape today (Kite testnet, post-Tier 1+2)
 
@@ -39,8 +38,7 @@ executor floor dominates.
 
 ## Levers shipped (Tier 1 + Tier 2)
 
-See `dazzling-spinning-quokka.md` in the planning archive for the
-enumeration of all considered options. The two that landed:
+
 
 - **Tier 1** — config-only gates in `loop._defer_remote_ops`:
   - `LoopConfig.min_cross_chain_alloc_usd_wei` (default 10e18 = $10) —
