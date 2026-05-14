@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -88,7 +89,7 @@ class LLMMomentumStrategy(StrategyAgent):
     """
 
     declared_class = "momentum_v1"
-    asset_universe: tuple[str, ...] = ("USDC", "WBTC", "WETH", "WSOL")
+    asset_universe: Sequence[str] = ("USDC", "WBTC", "WETH", "WSOL")
     max_position_size_usd = 10_000
     fee_rate_bps = 2_000
 
@@ -146,7 +147,7 @@ class LLMMomentumStrategy(StrategyAgent):
         ).to_bytes(32, "big")
 
     # ── Operator surface: ask Claude ───────────────────────────
-    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:
+    def on_bar(self, asset: str, snapshot: MarketSnapshot) -> TradeIntent | None:  # noqa: PLR0911 — branchy guard chain (USDC skip, history check, decision validation, position-state mux); flattening hides the structure
         if asset == "USDC":
             return None
 
@@ -275,7 +276,7 @@ class LLMMomentumStrategy(StrategyAgent):
         if self._client is not None:
             return self._client
         try:
-            import anthropic
+            import anthropic  # noqa: PLC0415  (lazy import — anthropic is an optional runtime dep)
         except ImportError:
             _log.error(
                 "llm_momentum.anthropic_not_installed",
@@ -324,9 +325,7 @@ def _valid_decision(payload: dict[str, Any]) -> bool:
     confidence = float(raw_conf)
     if not 0.0 <= confidence <= 1.0:
         return False
-    if not isinstance(payload.get("rationale"), str):
-        return False
-    return True
+    return isinstance(payload.get("rationale"), str)
 
 
 def _stddev(xs: list[float]) -> float:

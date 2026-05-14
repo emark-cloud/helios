@@ -25,7 +25,6 @@ market and returns a `RotationIntent | None`.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import ClassVar
 
 from helios import StrategyAgent
 from helios.poseidon import poseidon_hash
@@ -36,7 +35,7 @@ from yield_rotation_v1.types import RotationIntent, YieldTick
 
 class YieldRotationStrategy(StrategyAgent):
     declared_class = "yield_rotation_v1"
-    asset_universe: ClassVar[Sequence[str]] = ()  # YR has no asset universe
+    asset_universe: Sequence[str] = ()  # YR has no asset universe
     max_position_size_usd = 25_000
     fee_rate_bps = 1_500  # 15% performance fee — tighter than directional classes
 

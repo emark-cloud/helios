@@ -121,7 +121,8 @@ def _parse_asset_universe_addresses(raw: str) -> list[str] | None:
         raise ValueError("LLM_MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON must be a JSON list")
     if len(parsed) != 8:
         raise ValueError(
-            f"LLM_MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON must have exactly 8 entries, got {len(parsed)}"
+            "LLM_MOMENTUM_ASSET_UNIVERSE_ADDRESSES_JSON must have exactly 8 entries, "
+            f"got {len(parsed)}"
         )
     out: list[str] = []
     for entry in parsed:
