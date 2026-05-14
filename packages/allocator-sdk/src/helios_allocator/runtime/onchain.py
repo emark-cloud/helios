@@ -314,6 +314,16 @@ class AllocatorOnChain:
         """
         sid_bytes = bytes.fromhex(Web3.to_checksum_address(strategy)[2:].rjust(64, "0"))
         dst_eid = self._remote_chain_eids.get(chain_id, 0)
+        # Floor `amount` to the OFT adapter's shared-decimals base so the
+        # adapter's internal `_removeDust` is a no-op. On-chain
+        # `AllocatorVault.allocateToRemoteStrategy` hardcodes
+        # `minAmountLD == amount`, so any non-zero `amount % 10^12`
+        # dust gets stripped by the OFT and tx reverts SlippageExceeded.
+        # OFT adapter wraps an 18-dec mUSDC on Kite with sharedDecimals=6,
+        # giving a 10^12 conversion rate. Flooring locally keeps the
+        # off-chain → on-chain amount agreement intact.
+        _CONVERSION = 10**12
+        amount -= amount % _CONVERSION
         call = OnChainCall(
             method="allocateToRemoteStrategy",
             user=user,
@@ -324,6 +334,11 @@ class AllocatorOnChain:
             extra_options=_DEFAULT_LZ_EXTRA_OPTIONS,
             strategy_id_bytes32=sid_bytes,
         )
+        if amount == 0:
+            # After flooring, dust-only amounts collapse to zero. Skip the
+            # quote + submit; the loop's `cross_chain.deferred` fallback
+            # will pick this up and emit a deferred event instead.
+            return self._submit(call)
         if self._live and dst_eid:
             native_fee, lz_token_fee = self._quote_remote_fee(
                 dst_eid, remote_vault, user, sid_bytes, amount
