@@ -165,9 +165,8 @@ contract DeployLLMMomentumVault is Script {
 
         StrategyRegistry(i.strategyRegistry).registerStrategy(vault, CLASS_MOM, STRATEGY_STAKE);
         if (i.strategyRegistryV2 != address(0)) {
-            StrategyRegistry(i.strategyRegistryV2).registerStrategy(
-                vault, CLASS_MOM, STRATEGY_STAKE
-            );
+            StrategyRegistry(i.strategyRegistryV2)
+                .registerStrategy(vault, CLASS_MOM, STRATEGY_STAKE);
         }
     }
 
