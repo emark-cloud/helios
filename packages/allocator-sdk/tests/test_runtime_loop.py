@@ -708,9 +708,7 @@ async def test_cross_chain_flush_cadence_suppresses_repeat_fires() -> None:
     # Lower the user-level cadence so ticks 2 + 3 actually reach
     # `_apply_diffs` → `_defer_remote_ops`. Default 900s would gate
     # both before they hit the flush window we're testing.
-    short_cadence_meta = MetaStrategy(
-        **{**meta.__dict__, "rebalance_cadence_sec": 60}
-    )
+    short_cadence_meta = MetaStrategy(**{**meta.__dict__, "rebalance_cadence_sec": 60})
     user = store.upsert_user(short_cadence_meta)
     user.delegated_capital_usd = 10_000
 
@@ -730,27 +728,21 @@ async def test_cross_chain_flush_cadence_suppresses_repeat_fires() -> None:
 
     t0 = now_ts()
     await loop.tick_once(now=t0)
-    after_first = len(
-        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
-    )
+    after_first = len([c for c in onchain.pending if c.method == "allocateToRemoteStrategy"])
     assert after_first == 1
 
     # Tick inside the flush window — must not fire a second send.
     # t0 + 120 is past the user-level 60s cadence gate but well inside
     # the 300s flush window.
     await loop.tick_once(now=t0 + 120)
-    after_window = len(
-        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
-    )
+    after_window = len([c for c in onchain.pending if c.method == "allocateToRemoteStrategy"])
     assert after_window == 1, "in-window tick should be suppressed"
 
     # Tick outside the flush window — fires again. The deferred path
     # never mutates `user.allocations`, so the diff still produces a
     # positive delta and the now-eligible op resubmits.
     await loop.tick_once(now=t0 + 400)
-    after_flush = len(
-        [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
-    )
+    after_flush = len([c for c in onchain.pending if c.method == "allocateToRemoteStrategy"])
     assert after_flush == 2, "post-window tick should resubmit"
 
 
@@ -866,9 +858,7 @@ async def test_cross_chain_two_strategies_different_chains_fire_two_single_sends
     onchain = _cxr_wired_onchain()
     sid_base = "0x" + "bb" * 20
     sid_arb = "0x" + "aa" * 20
-    goldsky = _StubGoldsky(
-        [_row_chain(sid_base, 84_532), _row_chain(sid_arb, 421_614)]
-    )
+    goldsky = _StubGoldsky([_row_chain(sid_base, 84_532), _row_chain(sid_arb, 421_614)])
     loop = AllocatorLoop(
         store=store,
         allocator=_MultiCandidateAllocator(),

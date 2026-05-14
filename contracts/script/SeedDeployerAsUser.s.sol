@@ -34,7 +34,7 @@ contract SeedDeployerAsUser is Script {
     uint64 internal constant SESSION_TTL = 30 days;
 
     function run() external {
-        require(block.chainid == 2_368, "SeedDeployerAsUser: not Kite testnet");
+        require(block.chainid == 2368, "SeedDeployerAsUser: not Kite testnet");
 
         uint256 pk = vm.envUint("DEPLOYER_PK");
         address deployer = vm.addr(pk);
@@ -60,7 +60,7 @@ contract SeedDeployerAsUser is Script {
         address[] memory assets = new address[](1);
         assets[0] = mUsdc;
         uint32[] memory chains = new uint32[](3);
-        chains[0] = 2_368; // Kite testnet
+        chains[0] = 2368; // Kite testnet
         chains[1] = 84_532; // Base Sepolia
         chains[2] = 421_614; // Arbitrum Sepolia
 
@@ -70,10 +70,10 @@ contract SeedDeployerAsUser is Script {
             allowedAssets: assets,
             allowedChains: chains,
             maxCapital: SEED_AMOUNT,
-            maxPerStrategyBps: 2_500, // 25% per strategy
+            maxPerStrategyBps: 2500, // 25% per strategy
             maxStrategiesCount: 8,
-            drawdownThresholdBps: 2_000, // 20% drawdown trigger
-            maxFeeRateBps: 5_000, // accept up to 50% fee
+            drawdownThresholdBps: 2000, // 20% drawdown trigger
+            maxFeeRateBps: 5000, // accept up to 50% fee
             rebalanceCadenceSec: 300,
             validUntil: uint64(block.timestamp + 30 days),
             defundTwapBars: 3,

@@ -127,8 +127,13 @@ _CXR_ACTION_ALLOCATE_BATCH: int = 2
 #   worker 0x01 | size 0x0013 | type 0x03 | index (uint16 BE) | gas (uint128 BE)
 _DEFAULT_LZ_EXTRA_OPTIONS: bytes = bytes.fromhex(
     "0003"
-    "010011" "01" "00000000000000000000000000030d40"  # lzReceive 200_000
-    "010013" "03" "0000" "00000000000000000000000000030d40"  # lzCompose 200_000
+    "010011"
+    "01"
+    "00000000000000000000000000030d40"  # lzReceive 200_000
+    "010013"
+    "03"
+    "0000"
+    "00000000000000000000000000030d40"  # lzCompose 200_000
 )
 # The compose handler (`HeliosBridgeReceiver._allocate`) does a single
 # ERC20.safeTransfer + try-call into the StrategyVault's
@@ -427,9 +432,7 @@ class AllocatorOnChain:
                 continue
             floored.append((sid, amt, vault))
             sids_hex.append(sid)
-            sid_bytes_list.append(
-                bytes.fromhex(Web3.to_checksum_address(sid)[2:].rjust(64, "0"))
-            )
+            sid_bytes_list.append(bytes.fromhex(Web3.to_checksum_address(sid)[2:].rjust(64, "0")))
             amounts.append(amt)
             vaults.append(Web3.to_checksum_address(vault))
 
@@ -847,9 +850,7 @@ class AllocatorOnChain:
                 Web3.to_checksum_address(user),
             ],
         )
-        to_bytes32 = bytes.fromhex(
-            Web3.to_checksum_address(remote_vault)[2:].rjust(64, "0")
-        )
+        to_bytes32 = bytes.fromhex(Web3.to_checksum_address(remote_vault)[2:].rjust(64, "0"))
         send_param = (
             int(dst_eid),
             to_bytes32,
@@ -892,9 +893,7 @@ class AllocatorOnChain:
         # quote doesn't depend on its exact value (any non-zero bytes32
         # produces the same quote), so we pass a placeholder bytes32.
         # Matches the single-call `_quote_remote_fee` convention.
-        to_bytes32 = bytes.fromhex(
-            Web3.to_checksum_address(remote_vaults[0])[2:].rjust(64, "0")
-        )
+        to_bytes32 = bytes.fromhex(Web3.to_checksum_address(remote_vaults[0])[2:].rjust(64, "0"))
         send_param = (
             int(dst_eid),
             to_bytes32,

@@ -141,12 +141,11 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
             strategyId; // silence unused-var warning
             _allocateOne(srcEid, remoteVault, user, amountLD);
         } else if (action == ACTION_SETTLE_DEFUND) {
-            (, bytes32 strategyId, /*remoteVault*/, address user) =
+            (, bytes32 strategyId,/*remoteVault*/, address user) =
                 abi.decode(inner, (uint8, bytes32, address, address));
             _settleDefund(srcEid, strategyId, user, amountLD);
         } else if (action == ACTION_ALLOCATE_BATCH) {
-            (
-                ,
+            (,
                 /*action*/
                 bytes32[] memory strategyIds,
                 uint256[] memory amounts,

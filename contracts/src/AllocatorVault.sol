@@ -1052,7 +1052,9 @@ contract AllocatorVault is
         address[] calldata remoteVaults,
         uint256 n
     ) internal pure returns (uint256 total) {
-        if (n == 0 || n > CXR_MAX_BATCH_SIZE) revert InvalidBatchSize(n);
+        if (n == 0 || n > CXR_MAX_BATCH_SIZE) {
+            revert InvalidBatchSize(n);
+        }
         if (amounts.length != n || remoteVaults.length != n) revert MismatchedBatchArrays();
         for (uint256 i; i < n; ++i) {
             if (amounts[i] == 0) revert ZeroAmount();
@@ -1063,9 +1065,7 @@ contract AllocatorVault is
 
     /// @dev Tier 2 batch helper — build the SendParam + dispatch
     ///      OFT.send. Same stack-depth justification as the validator.
-    function _sendBatch(RemoteBatchParams calldata p, address dstReceiver, uint256 total)
-        internal
-    {
+    function _sendBatch(RemoteBatchParams calldata p, address dstReceiver, uint256 total) internal {
         bytes memory composeMsg = abi.encode(
             CXR_ACTION_ALLOCATE_BATCH, p.strategyIds, p.amounts, p.remoteVaults, p.user
         );

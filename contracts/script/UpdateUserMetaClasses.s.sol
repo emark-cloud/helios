@@ -18,7 +18,7 @@ contract UpdateUserMetaClasses is Script {
     string internal constant FILE = "./deployments/kite-testnet.json";
 
     function run() external {
-        require(block.chainid == 2_368, "not Kite testnet");
+        require(block.chainid == 2368, "not Kite testnet");
         uint256 pk = vm.envUint("DEPLOYER_PK");
         address mUsdc = _readAddress(".addresses.usdc");
         address userVault = _readAddress(".addresses.userVault");
@@ -32,7 +32,7 @@ contract UpdateUserMetaClasses is Script {
         assets[0] = mUsdc;
 
         uint32[] memory chains = new uint32[](3);
-        chains[0] = 2_368;
+        chains[0] = 2368;
         chains[1] = 84_532;
         chains[2] = 421_614;
 
@@ -42,10 +42,10 @@ contract UpdateUserMetaClasses is Script {
             allowedAssets: assets,
             allowedChains: chains,
             maxCapital: 50e18,
-            maxPerStrategyBps: 2_500,
+            maxPerStrategyBps: 2500,
             maxStrategiesCount: 8,
-            drawdownThresholdBps: 2_000,
-            maxFeeRateBps: 5_000,
+            drawdownThresholdBps: 2000,
+            maxFeeRateBps: 5000,
             rebalanceCadenceSec: 300,
             validUntil: uint64(block.timestamp + 30 days),
             defundTwapBars: 3,
