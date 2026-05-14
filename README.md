@@ -134,7 +134,7 @@ costs 1.0 KITE (~$0.50–$2 mainnet equivalent), driven by the LZ
 DVN fee floor + executor base fee, not by gas. A 3-candidate
 cold-start cross-chain broadcast cost 3.2 KITE before optimization.
 
-- *Shipped in `v0.6.0`.* Tier 1 (threshold gate skips dust ops,
+- *Shipped in `v1`.* Tier 1 (threshold gate skips dust ops,
   flush cadence amortizes re-fires) + Tier 2
   (`allocateToRemoteStrategyBatch` collapses same-destination
   strategies into one OFT send) drops the same broadcast to
