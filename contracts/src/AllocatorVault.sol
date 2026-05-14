@@ -133,11 +133,17 @@ contract AllocatorVault is
     mapping(address user => mapping(bytes32 strategyId => mapping(uint32 dstEid => uint256)))
         internal _userRemoteDeployed;
 
+    /// @notice CXR-0c — destination-chain BridgeReceiver per LZ EID.
+    ///         OFT.send `to:` target on `allocateToRemoteStrategy`.
+    ///         Distinct from `bridgeReceiver` which gates `settleRemoteDefund`.
+    mapping(uint32 dstEid => address receiver) public destinationReceiver;
+
     /// @dev Reserved storage for future upgrades. Append new state variables
     ///      ABOVE this gap and shrink it accordingly so storage layout stays compatible.
     ///      WS-CX-1 used 3 of the prior 47 slots; CXR-0b used 3 more
-    ///      (bridgeReceiver, oftAdapter, _userRemoteDeployed).
-    uint256[41] private __gap;
+    ///      (bridgeReceiver, oftAdapter, _userRemoteDeployed); CXR-0c used
+    ///      1 more (destinationReceiver).
+    uint256[40] private __gap;
 
     /// @dev Minimum block spacing between two consecutive observations
     ///      of the same pending defund. Caller-cadence "bars" — at
@@ -176,6 +182,8 @@ contract AllocatorVault is
     error RebalanceTooSoon();
     error OftAdapterUnset();
     error BridgeReceiverUnset();
+    /// @notice CXR-0c — `destinationReceiver[dstEid]` not set.
+    error DestinationReceiverUnset();
     error NotBridgeReceiver();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -890,6 +898,15 @@ contract AllocatorVault is
         oftAdapter = adapter;
     }
 
+    /// @notice CXR-0c — Wire the destination-chain BridgeReceiver for an
+    ///         LZ EID. `allocateToRemoteStrategy` reads this map to pick
+    ///         the OFT `to:` field per route. Owner-only.
+    function setDestinationReceiver(uint32 dstEid, address receiver) external onlyOwner {
+        if (receiver == address(0)) revert ZeroAddress();
+        emit DestinationReceiverUpdated(dstEid, destinationReceiver[dstEid], receiver);
+        destinationReceiver[dstEid] = receiver;
+    }
+
     /// @notice Pull `amount` USDC from `user` via UserVault, then bridge
     ///         it to the remote `dstEid` chain via the OFT adapter with
     ///         a compose payload that targets `remoteVault`. The remote
@@ -917,8 +934,11 @@ contract AllocatorVault is
         if (amount == 0) revert ZeroAmount();
         if (oftAdapter == address(0)) revert OftAdapterUnset();
         if (remoteVault == address(0)) revert ZeroAddress();
-        address receiver = bridgeReceiver;
-        if (receiver == address(0)) revert BridgeReceiverUnset();
+        // CXR-0c — destination receiver is per-EID; `bridgeReceiver`
+        // (the local-side gate for `settleRemoteDefund`) is no longer
+        // used as the OFT `to:` target.
+        address dstReceiver = destinationReceiver[dstEid];
+        if (dstReceiver == address(0)) revert DestinationReceiverUnset();
 
         // Pull capital from the user vault.
         IUserVaultForAllocator(userVault).transferToAllocator(user, amount);
@@ -930,12 +950,11 @@ contract AllocatorVault is
 
         SendParam memory param = SendParam({
             dstEid: dstEid,
-            // The OFT release on the destination side credits `to` with
-            // the released USDC. We want that to be the BridgeReceiver,
-            // which then forwards to the remote vault inside `lzCompose`.
-            // The receiver on the destination chain has the same EOA
-            // configured per CXR-0a — encoded as bytes32.
-            to: bytes32(uint256(uint160(receiver))),
+            // OFT release on the destination side credits `to` with the
+            // released USDC. The destination-chain BridgeReceiver then
+            // forwards to the remote vault inside `lzCompose`. Different
+            // BridgeReceiver address per chain — see `destinationReceiver`.
+            to: bytes32(uint256(uint160(dstReceiver))),
             amountLD: amount,
             minAmountLD: amount,
             extraOptions: extraOptions,

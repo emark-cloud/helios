@@ -9,6 +9,7 @@ import { MockUserVault } from "./mocks/MockUserVault.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { MetaStrategyLib } from "../src/interfaces/IMetaStrategy.sol";
+import { MessagingFee } from "@layerzerolabs/oapp-evm/oft/interfaces/IOFT.sol";
 
 /// @notice CXR-0b — Test the AllocatorVault cross-chain helpers added
 ///         for OFT-based allocate/defund. Covers wiring, auth, and the
@@ -105,6 +106,48 @@ contract AllocatorVaultCXRTest is Test {
         vm.prank(bridgeReceiver);
         vm.expectRevert(AllocatorVault.ZeroAmount.selector);
         av.settleRemoteDefund(user, STRATEGY, 0, ARB_EID);
+    }
+
+    // ── CXR-0c — destinationReceiver per-EID map ─────────────────────
+
+    function test_setDestinationReceiver_onlyOwner() public {
+        vm.prank(makeAddr("rando"));
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, makeAddr("rando"))
+        );
+        av.setDestinationReceiver(ARB_EID, bridgeReceiver);
+    }
+
+    function test_setDestinationReceiver_rejectsZero() public {
+        vm.prank(owner);
+        vm.expectRevert(AllocatorVault.ZeroAddress.selector);
+        av.setDestinationReceiver(ARB_EID, address(0));
+    }
+
+    function test_setDestinationReceiver_storesPerEid() public {
+        address baseReceiver = makeAddr("baseReceiver");
+        address arbReceiver = makeAddr("arbReceiver");
+        vm.startPrank(owner);
+        av.setDestinationReceiver(40_245, baseReceiver);
+        av.setDestinationReceiver(ARB_EID, arbReceiver);
+        vm.stopPrank();
+        assertEq(av.destinationReceiver(40_245), baseReceiver);
+        assertEq(av.destinationReceiver(ARB_EID), arbReceiver);
+    }
+
+    function test_allocateToRemoteStrategy_revertsIfDestinationReceiverUnset() public {
+        vm.startPrank(owner);
+        av.setOftAdapter(oftAdapter);
+        av.setBridgeReceiver(bridgeReceiver);
+        // Intentionally NOT setting destinationReceiver[ARB_EID].
+        vm.stopPrank();
+
+        MessagingFee memory lzFee = MessagingFee({ nativeFee: 0, lzTokenFee: 0 });
+        vm.prank(operator);
+        vm.expectRevert(AllocatorVault.DestinationReceiverUnset.selector);
+        av.allocateToRemoteStrategy(
+            user, STRATEGY, 100e6, ARB_EID, makeAddr("remoteVault"), "", lzFee
+        );
     }
 
     function test_settleRemoteDefund_creditsUserVaultAndDecrements() public {

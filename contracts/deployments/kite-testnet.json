@@ -66,7 +66,8 @@
     "mUsdcOFTAdapter": "0xe11feE68af05b46e0b2e6cDB52cF4cB86dbf6c1e",
     "heliosBridgeReceiver": "0x07d92cc939BfafACde1f79EaA548b47f63fCdec0",
     "allocatorVaultImplCXR": "0x777D56F67c98519Cf5D3101156e7B7B6693F8e78",
-    "strategyVaultImplCXR": "0xc3C7A30C86186Ae42aad6659bF37D80f1124feA6"
+    "strategyVaultImplCXR": "0xc3C7A30C86186Ae42aad6659bF37D80f1124feA6",
+    "allocatorVaultImplCXR0c": "0xb7Ced20bCFaa499FE1A20ef032E35770e3966C36"
   },
   "lzLocalEid": 40415,
   "lzKiteEndpoint": "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32",

@@ -92,6 +92,15 @@ interface IAllocatorVault {
     event BridgeReceiverUpdated(address indexed previous, address indexed next);
     /// @notice CXR-0b — Owner-only wiring of the local MUsdcOFTAdapter.
     event OftAdapterUpdated(address indexed previous, address indexed next);
+    /// @notice CXR-0c — Owner-only wiring of the destination-chain
+    ///         BridgeReceiver address for a given LZ EID. Replaces the
+    ///         single-valued `bridgeReceiver` slot as the OFT `to:`
+    ///         target on `allocateToRemoteStrategy`. `bridgeReceiver`
+    ///         remains the local-chain receiver gate for
+    ///         `settleRemoteDefund`.
+    event DestinationReceiverUpdated(
+        uint32 indexed dstEid, address indexed previous, address indexed next
+    );
     /// @notice CXR-0b — `allocateToRemoteStrategy` dispatched a cross-chain
     ///         OFT message wrapping an ALLOCATE compose payload.
     event RemoteAllocationSent(
