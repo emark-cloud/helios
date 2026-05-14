@@ -95,7 +95,7 @@ Helios maps to this brief at every level:
 |---|---|
 | **Agent-first, not human-first** | The user approves one meta-strategy and never touches the system again. The allocator agent makes all subsequent decisions; strategy agents execute; reputation engine scores; defunds happen autonomously. |
 | **End-to-end autonomous execution** | A single passkey approval triggers: capital cascade → strategy execution → ZK proof generation → on-chain verification → reputation update → fee settlement → potential defund and reallocation. Every step is automated. |
-| **Use Kite's identity, payment, governance, verification** | Identity: Passport-issued ERC-4337 smart account (`@gokite-network/auth` + `gokite-aa-sdk`) with on-chain allocator delegation. Payment: x402 performance fees + state-channel micropayments. Governance: meta-strategy bounds enforced in Solidity on every allocator call. Verification: ZK proofs anchored on-chain. |
+| **Use Kite's identity, payment, governance, verification** | Identity: Passport passkey + AA session (`@gokite-network/auth` + `gokite-aa-sdk`, Particle-MPC backed); `setMetaStrategy` is recorded on-chain but signature verification is stubbed in v1 — the AA-wallet ACL plus the on-chain allocator cascade carry the trust. Payment: x402 performance fees on the roadmap (v1 settles fees through `AllocatorVault.settleStrategyFee` directly; x402 sponsorship is post-hackathon polish). Governance: meta-strategy bounds enforced in Solidity on every allocator call. Verification: ZK proofs anchored on-chain. |
 | **Agentic Trading & Portfolio Management track** | Direct hit on three of the track's bullet points: trading agents (the strategy agents), portfolio agents and liquidation defense (the allocator's drawdown enforcement), reputation/scoring/capital delegation agents (the entire mechanism). |
 | **Long-term aligned, beyond the hackathon** | Helios is a real market mechanism. Coinbase Ventures (lead hackathon partner) explicitly invests in agent-economy infrastructure; this is a category-level product, not a feature. |
 | **Cross-chain** | Strategies trade on Base/Arbitrum where venues are deeper; reputation flows back via LayerZero. Kite is the canonical identity and accounting layer. |
@@ -108,7 +108,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 
 **1. Passport-issued ERC-4337 identity (User → AA wallet → on-chain allocator delegation).** Helios uses Kite Passport's embeddable widget (`@gokite-network/auth`, Particle-MPC backed) to issue a smart-account wallet for the user on first login. From that wallet, the user calls `UserVault.setMetaStrategy` and `UserVault.delegateToAllocator`; the allocator's authority is then a Solidity-enforced ACL keyed on its registered EOA. Compromising the allocator's key stays bounded by the meta-strategy (every allocation reverts on out-of-bounds amount or asset); the user's session is non-custodial via Particle's MPC and revocable at any time. This is a deliberate softening of the v0 spec's "BIP-32 hierarchical, root keys never leave the enclave" claim — the actual `gokite-aa-sdk` exposes ERC-4337 + paymaster, not session-key delegation, so we enforce the cascade in Solidity rather than in identity-derivation.
 
-**2. ERC-4337 smart-account spending bounds + paymaster.** The AA wallet supports batched userOps and ERC-20 paymaster sponsorship. Helios uses both: onboarding deposits batch `USDC.approve(UserVault, amount)` + `UserVault.deposit(amount)` into a single userOp, and strategy operators submit gasless `executeWithProof` userOps via paymaster sponsorship. Conditional triggers like "if strategy drawdown > 15%, freeze trades and trigger defund" live in `AllocatorVault` Solidity, not in the AA wallet itself.
+**2. ERC-4337 smart-account spending bounds.** The AA wallet supports batched userOps; v1 uses discrete transactions for onboarding (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`) rather than a paymaster-sponsored batch — paymaster sponsorship is post-hackathon polish. Strategy operators submit `executeWithProof` directly from their operator EOA. Conditional triggers like "if strategy drawdown > 15%, freeze trades and trigger defund" live in `AllocatorVault` Solidity, not in the AA wallet itself.
 
 **3. x402 micropayments and state channels.** Performance fees flow through x402 — this is the protocol-level fee mechanism in v1, settled when the Allocator crystallizes performance fees above HWM. Strategy agents subscribe to data providers (price oracles, signal feeds) via x402 sessions issued through the same Passport wallet. Where applicable, allocator-to-strategy quote and rebalance signals can use state channels for sub-cent latency. Wrapping the prover, oracle, and audit endpoints as x402-paid services (so the Allocator literally pays for proofs through the Pieverse facilitator during the live demo) is a deferred polish track — see §16 and post-hackathon Phase 1 in §17.
 
@@ -123,9 +123,8 @@ Kite has three architectural primitives that no other chain offers in combinatio
 | **Allocator Agent** | An autonomous agent that reads a user's meta-strategy and routes their capital across strategies. Holds delegated authority from the user. Earns a performance fee on the user's net realized profit above the user's high-water mark. |
 | **Strategy Agent** | An autonomous trading agent of a declared class (e.g. momentum, mean-reversion, yield-rotation). Receives allocations from one or more allocators. Executes trades on Kite or other chains. Submits ZK proofs of every trade. Earns performance fees on realized profit per allocation. |
 | **Strategy Class** | A formal declaration of what kind of trades a strategy agent is permitted to make. Encoded as a circuit-checkable specification. Examples: `momentum_v1` (long when N-period return > threshold, short or flat otherwise), `mean_reversion_v1`, `yield_rotation_v1`. |
-| **Helios Sentinel** | The primary branded reference allocator shipped by the Helios team. Ships a deliberately simple ranking function that serves as the baseline competing allocators aim to beat. The name is a reserved brand in `AllocatorRegistry`. |
-| **Helios Helix** | The second branded reference allocator. Ships a more sophisticated ranking function (correlation-aware, regime-adaptive). Its primary load-bearing purpose is validating that the AllocatorSDK is real — Helix was built from the ground-up on the SDK. Also a reserved brand. |
-| **AllocatorSDK** | Public Python package that lets anyone deploy a competing allocator. A v1 deliverable. Third-party allocators built on this SDK can register on `AllocatorRegistry` under any non-reserved name and compete with Sentinel and Helix for user capital. |
+| **Helios Sentinel** | The reference allocator shipped by the Helios team — the only allocator running in v1. Built on the public AllocatorSDK so third parties have a worked example. The name is a reserved brand in `AllocatorRegistry`. (A second reference allocator, "Helios Helix," was scoped for v1 but cut in favor of finishing the cross-chain surface; the roadmap restores it post-hackathon.) |
+| **AllocatorSDK** | Public Python package that lets anyone deploy a competing allocator. A v1 deliverable. Third-party allocators built on this SDK can register on `AllocatorRegistry` under any non-reserved name and compete with Sentinel for user capital. |
 | **Strategy Manifest** | The on-chain record describing a strategy agent: declared class, asset universe, max capacity, fee rate, stake at risk, operator address. |
 | **Stake at Risk** | Capital posted by a strategy operator that gets slashed on rule violations (invalid proof, out-of-bounds trade). Reputation calculations weight strategies by stake — higher stake means more skin in the game. |
 | **Strategy Registry** | The on-chain contract on Kite that holds all strategy manifests, reputation scores, and stake balances. |
@@ -212,7 +211,7 @@ Kite has three architectural primitives that no other chain offers in combinatio
 | Layer | What lives here | Trust model |
 |---|---|---|
 | **L0: Settlement** | Kite L1 (canonical), Base, Arbitrum (execution venues) | Inherits chain security |
-| **L1: Identity** | Kite Passport (Particle-MPC EOA → ERC-4337 smart account → on-chain allocator/strategy ACL) | Non-custodial via Particle MPC; cascade authority enforced in Solidity rather than in key derivation |
+| **L1: Identity** | Kite Passport (Particle-MPC passkey → ERC-4337 smart account → on-chain allocator/strategy ACL); `setMetaStrategy` signature is recorded but not verified in v1 — the AA-wallet caller ACL carries auth | Non-custodial via Particle MPC; cascade authority enforced in Solidity rather than in key derivation |
 | **L2: Capital custody** | UserVault, AllocatorVault, StrategyVault (all AA SDK contracts) | Programmable spending rules, ZK-gated execution |
 | **L3: Strategy registry** | StrategyRegistry contract on Kite | Permissionless registration, stake-gated participation |
 | **L4: Verification** | TradeAttestationVerifier (per chain), Groth16 verifier contracts | Mathematical — invalid proofs cannot pass |
@@ -261,7 +260,7 @@ Helios serves three primary actors. Each has a distinct journey, surface, and ec
 
 1. **Discovery.** Maya finds Helios via the hackathon demo, the live web app, or a Telegram referral.
 2. **Onboarding.** Logs in with Kite Passport (passkey + email) — first login provisions her ERC-4337 smart account on Kite via `@gokite-network/auth`. v1 ships and demos on Kite Testnet (chain 2368, network identifier `kite-testnet`); mainnet promotion (chain 2366) is a stretch deliverable, not a planned phase (see roadmap §17). Funds the wallet with 1,000 USDC (testnet faucet at `https://faucet.gokite.ai`; Banxa fiat or `bridge.gokite.ai` cross-chain only if the mainnet stretch is exercised). Reviews three pre-built meta-strategy templates: *Conservative* (max 5% per strategy, max 10% drawdown), *Balanced* (10% / 15%), *Aggressive* (30% / 25%).
-3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves once via passkey — the frontend submits a paymaster-sponsored userOp that batches `USDC.approve` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator` in a single transaction.
+3. **Configuration.** Picks Balanced, customizes asset universe to BTC/ETH/SOL only, sets max performance fee at 25%. Reviews the auto-generated meta-strategy in human-readable form. Approves via passkey — the frontend submits discrete txs (`USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator`), each signed through the Passport AA session. A paymaster-sponsored batched userOp is post-hackathon polish (§17).
 4. **Activation.** Within 30 seconds, dashboard shows her capital allocated across 3-5 strategies. Dashboard shows current NAV, allocated capital per strategy, recent trades, current reputation rankings.
 5. **Ongoing.** The dashboard activity rail surfaces meaningful events live: strategy added, strategy defunded, weekly P&L summary, fee accrued. She can adjust meta-strategy at any time (next rebalance picks up changes). A Telegram-bot fan-out for the same events is on the post-hackathon Phase 1 roadmap (§17).
 6. **Withdrawal.** Hits "Withdraw" — capital pulls from all strategies, performance fees settle, USDC returns to her wallet. End-to-end ~10 minutes.
@@ -313,7 +312,7 @@ For the MVP demo, the Helios team operates **Helios Sentinel**, the reference al
 
 **Sentinel's ranking function** is the reference implementation described in Section 11.2. It's deliberately legible and conservative: a clean reputation-weighted top-K with capacity factor and fee-fit gating. Allocators that ship more sophisticated algorithms (correlation-aware allocation, regime-adaptive weights, ML-based strategy fit) can demonstrate clear improvements over Sentinel and attract users on that basis.
 
-**For the MVP demo, Sentinel and at least one third-party reference allocator both exist** — the second one is intentionally shipped as a "competing allocator" to demonstrate the marketplace mechanism even within the hackathon.
+**For the MVP demo, Sentinel is the only allocator running.** A second reference allocator ("Helios Helix") was scoped to demonstrate the marketplace mechanism within the hackathon, but was cut to finish the cross-chain surface; the AllocatorSDK and `AllocatorRegistry` permit third-party allocators to register on the same surface, so the marketplace is open even though only one allocator currently inhabits it. Restoring Helix is the first post-hackathon milestone (§17).
 
 ### 5.4 Cross-cutting: the Auditor
 
@@ -345,14 +344,14 @@ Helios's on-chain surface is intentionally minimal. The novelty is in the autono
 | `TradeAttestationVerifier` | Kite, Base, Arbitrum | Verifies Groth16 proofs for trade attestations; per strategy class | ~150 (+ generated verifier) |
 | `ReputationAnchor` | Kite | Receives reputation deltas from off-chain engine and from cross-chain LayerZero messages; canonical source of both strategy and allocator scores | ~280 |
 | `OraclePriceAnchor` | Kite, Base, Arbitrum | Receives EIP-712 signed price snapshots from the Helios oracle; publishes the canonical Poseidon `oracle_root` consumed by ZK proofs and the TWAP feed used by the auto-defund drawdown trigger (§6.3, §6.4) | ~220 |
-| `OracleYieldAnchor` | Arbitrum | Receives EIP-712 signed APY snapshots; publishes the Poseidon `yield_oracle_root` consumed by `yield_rotation_v1` proofs (§9.4) | ~180 |
+| `OracleYieldAnchor` | Kite, Arbitrum | Receives EIP-712 signed APY snapshots; publishes the Poseidon `yield_oracle_root` consumed by `yield_rotation_v1` proofs (§9.4). Deployed on Kite for the canonical YR registry and on Arbitrum for the execution-chain vault (§12.1) | ~180 |
 | `HeliosOApp` | Kite, Base, Arbitrum | LayerZero OApp for cross-chain reputation messages and capital bridging hooks | ~200 |
 
 Total Solidity surface area: roughly 2,830 LoC, plus generated Groth16 verifiers (one per strategy class). Tight enough to be auditable in a hackathon timeframe.
 
 ### 6.2 `UserVault`
 
-The user's capital home. UUPS-upgradeable, owned by the user's Passport-issued ERC-4337 smart account; meta-strategy writes are gated by `msg.sender == owner` (the AA wallet), so the user's passkey approval at the Passport layer flows through to on-chain authorization without a separate EIP-712 signature path.
+The user's capital home. UUPS-upgradeable, owned by the user's Passport-issued ERC-4337 smart account; meta-strategy writes are gated by `msg.sender == owner` (the AA wallet). v1 records but does not verify the `setMetaStrategy` signature — the AA-wallet caller ACL carries the trust, and a full EIP-1271 / EIP-712 verification path against the Passport session is a post-hackathon hardening item (`[PASSPORT-STUB]` marker in `UserVault.sol`).
 
 **State.**
 
@@ -518,27 +517,28 @@ function withdrawStake(address strategyId, uint256 amount) external;
 function deactivate(address strategyId) external;
 function updateReputation(address strategyId, int256 delta) external onlyReputationAnchor;
 function slash(address strategyId, uint256 amount, string calldata reason) external onlyOwner;
-function rotateParams(address strategyId, bytes32 newParamsHash) external onlyOperator;
+function initiateParamsRotation(address strategyId, bytes32 newParamsHash) external onlyOperator;
+function completeParamsRotation(address strategyId) external onlyOperator;
 function setMarketAllowlistRoot(bytes32 declaredClass, bytes32 root) external onlyOwner;
 ```
 
 **Trust constraints.**
 
 - `registerStrategy` requires posting `stakeAmount` in USDC. Permissionless. The manifest's `paramsHash` is committed at registration and bound into every ZK proof's public inputs (§9.3).
-- `rotateParams` lets the operator change `manifest.paramsHash` only after a public, observable cooldown (default 24h after the last rotation, enforced by the registry). Rotation emits a `ParamsRotated` event and creates a clean break in the strategy's track record: the reputation engine resets `AgeScore` and `PerformanceScore` on the new params slot, and allocators see the rotation timestamp so they can choose whether to keep or pull capital. This forecloses the "pick a threshold to fit each trade" attack because the threshold is fixed across all trades under a given `paramsHash` and any change is publicly visible before the next trade.
+- Params rotation is two-phase: `initiateParamsRotation` arms the new `paramsHash` and starts a public cooldown; `completeParamsRotation` activates it once the cooldown elapses. Rotation emits `ParamsRotationInitiated` and `ParamsRotated` events and creates a clean break in the strategy's track record: the reputation engine resets `AgeScore` and `PerformanceScore` on the new params slot, and allocators see the rotation timestamp so they can choose whether to keep or pull capital. This forecloses the "pick a threshold to fit each trade" attack because the threshold is fixed across all trades under a given `paramsHash` and any change is publicly visible before the next trade.
 - `slash` is owner-controlled in the MVP (Helios team multi-sig), with a clear path to community governance post-hackathon.
 - `withdrawStake` has a 7-day cooldown to prevent rug-pulls after taking allocations.
 - `setMarketAllowlistRoot` lets the registry publish a Merkle root over the markets allowed for a class (used by `yield_rotation_v1` per §9.4). Owner-only in v1 (Helios multi-sig curates the lending venues for `yield_rotation_v1`); see §15.1 for the centralization implications and the v2 path to per-class governance.
 
 ### 6.6 `AllocatorRegistry`
 
-The canonical allocator directory on Kite. Mirrors `StrategyRegistry` in shape but tracks allocators (Helios Sentinel, Helios Helix, and any third-party allocators built on the AllocatorSDK) rather than strategies. It also enforces the reserved-name policy that protects the Sentinel brand.
+The canonical allocator directory on Kite. Mirrors `StrategyRegistry` in shape but tracks allocators (Helios Sentinel — the only allocator running in v1 — and any third-party allocators built on the AllocatorSDK) rather than strategies. It also enforces the reserved-name policy that protects the Sentinel brand. The `isReferenceBrand` flag still reserves a slot for the post-hackathon "Helios Helix" entry; in v1 only Sentinel is marked.
 
 **State.**
 
 ```solidity
 struct AllocatorEntry {
-    string  name;                   // e.g., "Helios Sentinel", "Helios Helix", "VolatilityAware"
+    string  name;                   // e.g., "Helios Sentinel" (v1), plus third-party names
     address operatorVault;          // AllocatorVault address for this allocator
     address operator;
     bytes32 rankingFunctionHash;    // Poseidon hash of the allocator's ranking function code
@@ -550,7 +550,7 @@ struct AllocatorEntry {
     uint256 totalCapitalManaged;
     uint64  registeredAt;
     bool    active;
-    bool    isReferenceBrand;       // true for Sentinel and Helix; locks the name
+    bool    isReferenceBrand;       // true for Sentinel (v1); Helix slot reserved post-hackathon
 }
 
 mapping(address => AllocatorEntry) public allocators;
@@ -739,7 +739,7 @@ Helios runs four off-chain services. All are stateless (with state persisted to 
 
 | Service | Language | Purpose | Hosted by |
 |---|---|---|---|
-| **Helios Sentinel** | Python (FastAPI) | The reference allocator agent — ranks strategies, makes allocation decisions, monitors drawdowns, triggers rebalances and defunds. Branded reference; competing allocators ship via the AllocatorSDK. | Helios team (verified set); SDK lets third parties self-host competing allocators |
+| **Helios Sentinel** | Python (FastAPI) | The reference allocator agent — ranks strategies, makes allocation decisions, monitors drawdowns, triggers rebalances and defunds. The only allocator running in v1; competing allocators ship via the AllocatorSDK on the open `AllocatorRegistry`. | Helios team; SDK lets third parties self-host competing allocators |
 | **Strategy Service** | Python (FastAPI) | Reference strategy agents (momentum, mean-reversion, yield-rotation) — execute trades, generate ZK proofs | Helios team for demo; SDK lets others self-host |
 | **Reputation Engine** | Python (FastAPI) | Consumes Goldsky subgraph data; computes reputation scores; signs and posts updates to ReputationAnchor | Helios team |
 | **Prover Service** | Node.js (snarkjs over HTTP) | Generates Groth16 proofs from trade specs and witness inputs | Co-located with each strategy agent |
@@ -828,7 +828,7 @@ A Python FastAPI service that wraps a strategy class. The Helios team ships refe
 3. **Signal computation.** On each bar close (1-minute resolution for the MVP), compute the strategy's signal.
 4. **Trade construction.** When a signal triggers, construct the trade: target asset, direction, size (per `size_trade()`), max slippage, time window.
 5. **Proof generation.** Submit trade spec + market state to the Prover Service. Receive Groth16 proof.
-6. **Execution.** Call `StrategyVault.executeWithProof()` with the proof and trade calldata. The on-chain verifier confirms the proof; the trade executes (e.g., via Algebra DEX router on Kite, Uniswap V3 on Base, etc.).
+6. **Execution.** Call `StrategyVault.executeWithProof()` with the proof and trade calldata. The on-chain verifier confirms the proof; the trade executes against the per-vault `allowedRouter`. v1 wiring: Kite vaults route through a `MockSwapRouter` fed by the `RouterPriceMirror` keeper (5 bps spread, mirroring oracle prices each bar); Base vaults route through Uniswap V3 `SwapRouter02`; the Arbitrum YR vault routes through a `MockYieldVault` shaped like Aave V3 (an Aave Sepolia faucet was admin-gated at cutover — flipping `allowedRouter` to the real Aave pool is a one-line change once the faucet opens up). See §12.1 for the full venue table.
 7. **NAV reporting.** Every 5 minutes (or on-demand), compute current NAV (cash + position market value) and post to the StrategyVault.
 8. **Fee handling.** On `distributeRealized` calls, claim accrued fees to the operator's wallet.
 
@@ -1043,7 +1043,7 @@ A new strategy enters with no track record: low `PerformanceScore`, low `AgeScor
 
 1. **Cohort-size fallback.** If a class has fewer than 3 strategies with at least 7 days of history, `NormalizedSharpe` falls back to raw Sharpe (median = 0, IQR = 1) instead of cohort scaling. This avoids degenerate median/IQR computation and lets the first few strategies in a new class receive non-zero performance signal. Implemented in the engine; `min_cohort_size = 3` is documented in `docs/reputation-math.md`.
 
-2. **Exploration budget in the reference allocator.** Helios Sentinel reserves a configurable share of capital (default 10%, exposed in the meta-strategy as `bootstrap_share_bps`) for strategies with fewer than `min_attested_trades` (default 50). Within the bootstrap pool, allocations are stake-weighted with a flat performance prior so a new strategy gets a deterministic on-ramp without forcing the user to lower the main filter bar (e.g., a meta-strategy still gates the main 90% on Sharpe ≥ 1.5 and stake > $5k while letting the bootstrap 10% explore). Allocators that don't expose a bootstrap pool are valid market participants — they just compete for non-bootstrap capital. Helix (§11.4) ships its own variant.
+2. **Exploration budget in the reference allocator.** Helios Sentinel reserves a configurable share of capital (default 10%, exposed in the meta-strategy as `bootstrap_share_bps`) for strategies with fewer than `min_attested_trades` (default 50). Within the bootstrap pool, allocations are stake-weighted with a flat performance prior so a new strategy gets a deterministic on-ramp without forcing the user to lower the main filter bar (e.g., a meta-strategy still gates the main 90% on Sharpe ≥ 1.5 and stake > $5k while letting the bootstrap 10% explore). Allocators that don't expose a bootstrap pool are valid market participants — they just compete for non-bootstrap capital. Future allocators (e.g. the post-hackathon Helix; §11.4) can ship their own variants.
 
 3. **Stake-only score floor.** A registered strategy with no trade history scores `ReputationScore = w_stake · StakeScore` (other components zeroed), giving it a non-zero starting point bounded below by its committed stake. This makes the score monotonically non-decreasing as proofs accumulate (no "score went down because I have proofs now" surprises) and gives operators a predictable floor to plan against.
 
@@ -1084,7 +1084,7 @@ The README will be very explicit about this tradeoff. Honesty about cryptographi
 
 The circuit proves the following invariants for a single trade:
 
-**Public inputs (14 signals):**
+**Public inputs (16 signals — cross-decimal layout shipped 2026-05-12):**
 
 ```
 1.  trade_hash             // Poseidon over trade calldata + parameter slots
@@ -1103,13 +1103,16 @@ The circuit proves the following invariants for a single trade:
 5.  allocator              // uint160
 6.  asset_in_idx           // index into manifest.assetUniverse
 7.  asset_out_idx          // index into manifest.assetUniverse
-8.  amount_in              // uint256
-9.  min_amount_out         // uint256, slippage bound
+8.  amount_in               // uint256, denominated in asset_in's native decimals
+9.  min_amount_out          // uint256, denominated in asset_out's native decimals
 10. trade_direction        // 0 = exit, 1 = enter long, 2 = enter short
 11. nonce                  // replay protection
 12. block_window_start     // execution must be within this window
 13. block_window_end
 14. oracle_root            // Poseidon root of the price-snapshot chain
+15. decimals_in             // asset_in's ERC20.decimals(); StrategyVault cross-checks
+                           //   against IERC20Metadata.decimals() to enforce decimals honesty
+16. decimals_out            // asset_out's ERC20.decimals(); same check
 ```
 
 `StrategyVault.executeWithProof` rejects any proof whose `params_hash` does not match `_activeParamsHash()` — the registry-committed value (`StrategyRegistry.paramsHashOf(strategyVault)`) when present, falling back to `manifest.paramsHash` only for vaults that haven't yet committed (Phase-1 deployment path). It also rejects proofs whose `oracle_root` is not the most-recent root anchored by `OraclePriceAnchor` within an acceptable freshness window, and whose `strategy_vault` is not the calling vault address. The verifier itself is also class-checked against `declared_class`.
@@ -1135,7 +1138,12 @@ The two-phase rotation API (`initiateParamsRotation` → cooldown → `completeP
    == params_hash       // operator parameters bind to the manifest commitment
 1. asset_in_idx and asset_out_idx must be in the strategy's manifest asset universe
 2. amount_in must be <= max_position_size
-3. min_amount_out must respect max_slippage_bps (e.g., 50 bps)
+3. min_amount_out must respect max_slippage_bps using the in-circuit oracle price
+   for asset_in/asset_out and the public decimals_in/decimals_out PIs, i.e.
+   min_amount_out >= (1 - max_slippage_bps/10_000) * (amount_in * price_in / price_out)
+   normalized across the two assets' decimals. (Pre-2026-05-12 the constraint was
+   same-unit and rejected every cross-decimal swap; the 16-PI verifier set deployed
+   that day made the slippage check price- and decimals-aware.)
 4. price_observations must Poseidon-hash to oracle_root
 5. If trade_direction == 1 (long entry):
    - Last N-period return of asset_out must be > signal_threshold
@@ -1145,7 +1153,7 @@ The two-phase rotation API (`initiateParamsRotation` → cooldown → `completeP
 8. block_window_end - block_window_start must be <= 100 (no infinite window)
 ```
 
-The circuit does **not** reveal the operator's specific `signal_threshold` value (that stays in the witness), but Constraint 0 plus the on-chain `params_hash == manifest.paramsHash` check together prove that the threshold *exists, was committed in the manifest before any of these trades were observed, and is identical across every trade under that manifest*. This forecloses the "pick a threshold that fits the trade" attack: an operator who wants to retune their threshold must publicly call `StrategyRegistry.rotateParams` (cooldown-gated, emits `ParamsRotated`), creating an observable break in the track record that the reputation engine and allocators see before the next trade. Same construction applies to `mean_reversion_v1`; `yield_rotation_v1` binds `signal_threshold` and `bridging_cost` directly through `trade_hash` checked against the manifest's stored hash on-chain (§9.4).
+The circuit does **not** reveal the operator's specific `signal_threshold` value (that stays in the witness), but Constraint 0 plus the on-chain `params_hash == manifest.paramsHash` check together prove that the threshold *exists, was committed in the manifest before any of these trades were observed, and is identical across every trade under that manifest*. This forecloses the "pick a threshold that fits the trade" attack: an operator who wants to retune their threshold must publicly call the two-phase rotation API (`initiateParamsRotation` → cooldown → `completeParamsRotation`, emitting `ParamsRotated`), creating an observable break in the track record that the reputation engine and allocators see before the next trade. Same construction applies to `mean_reversion_v1`; `yield_rotation_v1` binds `signal_threshold` and `bridging_cost` directly through `trade_hash` checked against the manifest's stored hash on-chain (§9.4).
 
 **Complexity (built, not estimated).** Per-class budget: ≤20k constraints for directional classes (momentum, mean-reversion), ≤15k for yield-rotation. Current builds: **5.4k constraints (momentum)**, **5.7k (mean-reversion)**, **6.6k (yield-rotation)** — well inside both budgets and safely under the PTAU 16 ceiling (65k) per §9.5. Proof generation ~1.5s on commodity VPS. Verifier gas cost ~250k.
 
@@ -1153,8 +1161,8 @@ The circuit does **not** reveal the operator's specific `signal_threshold` value
 
 Each class has its own circuit. The MVP ships:
 
-- **`momentum_v1`** — as specified above. Directional spot circuit. **14 public inputs**, ~5.4k constraints (28% of the 20k circuit budget).
-- **`mean_reversion_v1`** — proves trade direction matches an N-sigma deviation-from-mean signal computed in-circuit (`Σ(16·p_i − Σp)²`). **Same 14-PI layout as `momentum_v1`** so `StrategyVault.PI_*` indices and the verifier adapter's `_PUBLIC_INPUT_COUNT = 14` are reused unchanged. The witness adds `n_sigma_x100`, `is_signal_flip`, and `is_stop_loss` (the circuit asserts `is_signal_flip + is_stop_loss = is_exit` to bind the exit reason). ~5.7k constraints (29% of the 20k budget).
+- **`momentum_v1`** — as specified above. Directional spot circuit. **16 public inputs** (post-2026-05-12 cross-decimal cutover), ~5.4k constraints (28% of the 20k circuit budget).
+- **`mean_reversion_v1`** — proves trade direction matches an N-sigma deviation-from-mean signal computed in-circuit (`Σ(16·p_i − Σp)²`). **Same 16-PI layout as `momentum_v1`** so `StrategyVault.PI_*` indices and the verifier adapter's `_PUBLIC_INPUT_COUNT = 16` are reused unchanged. The witness adds `n_sigma_x100`, `is_signal_flip`, and `is_stop_loss` (the circuit asserts `is_signal_flip + is_stop_loss = is_exit` to bind the exit reason). ~5.7k constraints (29% of the 20k budget).
 - **`yield_rotation_v1`** — *structurally distinct* from the directional classes. **9 public inputs** (`trade_hash, declared_class, M_from, M_to, amount_rotating, yield_oracle_root, allocator, nonce, block_window_end`). Proves: the trade rotates capital from `M_from` to `M_to`; both `(M_from, apy_from)` and `(M_to, apy_to)` are Poseidon-Merkle members of `yield_oracle_root` (depth 6 = 64 markets); both `M_from` and `M_to` are members of a private `markets_allowlist_root` (depth 4 = 16 markets) bound through `trade_hash` so the on-chain side rejects any trade whose hash doesn't match `Poseidon(StrategyRegistry.marketAllowlistRoot(class), …public fields…)`; `apy_to − apy_from ≥ signal_threshold + bridging_cost` (all in bps); `M_from ≠ M_to`; `amount_rotating > 0`. There is no `params_hash` PI slot — `signal_threshold` and `bridging_cost` bind through `trade_hash` checked against the manifest's stored hash on-chain. ~6.6k constraints (44% of the 15k budget).
 
 Each class circuit is open-source. New classes can be added permissionlessly post-hackathon by anyone who writes a Circom circuit and submits it to a class registry (out of scope for v1).
@@ -1280,7 +1288,7 @@ Operators can implement their own variants of these classes. They cannot invent 
 
 ## 11. The Allocator Agent
 
-The allocator is the autonomous capital router — the second-most-important agent class in Helios after strategy agents. The MVP ships **Helios Sentinel** as the reference allocator and **the AllocatorSDK** as a public v1 deliverable so third parties can ship competing allocators from day one. A second reference allocator is also seeded for the demo to show the marketplace mechanism live.
+The allocator is the autonomous capital router — the second-most-important agent class in Helios after strategy agents. The MVP ships **Helios Sentinel** as the reference allocator and **the AllocatorSDK** as a public v1 deliverable so third parties can ship competing allocators from day one. A second branded reference allocator ("Helios Helix") was scoped to seed the marketplace within the hackathon but was cut to finish the cross-chain surface — the SDK + registry remain open for third-party allocators, and the post-hackathon roadmap restores Helix as the first follow-on milestone (§17).
 
 ### 11.1 Allocator responsibilities
 
@@ -1453,141 +1461,11 @@ helios-allocator logs                       # Live tail of operational events
 
 **The AllocatorRegistry** (a Kite contract) holds every registered allocator's manifest: name, fee rate, supported classes, stake, reputation score, operator address. Users browsing the web app's `/allocators` page see this directory. The Sentinel listing has an "Official Reference" badge; everything else competes on its own merits.
 
-### 11.4 Helios Helix — the second reference allocator
+### 11.4 Helios Helix — cut from v1, restored post-hackathon
 
-> **v1 scope (Helix-lite).** Helix v1 ships only `helix_fee_factor` (continuous fee-fit, regime-fixed at NORMAL) over `score_weighted_allocation` from the AllocatorSDK. The full feature set described in §11.4.1 (regime detection from BTC realized vol, correlation-aware greedy pick, regime-adaptive fee weighting) is post-hackathon Phase 1 — see §16. The AllocatorSDK still ships the `detect_regime`, `pairwise_correlation_from_goldsky`, and `btc_realized_vol_30d` hooks in v1 so any third-party allocator can adopt them earlier than Helix does. The §11.4.1 code blocks below show the *target* implementation; treat them as the v2 spec, not v1 shipping code.
+> **Status:** Helix was scoped as a second branded reference allocator (continuous fee-fit factor + correlation-aware greedy pick + regime-adaptive weighting on top of the AllocatorSDK) but was cut during Phase 6 to finish the cross-chain surface. The AllocatorSDK still exposes the underlying hooks (`detect_regime`, `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`) so any third-party allocator can adopt them today, and the `AllocatorRegistry` reserves the "Helios Helix" name. Restoring Helix is the first post-hackathon milestone (§17).
 
-For the hackathon demo, the Helios team ships **Helios Helix** alongside Sentinel as a second reference allocator. The v1 differentiation from Sentinel is a continuous fee-fit factor and `score_weighted_allocation` over a top-K-by-rank pick — enough to produce visibly different allocations on the same user's onboard, which is the demo bar. The full v2 picture (correlation awareness + regime adaptation) is the post-hackathon target.
-
-Helix is also a branded reference name (like Sentinel) — the `AllocatorRegistry` reserves "Helios Helix" and the Helios team multi-sig holds the assignment. Third-party allocators cannot register under the `Helios *` namespace.
-
-The demo includes a brief moment showing both allocators side-by-side: a user can pick Sentinel (default, simple) or Helix (alternative, more sophisticated), with the `/allocators` directory showing each allocator's current users, stake, reputation score, and ranking-function hash. This is the proof that Helios is a *market*, not a *product*.
-
-Helix's existence has one more load-bearing purpose beyond the demo: it validates the AllocatorSDK from a fresh perspective. A second reference allocator, built from the SDK ground-up in under a week, is the strongest possible quality signal for the SDK itself. Third parties inspecting the repo see not just an SDK, but two concrete implementations of it working side-by-side in production.
-
-#### 11.4.1 How Helix differs from Sentinel, concretely
-
-Helix's differences from Sentinel live in three places:
-
-**(a) Regime-adaptive fee-fit factor.** Sentinel's `FeeFactor` is binary: a strategy either satisfies `s.feeRate <= user.maxFeeRateBps` or it gets zero weight. Helix adds a continuous penalty that depends on the current volatility regime.
-
-```python
-def helix_fee_factor(strategy_fee_bps: int, user_max_fee_bps: int, regime: Regime) -> float:
-    if strategy_fee_bps > user_max_fee_bps:
-        return 0.0  # hard cap respected
-
-    # How much fee headroom does this strategy leave?
-    headroom = (user_max_fee_bps - strategy_fee_bps) / user_max_fee_bps
-
-    # In high-vol regimes, alpha-above-fees is thinner; prefer low-fee strategies
-    # In low-vol regimes, high fees are tolerable if reputation is high
-    if regime == Regime.HIGH_VOL:
-        return headroom ** 0.5   # favor cheaper strategies sharply
-    elif regime == Regime.LOW_VOL:
-        return 0.5 + 0.5 * headroom  # mild fee preference only
-    else:  # NORMAL
-        return 0.3 + 0.7 * headroom
-```
-
-The regime itself is computed from rolling BTC realized volatility percentile against a 1-year window:
-
-```python
-def detect_regime(btc_realized_vol_30d: float, historical_percentiles: dict) -> Regime:
-    if btc_realized_vol_30d >= historical_percentiles["p80"]:
-        return Regime.HIGH_VOL
-    elif btc_realized_vol_30d <= historical_percentiles["p20"]:
-        return Regime.LOW_VOL
-    else:
-        return Regime.NORMAL
-```
-
-**(b) Correlation-aware greedy allocation.** Sentinel picks the top-K candidates by raw score. Helix does a greedy pick that penalizes incremental additions whose correlation with the already-selected portfolio exceeds a threshold.
-
-```python
-def helix_greedy_pick(
-    user: MetaStrategy,
-    ranked: list[StrategyCandidate],
-    max_pairwise_correlation: float = 0.7,
-) -> list[StrategyCandidate]:
-    """Greedy selection: rank-ordered, skip candidates that would spike portfolio correlation."""
-    selected = []
-    for candidate in ranked:
-        if len(selected) >= user.max_strategies_count:
-            break
-
-        # Compute average correlation of this candidate to the currently-selected set
-        if not selected:
-            avg_corr = 0.0
-        else:
-            correlations = [
-                pairwise_correlation_from_goldsky(candidate.strategy_id, s.strategy_id)
-                for s in selected
-            ]
-            avg_corr = sum(correlations) / len(correlations)
-
-        if avg_corr <= max_pairwise_correlation:
-            selected.append(candidate)
-        # else: skip this one, try the next
-    return selected
-```
-
-Pairwise correlation is computed from a rolling 30-day NAV time series per strategy, available via Goldsky. The SDK exposes `pairwise_correlation_from_goldsky` as a helper so Helix doesn't have to reimplement the plumbing.
-
-**(c) The top-level ranking function.** Helix's `rank_strategies` combines the base score with regime-aware fee factor, then the allocation pass uses correlation-aware greedy selection:
-
-```python
-class HeliosHelix(BaseAllocator):
-    name = "Helios Helix"
-    fee_rate_bps = 600  # 6% — slightly higher than Sentinel's 5% to account for more sophisticated logic
-    supported_classes = ["momentum_v1", "mean_reversion_v1", "yield_rotation_v1"]
-
-    def rank_strategies(
-        self,
-        user: MetaStrategy,
-        candidates: list[StrategyCandidate],
-    ) -> list[float]:
-        regime = detect_regime(
-            btc_realized_vol_30d=self.market_data.btc_realized_vol_30d(),
-            historical_percentiles=self.market_data.btc_vol_percentiles_1y(),
-        )
-        scores = []
-        for c in candidates:
-            base = (
-                c.reputation_score
-                * c.capacity_factor
-                * c.class_fit(user.allowed_strategy_classes)
-            )
-            fee = helix_fee_factor(c.fee_rate_bps, user.max_fee_rate_bps, regime)
-            scores.append(base * fee)
-        return scores
-
-    def allocate(
-        self,
-        user: MetaStrategy,
-        ranked: list[StrategyCandidate],
-        capital: int,
-    ) -> list[AllocationTarget]:
-        # Step 1: correlation-aware greedy pick
-        selected = helix_greedy_pick(user, ranked, max_pairwise_correlation=0.7)
-
-        # Step 2: score-weighted allocation within the selected set,
-        # subject to user.max_per_strategy_bps per strategy
-        return self.score_weighted_allocation(
-            user, selected, capital,
-            cap_per_strategy_bps=user.max_per_strategy_bps,
-        )
-```
-
-#### 11.4.2 Why Helix should outperform Sentinel in expectation
-
-Both mechanisms have clean economic intuitions:
-
-- **Regime-adaptive fees** reflect that realized alpha net of fees is a function of market conditions. Paying 30% on a smooth market is often worse than paying 10% for a passable strategy.
-- **Correlation awareness** avoids the classic portfolio construction error of owning five momentum agents that are all long at the same time — which is not diversification, it's leverage.
-
-These are well-known portfolio-theory improvements. Neither is novel *in TradFi*. What makes them interesting here is that they're implemented as a **deployable AllocatorSDK strategy** that any user can opt into or opt out of, with the allocator's own reputation tracking whether these improvements actually deliver better user outcomes over time. If Helix outperforms Sentinel across users, it will organically attract more delegations. If it doesn't, users migrate back to Sentinel. The market sorts it out.
-
-This is the point: **Helios doesn't pick winners among allocator strategies; the market does.** Sentinel is the baseline, Helix is a candidate improvement, and third-party allocators are free to try their own ideas. The AllocatorRegistry and ReputationAnchor do the accounting.
+The marketplace mechanism — third parties shipping competing allocators on a shared registry — is intact even with only Sentinel running. Any new allocator built on the AllocatorSDK can register on `AllocatorRegistry`, attract delegations, and accrue its own reputation through the same `ReputationAnchor` pipe Sentinel uses. The point — **Helios doesn't pick winners among allocator strategies; the market does** — does not depend on Helix specifically; it depends on the registry being open, which it is.
 
 ### 11.5 Allocator reputation
 
@@ -1614,9 +1492,9 @@ The rule: **Kite is identity + accounting + small-position execution. Base is la
 
 | Chain | Function in Helios | Why this chain |
 |---|---|---|
-| **Kite (2368 testnet, 2366 mainnet)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies can also *execute* here — momentum and mean-reversion strategies trading WKITE / USDC.e / WETH on the **Algebra Integral** concentrated-liquidity DEX. Bridged USDC.e and USDT (Lucid Labs) provide stablecoin settlement; Lucid bridge controllers connect to Avalanche and Celo. | Kite is the only chain with the **Passport-issued ERC-4337 smart-account stack + paymaster + x402** we lean on for one-passkey onboarding, gasless strategy execution, and the agent-economy demo beat. The Algebra DEX gives us a real (if small-cap) execution venue. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX** — only spot via Algebra — which is why the v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 17). |
-| **Base (8453 mainnet, 84532 Sepolia testnet)** | **Deep-liquidity spot execution.** Strategy agents trading large-cap pairs (ETH/USDC, WBTC/USDC, SOL/USDC) on **Uniswap V4 hooks**. This is where momentum and mean-reversion strategies that need real liquidity for $10k+ position sizes execute. Per-chain TradeAttestationVerifier deployments verify Groth16 proofs locally; trade attestations and NAV deltas batch back to Kite via LayerZero OApp. | Base has the **deepest spot liquidity** in the L2 ecosystem and Uniswap V4 is the most mature concentrated-liquidity venue. **Coinbase Ventures is the lead hackathon partner** — using Base meaningfully (not decoratively) is a narrative win. Cheap gas, fast finality, and a maturing agent-tooling ecosystem (Base Account, OnchainKit) align with our identity model. |
-| **Arbitrum (42161 mainnet, 421614 Sepolia testnet)** | **Multi-protocol yield surface.** Yield rotation strategies move capital between **Aave V3, Compound V3**, and other lending markets here. Also serves as a secondary spot venue (Camelot V3, Uniswap V3) for diversification of execution venues — useful if Base experiences an outage or unusual MEV conditions. | Arbitrum has the **deepest set of mature lending markets** in the L2 ecosystem (Aave V3 alone has billions in TVL there). Yield rotation strategies need a venue with multiple competing protocols to be meaningful. The cross-chain rate differential between Arbitrum, Base, and Kite is exactly what makes `yield_rotation_v1` an economically interesting strategy class. |
+| **Kite (2368 testnet; 2366 mainnet is a stretch, not planned)** | **Canonical layer.** Holds the StrategyRegistry, AllocatorRegistry, ReputationAnchor, AllocatorVault, UserVault. All identity (Passport), allocator coordination, fee accounting, and reputation lives here. Strategies also *execute* here — momentum and mean-reversion vaults trading a mUSDC / mWBTC / mWETH / mSOL universe through a `MockSwapRouter` that the off-chain `RouterPriceMirror` keeper feeds with oracle-derived prices each bar (5 bps spread per leg). The mock router is used because Kite testnet does not yet expose a deep on-chain spot venue and an Algebra-Integral integration is post-v1; the on-chain swap path is otherwise identical to a real DEX router. | Kite is the only chain with the **Passport-issued ERC-4337 smart-account stack + x402** we lean on for one-passkey onboarding and the agent-economy demo beat. The native KITE token gives us native gas economics. The 1-second block times help the auto-defund moment fire crisply during the demo. **Kite has no native perp DEX or deep spot DEX yet** — v1 strategy classes are spot/yield-only (perps deferred to roadmap; see Section 17). |
+| **Base (8453 mainnet, 84532 Sepolia testnet)** | **Deep-liquidity spot execution.** Strategy agents trading large-cap pairs (ETH/USDC, WBTC/USDC, SOL/USDC) on **Uniswap V3 SwapRouter02**. This is where momentum and mean-reversion strategies that need real liquidity execute. Per-chain TradeAttestationVerifier deployments verify Groth16 proofs locally; trade attestations and NAV deltas batch back to Kite via LayerZero V2 OApp. (Uniswap V4 hooks were the original target — V3 SwapRouter02 was selected for v1 because the hook-based path was not yet stable on Base Sepolia at cutover; the `allowedRouter` slot is a one-line flip once V4 is production-ready.) | Base has the **deepest spot liquidity** in the L2 ecosystem. **Coinbase Ventures is the lead hackathon partner** — using Base meaningfully (not decoratively) is a narrative win. Cheap gas, fast finality, and a maturing agent-tooling ecosystem (Base Account, OnchainKit) align with our identity model. |
+| **Arbitrum (42161 mainnet, 421614 Sepolia testnet)** | **Yield surface.** The `yield_rotation_v1` vault lives here. v1 routes through a `MockYieldVault` shaped like Aave V3's lending interface — the Aave Arb-Sepolia faucet is admin-gated, which blocked an end-to-end Aave swap at cutover; the `allowedRouter` slot is a one-line flip once the faucet opens up. The cross-chain rate-differential thesis (Arbitrum vs other yield venues) is the same whether the underlying is Aave or the mock. | Arbitrum has the **deepest set of mature lending markets** in the L2 ecosystem (Aave V3 alone has billions in TVL there). Yield rotation strategies need a venue with multiple competing protocols to be meaningful. |
 
 #### Why these three and not others
 
@@ -1662,11 +1540,11 @@ A strategy agent deployed on Base:
 
 ### 12.3 Capital bridging
 
-The MVP uses **LayerZero OFT** for the underlying capital movement. USDC must be available as an OFT (or equivalent) on all three chains. For testnet, we use a mock USDC OFT deployed across the three test networks.
+The v1 stack uses **LayerZero V2 OFT** for the underlying capital movement, with `MUsdcOFTAdapter` deployed across Kite testnet, Base Sepolia, and Arbitrum Sepolia (CXR-0 cohort, commit `638a91e`). Helios mints a test-USDC (mUSDC) instance on each chain; the adapter is a real OFT, not a mock — same `OFT.send` / `lzReceive` shape we'd use against canonical USDC on mainnet. Cross-chain `RemoteAllocationSent` flows from Kite-side AllocatorVault and is mirrored back to Goldsky for queryable batch grouping.
 
-For the demo, we'll keep one strategy on Kite, one on Base, and one on Arbitrum — enough to demonstrate the cross-chain flow without complicating the demo physics.
+For the demo, vaults are spread across all three chains: mom + mr have variants on Kite and Base, yr lives on Arbitrum (§12.1) — enough to demonstrate the cross-chain flow without complicating the demo physics.
 
-**Cost model + trajectory.** v1 ships per-(user, destination-chain) batching: a single `OFT.send` can carry N strategy allocations sharing the same destination, amortizing LZ V2's ~1 KITE fixed executor + DVN fee across the batch (cuts a 3-candidate cold-start from ~3.2 KITE to ~2.2 KITE on Kite testnet). The next layers — folding the `lzCompose` hop into the OFT adapter's `_credit` (saves ~30–40% per hop) and multi-user aggregation per (strategy, dst chain) (saves linearly with concurrent users) — are post-v1 roadmap items tracked in `docs/cross-chain-cost-roadmap.md`. The shape ships incrementally because LZ V2's fee is mostly fixed-cost, so each lever attacks a different floor.
+**Cost model + trajectory.** v1 ships per-(user, destination-chain) batching: a single `OFT.send` can carry N strategy allocations sharing the same destination, amortizing LZ V2's fixed executor + DVN fee across the batch. The shipped `OFT.quoteSend` on Kite testnet returns ~0.995 KITE for Base and ~1.144 KITE for Arbitrum at 200k/200k `lzReceive`/`lzCompose` options (mostly fixed-cost; per-call gas drift is small). The sentinel allocator EOA must hold ≥1.2 KITE per submit or the live submit fails with `insufficient funds for transfer` and falls back to a `cross_chain.deferred` event. The next layers — folding the `lzCompose` hop into the OFT adapter's `_credit` (saves ~30–40% per hop) and multi-user aggregation per (strategy, dst chain) (saves linearly with concurrent users) — are post-v1 roadmap items tracked in `docs/cross-chain-cost-roadmap.md`.
 
 ### 12.4 Reputation propagation
 
@@ -1711,11 +1589,11 @@ A Next.js 14 app deployed at `https://helios-frontend-steel.vercel.app`. For use
 | `/` | Landing — explains the thesis, shows live aggregate stats |
 | `/strategies` | Public Strategy Registry — all registered strategies with rep scores, P&L history, manifest |
 | `/strategies/[id]` | Strategy detail — full P&L curve, trade log, proof verifications, fees earned |
-| `/allocators` | Allocator directory (future-facing; v1 shows only Helios reference) |
+| `/allocators` | Allocator directory — shows Helios Sentinel (the only allocator running in v1) plus any third-party AllocatorSDK entries that register on `AllocatorRegistry` |
 | `/dashboard` | User dashboard — current allocation, NAVs, fees, timeline, controls |
 | `/onboard` | Meta-strategy builder — template picker, customization, signing flow |
 | `/audit/[strategy]` | Auditor view — verify any strategy's reputation by replaying the math against on-chain data |
-| `/docs` | Embedded docs for operators |
+| `/judge` | Judge quick-eval page — address book per chain, recent attested trades, verify-trade command, 5-step eval checklist (replaces the embedded `/docs` route originally scoped for v1; an embedded docs surface is post-hackathon) |
 
 **Tech stack:**
 
@@ -1756,7 +1634,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **[0:00–0:20] The setup.** Web app open, dashboard view. Voiceover: *"Maya wants to put $1,000 to work in AI trading agents. She doesn't want to babysit it. She doesn't want to give up custody. She wants policy guardrails. Let's see what one signature gets her."*
 
-**[0:20–0:50] The approval.** Open the meta-strategy builder. Pick the "Balanced" template, customize asset universe to BTC/ETH/SOL. Briefly hover the allocator selector showing Sentinel (default, "Official Reference") vs Helix (the SDK-built alternative, "Official Reference"); keep Sentinel for the demo flow. Approve via Kite Passport — one passkey prompt, no MetaMask popup. The frontend submits a single batched userOp ( `USDC.approve` + `UserVault.deposit` + `setMetaStrategy` + `delegateToAllocator`) sponsored by the paymaster. Voiceover: *"She chooses an allocator — Sentinel is the reference, but anyone can deploy their own. One passkey approval is the only thing she does. From here, everything is autonomous and on-chain."*
+**[0:20–0:50] The approval.** Open the meta-strategy builder. Pick the "Balanced" template, customize asset universe to BTC/ETH/SOL. The allocator panel shows Sentinel ("Official Reference") plus the `AllocatorRegistry` directory — Sentinel is the only allocator running in v1, with the registry open for third parties. Approve via Kite Passport — one passkey prompt, no MetaMask popup. The frontend submits the discrete txs `USDC.approve` → `UserVault.deposit` → `setMetaStrategy` → `delegateToAllocator` through the Passport AA session (paymaster-sponsored batching is post-hackathon). Voiceover: *"She chooses an allocator — Sentinel is the reference, and the marketplace is open. One passkey approval is the only thing she does. From here, everything is autonomous and on-chain."*
 
 **[0:50–1:30] The cascade.** Dashboard updates in real-time. Show Sentinel picking 4 strategies across the three chains. Show the first ZK-attested trade landing on each. The activity rail prints each allocation as it confirms: *"⚡ Sentinel → MomentumKite-A $300", "⚡ Sentinel → MeanRevBase-B $250", "⚡ Sentinel → MomentumArb-C $250", "⚡ Sentinel → YieldRotationArb-D $200"*. Voiceover: *"Each trade carries a ZK proof binding it to the strategy's declared class. A momentum agent literally cannot execute a yield rotation and have it count. This is the trustless layer underneath."*
 
@@ -1770,7 +1648,7 @@ The demo is a 3-minute live walkthrough. Tight, scripted, with the auto-defund a
 
 **Scenario mode.** The demo runs against a deterministic market replay so the auto-defund triggers reliably during the live presentation. This is **not cheating** — the mechanism is real, the on-chain transactions are real, the proofs are real. What's curated is the *market scenario* used to trigger the behavior. The README clearly distinguishes "live mode" (real market data) from "scenario mode" (replayed historical data) and ships both. Judges can run either.
 
-**Pre-demo state.** Before the demo, we pre-deploy all contracts (Kite, Base, Arbitrum), pre-fund Maya's wallet with $1,000 USDC, pre-register at least 6 strategies (4 initial allocation targets + 2 reserve candidates for post-defund reallocation), pre-deploy strategy agents on the VPS, pre-register Sentinel and Helix on `AllocatorRegistry`. The demo starts from a clean dashboard but a warm system. This is standard hackathon practice and what every winner we studied did.
+**Pre-demo state.** Before the demo, we pre-deploy all contracts (Kite, Base, Arbitrum), pre-fund Maya's wallet with $1,000 USDC, pre-register the Phase-6 strategy universe (9 strategies across mom/mr/yr × 3 variants, plus the Base + Arbitrum siblings — 4 initial allocation targets + reserve candidates for post-defund reallocation), pre-deploy strategy agents on the VPS, and pre-register Sentinel on `AllocatorRegistry`. The demo starts from a clean dashboard but a warm system. This is standard hackathon practice and what every winner we studied did.
 
 **Backup demo video.** A pre-recorded 90-second version exists for fallback if anything fails live. Submitted alongside the live demo.
 
@@ -1786,8 +1664,9 @@ A protocol that handles capital must articulate its trust model honestly.
 
 | Component | Trust required | Why |
 |---|---|---|
-| User's Passport identity | **Trust Particle Network MPC** (the EOA backing the AA wallet is an MPC share, not a hardware-held key) | Documented limitation; v2 considers a self-custody migration path once `gokite-aa-sdk` exposes a "claim ownership to external EOA" flow |
+| User's Passport identity | **Trust Particle Network MPC** (the passkey-backed AA wallet is recovered via MPC, not a hardware-held key) | Documented limitation; v2 considers a self-custody migration path once `gokite-aa-sdk` exposes a "claim ownership to external EOA" flow |
 | Kite Passport infrastructure | Trust `@gokite-network/auth` + `gokite-aa-sdk` + Kite's EntryPoint and SmartAccountFactory contracts | Inherits Kite's security model and Particle Network's MPC security model |
+| `setMetaStrategy` signature verification | **Stubbed in v1** — the AA-wallet caller ACL (`msg.sender == owner`) carries the trust; the meta-strategy hash is emitted but the user's signature over it is not verified on-chain | Post-hackathon hardening: full EIP-1271 verification against the Passport session, so a leaked AA session that wasn't the user's intent can't quietly mutate the meta-strategy. The current stub is marked `[PASSPORT-STUB]` in `UserVault.sol`. |
 | Strategy operator | **Limited trust** — they can't violate class invariants (ZK-enforced) but they can run a strategy that loses money | The economic model handles this: bad strategies lose reputation and capital |
 | Allocator operator | **Limited trust** — they can't violate user's meta-strategy (on-chain enforced) but they can rank suboptimally | Multiple allocators allow market competition |
 | Reputation Engine signer | **Trusted** in v1 (single signer); **trust-minimized** in v2 (multi-sig); **trustless** in v3 (ZK-attested computation) | Documented limitation with clear roadmap |
@@ -1824,7 +1703,7 @@ Defense: **Partial in v1.** The Phase 4 caller-cadence defund path samples NAV f
 Defense: The §6.4 cash-floor NAV-divergence check fires when `signedNAV < baseAsset.balanceOf(strategyVault) × (1 - NAV_DIVERGENCE_THRESHOLD_BPS/10_000)` for two consecutive snapshots. The strategy class invariant `NAV ≥ cashHeld` (long-only spot) makes this an unambiguous lie. `NavDivergenceObserved` emits, multi-sig executes `slash` per §6.4. Cost to the operator: stake.
 
 **Threat: User's Passport credentials are compromised.**
-Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw. This is the same threat model as any custodial-MPC product (Particle, Privy, Magic). Mitigation: Particle's email + passkey 2FA, plus the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time. v2 considers an "external owner" flow that lets a power user point the AA wallet at a hardware-held EOA.
+Defense: An attacker who steals the user's passkey + email recovers the AA wallet and can withdraw — and in v1, with `setMetaStrategy` signature verification stubbed (§15.1), they can also widen the meta-strategy bounds (e.g. add risky strategy classes or raise `maxCapital`) before re-allocating. This is the same custodial-MPC threat surface as Particle / Privy / Magic, plus the additional surface created by the stubbed signature path. Mitigations: Particle's email + passkey 2FA; the user can call `delegateToAllocator(address(0))` and `withdraw(maxCapital)` at any time; tightening `setMetaStrategy` is blocked while capital is deployed (HIGH #5/#10 from Phase-3 review). Post-hackathon hardening adds EIP-1271 verification against the Passport session and an "external owner" flow for a hardware-held EOA.
 
 **Threat: Allocator's delegation key is compromised.**
 Defense: The on-chain ACL bounds the attacker to the meta-strategy — they cannot exceed `maxCapital`, allocate to disallowed asset classes, or change the user's drawdown threshold. The user revokes by calling `delegateToAllocator(address(0))`.
@@ -1854,8 +1733,8 @@ Defense: LayerZero's standard nonce/replay protection. Plus per-strategy update 
 
 To be brutally clear about what we are *not* doing, so judges can score what's there fairly and so post-hackathon planning has a clear backlog.
 
-- More than two reference allocators (Sentinel + Helix-lite; AllocatorSDK ships so others can build their own, but we don't seed >2 ourselves)
-- Helix's regime-adaptive fee weighting and correlation-aware greedy allocation (the AllocatorSDK exposes the hooks — `pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime` — but Helix v1 ships fee-weighted greedy over reputation only; full §11.4.1 behaviour is post-hackathon Phase 1)
+- A second branded reference allocator. v1 ships Sentinel only; the scoped "Helios Helix" was cut from v1 (§11.4). The AllocatorSDK ships so third parties can build competing allocators on the same registry.
+- Helix's regime-adaptive fee weighting and correlation-aware greedy allocation. The AllocatorSDK exposes the hooks (`pairwise_correlation_from_goldsky`, `btc_realized_vol_30d`, `detect_regime`) so a third-party allocator can adopt them today, but no Helios-shipped allocator uses them in v1 — full behaviour lands post-hackathon Phase 1 when Helix is restored.
 - Standalone Telegram bot (`@helios_market_bot`) — replaced in v1 by the dashboard activity rail, which consumes the same WS feed and applies the §13.2/`DESIGN.md §15` formatting rules (post-hackathon Phase 1)
 - x402-paid prover/oracle/audit endpoints with Pieverse facilitator settlement (Choice G; the agent-economy demo polish is post-hackathon Phase 1)
 - Bespoke d3 sunburst with mechanical step-animated rebalance (v1 ships a simpler concentric-ring viz; full bespoke treatment is v2 polish)
@@ -1886,8 +1765,8 @@ Helios is designed as v1 of a real protocol. The post-hackathon path:
 
 - Production trusted setup (Helios-specific ceremony or migration to existing setup)
 - Migrate reputation signer to a 5-of-9 multi-sig
-- **AllocatorSDK adoption push** — onboard 5-10 third-party allocators beyond Sentinel and the demo Helix, with documentation, partner outreach, and an "Allocator Grants" program seeded by protocol fees
-- **Helix v2** — restore the regime-adaptive fee factor + correlation-aware greedy allocation deferred from v1 (`detect_regime` from BTC realized-vol percentiles, `pairwise_correlation_from_goldsky`, `helix_fee_factor` regime weighting per §11.4.1). Hooks already ship in the AllocatorSDK in v1 so any third-party allocator can adopt them earlier than Helix does.
+- **AllocatorSDK adoption push** — onboard 5-10 third-party allocators beyond Sentinel, with documentation, partner outreach, and an "Allocator Grants" program seeded by protocol fees
+- **Restore Helios Helix** — ship the second branded reference allocator that was cut from v1 (continuous fee-fit factor, correlation-aware greedy pick over `score_weighted_allocation`, regime detection from BTC realized-vol percentiles). Hooks already ship in the AllocatorSDK (`detect_regime`, `pairwise_correlation_from_goldsky`, `helix_fee_factor`) so any third-party allocator can adopt them earlier than Helix does.
 - **`@helios_market_bot` Telegram bot** — consumes the existing dashboard WS feed; reuses `DESIGN.md §15` templates verbatim. Adds the user opt-in flow on `/dashboard` and a Telegram admin alerting channel for ops.
 - **x402-paid services (Choice G)** — Pieverse facilitator integration; `services/prover`, `services/oracle`, `services/reputation` (audit endpoint) wrapped with x402-aware FastAPI middleware; Sentinel allocator-side x402 client; activity-rail `X402_SETTLED` badge.
 - **Bespoke d3 sunburst** — replace the v1 concentric-ring viz with a hand-drawn d3 implementation including mechanical step animation on rebalance (~300ms ticked motion) and the mini-sunburst variant tightened up.
@@ -1957,18 +1836,19 @@ helios/
 │   ├── allocator-sdk/              # Python SDK for allocator operators (v1 deliverable)
 │   └── helios-cli/                 # CLI for deployment, backtest, etc.
 ├── services/
-│   ├── sentinel/                   # Helios Sentinel — reference allocator
-│   ├── helix/                      # Helios Helix — secondary demo allocator (built on AllocatorSDK)
+│   ├── sentinel/                   # Helios Sentinel — the only allocator running in v1
 │   ├── reputation/                 # The Reputation Engine
 │   ├── prover/                     # The Prover Service (Node + snarkjs)
-│   ├── oracle/                     # The reference price + yield oracle
-│   └── bot/                        # Telegram bot (deferred to post-hackathon Phase 1 — see §16/§17)
+│   └── oracle/                     # The reference price + yield oracle
+│   # services/helix and services/bot are post-hackathon: Helix was cut from v1
+│   # (§11.4); the Telegram bot is deferred to Phase 1 (§17). Neither directory
+│   # ships on the v1 main branch.
 ├── frontend/                       # Next.js 14 web app
 │   └── src/
 │       ├── app/
 │       │   ├── page.tsx
 │       │   ├── strategies/
-│       │   ├── allocators/         # Allocator marketplace (Sentinel, Helix, third-party)
+│       │   ├── allocators/         # Allocator marketplace (Sentinel + third-party)
 │       │   ├── dashboard/
 │       │   ├── audit/
 │       │   └── judge/              # The judge eval page
@@ -2007,13 +1887,14 @@ Link: [helios-frontend-steel.vercel.app/demo-video](https://helios-frontend-stee
 Link: [helios-frontend-steel.vercel.app](https://helios-frontend-steel.vercel.app) → switch to Kite testnet
 
 ### Step 3: Try the demo flow
-Click "Run Demo Scenario" on the dashboard. Watch the 3-minute scripted scenario play out: cascade allocation → drawdown → auto-defund → cross-chain reputation update.
+Open `/dashboard` and `/strategies` against the live Kite-testnet deployment — watch attested trades stream in on the activity rail in real time. (Scenario-mode replay is the fallback when live signals are quiet; run it with `scripts/e2e-scenario.sh phase5`. The dashboard does not ship a "Run Demo Scenario" button in v1 — see `docs/cold-start.md` for the live-vs-scenario distinction.)
 
 ### Step 4: Verify on-chain
-- Strategy Registry: [Kitescan link](#)
-- A sample TradeAttested event: [Kitescan link](#)
-- A sample auto-defund tx: [Kitescan link](#)
-- The cross-chain reputation message: [LayerZero scan link](#)
+The `/judge` page (`https://helios-frontend-steel.vercel.app/judge`) bundles all of the following with live links:
+- Strategy Registry on Kitescan (`strategyRegistryV3` per `contracts/deployments/kite-testnet.json`)
+- Recent `TradeAttested` events with their `verify-trade.js` commands
+- A recent permissionless-defund tx
+- The cross-chain reputation message GUID on LayerZero Scan (Base → Kite hop documented in `docs/helios-v1-acceptance.md`)
 
 ### Step 5: Re-verify a ZK proof yourself
 ```
