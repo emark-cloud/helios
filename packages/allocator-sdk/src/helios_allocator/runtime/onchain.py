@@ -112,6 +112,20 @@ _OFT_QUOTE_SEND_ABI: tuple[dict[str, Any], ...] = (
 # compose payload the way HeliosBridgeReceiver.sol expects.
 _CXR_ACTION_ALLOCATE: int = 0
 
+# LayerZero V2 Type-3 options TLV — defaults to:
+#   - lzReceive: 200_000 gas (OFT release on the destination chain)
+#   - lzCompose @ index 0: 500_000 gas (BridgeReceiver dispatch +
+#     StrategyVault.onCrossChainAllocate accounting write)
+# Encoded by hand from the OptionsBuilder.sol layout in @layerzerolabs:
+#   prefix 0x0003
+#   worker 0x01 | size 0x0011 | type 0x01 | gas (uint128 BE)
+#   worker 0x01 | size 0x0013 | type 0x03 | index (uint16 BE) | gas (uint128 BE)
+_DEFAULT_LZ_EXTRA_OPTIONS: bytes = bytes.fromhex(
+    "0003"
+    "010011" "01" "00000000000000000000000000030d40"  # lzReceive 200_000
+    "010013" "03" "0000" "0000000000000000000000000007a120"  # lzCompose 500_000
+)
+
 # CXR-0c — local fragment for `allocateToRemoteStrategy`. The shared
 # `IAllocatorVault_ABI` only ships interface methods; the cross-chain
 # entry point lives on the concrete contract. Inline here so the runner
@@ -307,6 +321,7 @@ class AllocatorOnChain:
             amount=amount,
             dst_eid=dst_eid,
             remote_vault=remote_vault,
+            extra_options=_DEFAULT_LZ_EXTRA_OPTIONS,
             strategy_id_bytes32=sid_bytes,
         )
         if self._live and dst_eid:
@@ -695,7 +710,7 @@ class AllocatorOnChain:
             to_bytes32,
             int(amount),
             int(amount),
-            b"",
+            _DEFAULT_LZ_EXTRA_OPTIONS,
             compose_msg,
             b"",
         )
