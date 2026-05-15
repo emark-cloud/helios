@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 from oracle.service import _ALIASES, Settings, _resolve_asset, build_app
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCENARIO_PATH = REPO_ROOT / "scenarios" / "phase1-drawdown.json"
@@ -214,3 +215,79 @@ async def test_endpoints_fall_back_to_live_when_mirror_too_shallow() -> None:
         assert rbody["view"] == "live"
         # The mirror's fake root must not leak through when we fell back.
         assert int(rbody["root"]) != 0xDEAD
+
+
+# --- Commit-on-demand: liveness validator + /anchor/commit endpoint -----
+
+
+def test_anchor_liveness_validator_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORACLE_ANCHOR_LIVENESS_SEC", "170")
+    with pytest.raises(ValidationError):
+        Settings()  # type: ignore[call-arg]
+    monkeypatch.setenv("ORACLE_ANCHOR_LIVENESS_SEC", "0")
+    with pytest.raises(ValidationError):
+        Settings()  # type: ignore[call-arg]
+    monkeypatch.setenv("ORACLE_ANCHOR_LIVENESS_SEC", "150")
+    assert Settings().anchor_liveness_sec == 150  # type: ignore[call-arg]
+    monkeypatch.setenv("ORACLE_YIELD_ANCHOR_HEARTBEAT_SEC", "0")
+    with pytest.raises(ValidationError):
+        Settings()  # type: ignore[call-arg]
+
+
+def test_build_app_wires_liveness_into_schedulers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORACLE_ANCHOR_LIVENESS_SEC", "90")
+    monkeypatch.setenv("ORACLE_YIELD_ANCHOR_HEARTBEAT_SEC", "1800")
+    app = build_app(Settings())  # type: ignore[call-arg]
+    assert app.state.price_anchor_scheduler.liveness_sec == 90
+    assert app.state.yield_anchor_scheduler.liveness_sec == 1800
+
+
+@pytest.mark.asyncio
+async def test_anchor_commit_endpoint_disabled_when_token_unset() -> None:
+    app = build_app(Settings())  # type: ignore[call-arg]
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/v1/anchor/commit", params={"asset": "KITE/USDT"})
+        assert r.status_code == 503
+        assert "disabled" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_anchor_commit_endpoint_auth_and_safe_degradation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORACLE_ANCHOR_COMMIT_TOKEN", "s3cret")
+    app = build_app(Settings())  # type: ignore[call-arg]
+    poller = app.state.poller
+    for _ in range(3):
+        await poller.tick_once()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Missing token → 401.
+        missing = await client.post("/v1/anchor/commit", params={"asset": "KITE/USDT"})
+        assert missing.status_code == 401
+        # Wrong token → 401.
+        wrong = await client.post(
+            "/v1/anchor/commit",
+            params={"asset": "KITE/USDT"},
+            headers={"Authorization": "Bearer nope"},
+        )
+        assert wrong.status_code == 401
+        # Correct token, asset tracked, window present — but scenario mode
+        # has no anchor address so the poster is dry-run (not mined). The
+        # endpoint must 503 so the strategy skips rather than submitting a
+        # doomed proof (strictly safer than today's on-chain revert).
+        ok = await client.post(
+            "/v1/anchor/commit",
+            params={"asset": "KITE/USDT"},
+            headers={"Authorization": "Bearer s3cret"},
+        )
+        assert ok.status_code == 503
+        assert "not mined" in ok.json()["detail"]
+        # Unknown asset → 404 (after auth).
+        nf = await client.post(
+            "/v1/anchor/commit",
+            params={"asset": "DOGE/USDT"},
+            headers={"Authorization": "Bearer s3cret"},
+        )
+        assert nf.status_code == 404

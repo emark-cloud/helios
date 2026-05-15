@@ -12,14 +12,15 @@ is deferred to Phase 2 — we expose the in-memory chain root via
 
 from __future__ import annotations
 
+import hmac
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 from _template import BaseServiceSettings, create_app
-from fastapi import APIRouter, FastAPI, HTTPException, Query
-from pydantic import Field
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Query
+from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from oracle.anchor import (
@@ -74,6 +75,45 @@ class Settings(BaseServiceSettings):
     yield_anchor_address: str = Field(default="", validation_alias="ORACLE_YIELD_ANCHOR_ADDRESS")
     anchor_interval_bars: int = Field(default=50, validation_alias="ORACLE_ANCHOR_INTERVAL_BARS")
     anchor_chain_depth: int = Field(default=16, validation_alias="ORACLE_ANCHOR_CHAIN_DEPTH")
+
+    # Commit-on-demand (supersedes ORACLE_ANCHOR_INTERVAL_BARS when set —
+    # the schedulers are wired with liveness_sec so the bar counter is
+    # inert). Strategies anchor their own fresh root before proving via
+    # POST /v1/anchor/commit; this heartbeat only keeps
+    # OraclePriceAnchor.latest().committedAt inside AllocatorVault's
+    # MAX_STALENESS_SEC=180 auto-defund window during trade-quiet
+    # periods. Hard ceiling 165s leaves margin under the on-chain 180s.
+    anchor_liveness_sec: int = Field(default=150, validation_alias="ORACLE_ANCHOR_LIVENESS_SEC")
+    # Yield has no on-chain freshness gate and no canonical consumer —
+    # a long backstop is fully safe. Keeps the Arb mirror isKnownRoot.
+    yield_anchor_heartbeat_sec: int = Field(
+        default=3600, validation_alias="ORACLE_YIELD_ANCHOR_HEARTBEAT_SEC"
+    )
+    # Bearer token gating POST /v1/anchor/commit (it spends signer gas).
+    # Empty → endpoint disabled (503), so a misconfigured deploy can't
+    # be driven into unbounded paid commits by anything on the network.
+    anchor_commit_token: str = Field(default="", validation_alias="ORACLE_ANCHOR_COMMIT_TOKEN")
+
+    @field_validator("anchor_liveness_sec")
+    @classmethod
+    def _liveness_under_onchain_gate(cls, v: int) -> int:
+        # 165s ceiling: the on-demand path makes per-trade roots ~0s old,
+        # but this heartbeat is the only thing arming the permissionless
+        # auto-defund backup; >165 risks latest().committedAt aging past
+        # AllocatorVault MAX_STALENESS_SEC=180 between heartbeats.
+        if not 1 <= v <= 165:
+            raise ValueError(
+                "ORACLE_ANCHOR_LIVENESS_SEC must be in [1, 165] "
+                "(margin under on-chain MAX_STALENESS_SEC=180)"
+            )
+        return v
+
+    @field_validator("yield_anchor_heartbeat_sec")
+    @classmethod
+    def _yield_heartbeat_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("ORACLE_YIELD_ANCHOR_HEARTBEAT_SEC must be >= 1")
+        return v
 
     # Phase 5 cross-chain replication. Each mirror chain is fully
     # optional — leaving the RPC blank disables replication for that
@@ -276,12 +316,14 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
         mirror=commit_mirror,
+        liveness_sec=cfg.anchor_liveness_sec,
     )
     yield_scheduler = YieldAnchorScheduler(
         store=yield_store,
         poster=yield_poster,  # type: ignore[arg-type]
         interval_bars=cfg.anchor_interval_bars,
         chain_depth=cfg.anchor_chain_depth,
+        liveness_sec=cfg.yield_anchor_heartbeat_sec,
     )
     # Phase-6 real-P&L: build the optional MockSwapRouter price mirror.
     # The mirror is gated on `router_mirror_enabled`; tokens with empty
@@ -404,6 +446,50 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "signer": signer.signer_address,
             "hash": "poseidon",
             "view": source_view,
+        }
+
+    @router.post("/anchor/commit")
+    async def anchor_commit(
+        asset: str = Query(...),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Commit a fresh price root for `asset` on-chain NOW, bypassing
+        the heartbeat gate. A strategy calls this immediately before it
+        proves a trade so the proof's `oracle_root` is ~0s old against
+        StrategyVault's 180s freshness gate. Bearer-token gated — it
+        spends signer gas. 503 on cold-start / dry-run / failed submit
+        so the caller skips the trade rather than submitting a doomed
+        proof (strictly safer than today's on-chain revert)."""
+        if not cfg.anchor_commit_token:
+            raise HTTPException(
+                status_code=503,
+                detail="anchor commit endpoint disabled (ORACLE_ANCHOR_COMMIT_TOKEN unset)",
+            )
+        expected = f"Bearer {cfg.anchor_commit_token}"
+        if authorization is None or not hmac.compare_digest(authorization, expected):
+            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+        asset = _resolve_asset(asset)
+        if asset not in assets:
+            raise HTTPException(status_code=404, detail=f"asset not tracked: {asset}")
+        rec = await price_scheduler.force_commit_async(asset)
+        if rec is None:
+            raise HTTPException(
+                status_code=503, detail=f"no snapshot window yet for {asset} (cold start)"
+            )
+        if not rec.submitted:
+            raise HTTPException(
+                status_code=503,
+                detail=f"commit not mined: {rec.error or 'dry-run (anchor address unset)'}",
+            )
+        return {
+            "asset": asset,
+            "root": str(int(rec.root_hex, 16)),
+            "root_bytes32": rec.root_hex,
+            "window_start": rec.window_start,
+            "window_end": rec.window_end,
+            "nonce": rec.nonce,
+            "tx_hash": rec.tx_hash,
+            "committed": True,
         }
 
     @router.get("/yield/markets")

@@ -722,3 +722,187 @@ def test_commit_mirror_overwrites_previous_window() -> None:
     second = mirror.get("KITE/USDT")
     assert second is not None and second.window_end_ms == 4000
     assert second.root != first.root
+
+
+# --- Commit-on-demand: liveness gate + force_commit ---------------------
+
+
+class _Clock:
+    """Injectable monotonic clock for deterministic liveness tests."""
+
+    def __init__(self, t: float = 1000.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class _SubmittedPoster:
+    """Duck-typed AnchorPoster that always reports a *mined* commit, so
+    scheduler liveness/nonce logic (which keys off `rec.submitted`) can
+    be exercised without a live chain. The real dry-run `AnchorPoster`
+    reports `submitted=False`, which deliberately never arms the gate."""
+
+    def __init__(self) -> None:
+        self.posts: list[CommitPayload] = []
+
+    def _record(self, payload: CommitPayload) -> CommitRecord:
+        self.posts.append(payload)
+        return CommitRecord(
+            kind=payload.kind,
+            root_hex="0x" + payload.root.hex(),
+            window_start=payload.window_start,
+            window_end=payload.window_end,
+            nonce=payload.nonce,
+            tx_hash="0xfeed",
+            submitted=True,
+        )
+
+    def post(self, payload: CommitPayload) -> CommitRecord:
+        return self._record(payload)
+
+    async def post_async(self, payload: CommitPayload) -> CommitRecord:
+        return self._record(payload)
+
+
+def test_liveness_gate_suppresses_within_window_and_reopens() -> None:
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    clk = _Clock(t=1000.0)
+    sched = PriceAnchorScheduler(
+        store=store, poster=_SubmittedPoster(), liveness_sec=120, chain_depth=2, clock=clk
+    )
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=1000, source="t")
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=2000, source="t")
+
+    # Cold start (no prior mined commit) → fires immediately.
+    assert sched.on_bar("KITE/USDT") is not None
+    # Within the liveness window → suppressed.
+    clk.t = 1000.0 + 119
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=3000, source="t")
+    assert sched.on_bar("KITE/USDT") is None
+    # Past the window → reopens.
+    clk.t = 1000.0 + 121
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=4000, source="t")
+    assert sched.on_bar("KITE/USDT") is not None
+
+
+def test_force_commit_bypasses_liveness_gate_and_updates_mirror() -> None:
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    mirror = CommitMirror()
+    clk = _Clock(t=500.0)
+    sched = PriceAnchorScheduler(
+        store=store,
+        poster=_SubmittedPoster(),
+        liveness_sec=120,
+        chain_depth=2,
+        clock=clk,
+        mirror=mirror,
+    )
+    store.append("BTC/USDT", price_e18=10**18, timestamp_ms=1000, source="t")
+    store.append("BTC/USDT", price_e18=10**18, timestamp_ms=2000, source="t")
+
+    assert sched.on_bar("BTC/USDT") is not None  # cold-start heartbeat arms gate
+    clk.t = 500.0 + 5
+    assert sched.on_bar("BTC/USDT") is None  # gate suppresses heartbeat
+    # ...but a forced commit ignores the gate entirely.
+    store.append("BTC/USDT", price_e18=10**18, timestamp_ms=3000, source="t")
+    rec = sched.force_commit("BTC/USDT")
+    assert rec is not None and rec.submitted
+    # Mirror updated so /snapshots/root serves view=committed immediately.
+    mirrored = mirror.get("BTC/USDT")
+    assert mirrored is not None and mirrored.window_end_ms == rec.window_end
+    assert rec.window_start >= 2000  # monotonic chain preserved heartbeat→forced
+
+
+def test_force_commit_cold_start_returns_none() -> None:
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    sched = PriceAnchorScheduler(
+        store=store, poster=_SubmittedPoster(), liveness_sec=120, chain_depth=2, clock=_Clock()
+    )
+    # No snapshot window yet → endpoint must 503, strategy skips the trade.
+    assert sched.force_commit("KITE/USDT") is None
+
+
+def test_liveness_one_commit_per_interval_across_assets() -> None:
+    """Sequential poller (`for asset: await on_bar`) means the first
+    asset past the gate commits, `_mark_committed` advances the global
+    clock, and the rest of the tick is suppressed → exactly one
+    heartbeat commit per interval, chained monotonically."""
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    clk = _Clock(t=1000.0)
+    sched = PriceAnchorScheduler(
+        store=store, poster=_SubmittedPoster(), liveness_sec=120, chain_depth=2, clock=clk
+    )
+    assets = ["KITE/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    for a in assets:
+        store.append(a, price_e18=10**18, timestamp_ms=1000, source="t")
+        store.append(a, price_e18=10**18, timestamp_ms=2000, source="t")
+
+    recs = [sched.on_bar(a) for a in assets]
+    committed = [r for r in recs if r is not None]
+    assert len(committed) == 1, recs
+
+    # Still within the window on the next tick → nothing commits.
+    assert all(sched.on_bar(a) is None for a in assets)
+
+    # Past the window → exactly one commit again, monotonic.
+    clk.t = 1000.0 + 121
+    for a in assets:
+        store.append(a, price_e18=10**18, timestamp_ms=3000, source="t")
+    recs2 = [sched.on_bar(a) for a in assets]
+    committed2 = [r for r in recs2 if r is not None]
+    assert len(committed2) == 1
+    assert committed2[0].window_start >= committed[0].window_end
+
+
+def test_failed_submit_does_not_arm_liveness_gate() -> None:
+    """A dry-run / failed submit must NOT satisfy the heartbeat — else
+    the gate would suppress the retry that keeps auto-defund armed."""
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(  # dry-run → rec.submitted is False
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=_CHAIN_ID
+    )
+    sched = PriceAnchorScheduler(
+        store=store, poster=poster, liveness_sec=120, chain_depth=2, clock=_Clock()
+    )
+    for i in range(2):
+        store.append("KITE/USDT", price_e18=10**18, timestamp_ms=1000 * (i + 1), source="t")
+    r1 = sched.on_bar("KITE/USDT")
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=3000, source="t")
+    r2 = sched.on_bar("KITE/USDT")  # same clock, within any window
+    assert r1 is not None and r2 is not None  # never suppressed (failover)
+    assert sched._last_any_commit_ms is None  # gate never armed
+
+
+def test_back_compat_interval_bars_when_liveness_unset() -> None:
+    """`liveness_sec=None` (default) keeps the exact per-asset
+    `interval_bars` counter — guards the back-compat path explicitly."""
+    store = SnapshotStore(signer=LocalSigner(""), capacity_per_asset=64)
+    poster = AnchorPoster(
+        kind="price", rpc_url="", signer_pk="", anchor_address="", chain_id=_CHAIN_ID
+    )
+    sched = PriceAnchorScheduler(store=store, poster=poster, interval_bars=3, chain_depth=2)
+    assert sched.liveness_sec is None
+    for i in range(2):
+        store.append("KITE/USDT", price_e18=10**18, timestamp_ms=1000 * (i + 1), source="t")
+        assert sched.on_bar("KITE/USDT") is None  # under interval
+    store.append("KITE/USDT", price_e18=10**18, timestamp_ms=3000, source="t")
+    assert sched.on_bar("KITE/USDT") is not None  # third bar commits
+
+
+def test_yield_scheduler_long_backstop_heartbeat() -> None:
+    store = YieldStore(signer=LocalSigner(""), capacity_per_market=64)
+    clk = _Clock(t=0.0)
+    sched = YieldAnchorScheduler(
+        store=store, poster=_SubmittedPoster(), liveness_sec=3600, chain_depth=2, clock=clk
+    )
+    store.append("aave-v3:USDC", apy_bps_e6=5_000_000, timestamp_ms=1000, source="t")
+    store.append("aave-v3:USDC", apy_bps_e6=5_000_000, timestamp_ms=2000, source="t")
+
+    assert sched.on_bar("aave-v3:USDC") is not None  # cold-start
+    clk.t = 1800.0
+    store.append("aave-v3:USDC", apy_bps_e6=5_000_000, timestamp_ms=3000, source="t")
+    assert sched.on_bar("aave-v3:USDC") is None  # within 1h backstop
+    clk.t = 3601.0
+    store.append("aave-v3:USDC", apy_bps_e6=5_000_000, timestamp_ms=4000, source="t")
+    assert sched.on_bar("aave-v3:USDC") is not None

@@ -88,6 +88,11 @@ class RuntimeStats:
     signals_fired: int = 0
     proofs_generated: int = 0
     proof_failures: int = 0
+    # Bars skipped because the on-demand anchor commit didn't mine
+    # (endpoint disabled, gas-starved signer, RPC error). Distinct from
+    # proof_failures: the proof was never attempted, so this is a safe
+    # skip, not a degraded prover.
+    commit_failures: int = 0
     # Signals dropped before the prover because the vault is too thinly
     # funded for `amount_in` to resolve to ≥ 1 wei. Kept distinct from
     # `proof_failures` so an under-funded vault is not conflated with a
@@ -217,6 +222,28 @@ class MomentumRuntime:
         intent: TradeIntent,
         bundle: SnapshotBundle,
     ) -> ExecutionRecord | None:
+        # Commit-on-demand: anchor a fresh root for this asset NOW so the
+        # proof's `oracle_root` is ~0s old against StrategyVault's 180s
+        # freshness gate, then re-fetch so the witness proves exactly the
+        # just-committed window. The oracle now serves view=committed and
+        # recorded the mirror synchronously before returning, so the
+        # re-fetch is race-free. (A snapshot landing in the sub-second
+        # gap since tick_bar's fetch could shift the window by one bar
+        # vs. the signal; the circuit re-derives the signal from these
+        # observations, so a no-longer-crossing window fails the proof —
+        # a safe skip, never a bad trade.) Any commit failure is a safe
+        # skip, strictly better than an on-chain UnknownOracleRoot.
+        try:
+            await self._oracle.request_commit(asset)
+            bundle = await self._oracle.fetch_recent(asset, PRICE_OBSERVATIONS)
+        except OracleEmptyError:
+            return None
+        except Exception as exc:
+            _log.warning("momentum.anchor.commit_failed", asset=asset, err=str(exc))
+            self.stats.commit_failures += 1
+            self.stats.last_error = str(exc)
+            return None
+
         block_start, block_end = self._block_provider.window(self._cfg.block_window_size)
         prices_e18 = [s.price_e18 for s in bundle.signed]
         self._nonce += 1
