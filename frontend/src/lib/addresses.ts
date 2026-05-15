@@ -19,6 +19,8 @@ import kiteTestnet from "../../../contracts/deployments/kite-testnet.json";
 import baseSepolia from "../../../contracts/deployments/base-sepolia.json";
 import arbitrumSepolia from "../../../contracts/deployments/arbitrum-sepolia.json";
 
+import { formatAddress } from "./format";
+
 export type ChainKey =
   | "kite-testnet"
   | "base-sepolia"
@@ -120,3 +122,50 @@ export const STRATEGY_VAULTS_BY_CLASS = {
   mean_reversion_v1: KITE.addresses.phase6VaultMeanReversion,
   yield_rotation_v1: KITE.addresses.phase6VaultYieldRotation,
 } as const;
+
+/**
+ * Human-readable name per deployed strategy-vault proxy. Built once at
+ * module load from the deployments JSONs. Unknown addresses fall back
+ * to `formatAddress` so the UI is still legible for strategies that
+ * pre-date or post-date this map.
+ */
+const STRATEGY_LABELS: Readonly<Record<string, string>> = (() => {
+  const out: Record<string, string> = {};
+  const add = (addr: Address | undefined, label: string): void => {
+    if (addr) out[addr.toLowerCase()] = label;
+  };
+
+  const k = KITE.addresses;
+  add(k.phase6VaultMomentum, "Momentum · Kite #1");
+  add(k.phase6VaultMomentumVariant2, "Momentum · Kite #2");
+  add(k.phase6VaultMomentumVariant3, "Momentum · Kite #3");
+  add(k.phase6VaultMeanReversion, "Mean reversion · Kite #1");
+  add(k.phase6VaultMeanReversionVariant2, "Mean reversion · Kite #2");
+  add(k.phase6VaultMeanReversionVariant3, "Mean reversion · Kite #3");
+  add(k.phase6VaultYieldRotation, "Yield rotation · Kite #1");
+  add(k.phase6VaultYieldRotationVariant2, "Yield rotation · Kite #2");
+  add(k.phase6VaultYieldRotationVariant3, "Yield rotation · Kite #3");
+  // Pre-Phase-6 legacy proxies — kept for historical defund/audit views.
+  add(k.strategyVaultMomentum, "Momentum · Kite (legacy)");
+  add(k.strategyVaultMeanReversion, "Mean reversion · Kite (legacy)");
+  add(k.strategyVaultYieldRotation, "Yield rotation · Kite (legacy)");
+
+  const b = BASE.addresses;
+  add(b.phase6VaultMomentumBase, "Momentum · Base");
+  add(b.phase6VaultMeanReversionBase, "Mean reversion · Base");
+
+  const a = ARB.addresses;
+  add(a.phase6VaultYieldRotationArb, "Yield rotation · Arbitrum");
+
+  return out;
+})();
+
+export function strategyLabelFor(id: string): string | null {
+  if (!id) return null;
+  return STRATEGY_LABELS[id.toLowerCase()] ?? null;
+}
+
+/** Friendly strategy name if known, else the truncated hex address. */
+export function formatStrategyName(id: string): string {
+  return strategyLabelFor(id) ?? formatAddress(id);
+}

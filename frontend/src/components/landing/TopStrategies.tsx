@@ -15,8 +15,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { ChainBadge } from "@/components/atoms/ChainBadge";
 import { Numeric } from "@/components/atoms/Numeric";
+import { formatStrategyName } from "@/lib/addresses";
 import {
-  formatAddress,
   formatBpsAsPct,
   formatStrategyClass,
   formatUsd,
@@ -106,8 +106,8 @@ function StrategyRow({ row }: { row: StrategyDirectoryRow }): JSX.Element {
   return (
     <tr className="border-b border-surface-line last:border-b-0 transition-none hover:bg-surface-elev">
       <td className="px-4 py-3">
-        <Link href={href} className="font-mono text-fg-primary hover:text-amber">
-          {formatAddress(row.id)}
+        <Link href={href} className="text-fg-primary hover:text-amber" title={row.id}>
+          {formatStrategyName(row.id)}
         </Link>
       </td>
       <td className="px-4 py-3 text-fg-secondary">

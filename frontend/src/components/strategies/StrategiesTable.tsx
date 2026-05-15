@@ -19,9 +19,9 @@ import { Numeric, toneFor } from "@/components/atoms/Numeric";
 import { ArrowDownIcon, ArrowUpIcon } from "@/components/icon";
 import { useTableRowNav } from "@/hooks/useTableRowNav";
 import { cn } from "@/lib/cn";
+import { formatStrategyName } from "@/lib/addresses";
 import {
   classSlugToHash,
-  formatAddress,
   formatBpsAsPct,
   formatStrategyClass,
   formatUsd,
@@ -176,9 +176,9 @@ function Row({ row, selected }: { row: StrategyDirectoryRow; selected: boolean }
         "border-b border-surface-line last:border-b-0 hover:bg-surface-elev",
         selected && "bg-surface-elev",
       )}>
-      <td className="px-3 py-2.5 font-mono text-fg-primary">
+      <td className="px-3 py-2.5 text-fg-primary">
         <Link href={detailHref} className="hover:text-amber" title={row.id}>
-          {formatAddress(row.id)}
+          {formatStrategyName(row.id)}
         </Link>
       </td>
       <td className="px-3 py-2.5 text-fg-secondary">{formatStrategyClass(row.declaredClass)}</td>
