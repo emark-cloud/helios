@@ -22,7 +22,7 @@ from typing import Any
 import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from helios.runtime.nav_seed import seed_strategy_capital
+from helios.runtime.nav_seed import read_erc20_balance, seed_strategy_capital
 from helios.types import TradeIntent
 
 from mean_reversion_v1.executor import ExecutionRecord, TradeExecutor
@@ -96,7 +96,16 @@ class RuntimeStats:
     execs_submitted: int = 0
     nav_reports: int = 0
     last_block_window_end: int = 0
+    # Spendable base-asset (mUSDC) cash from the on-chain seed. This is
+    # the ceiling a LONG entry can fund and the number that explains an
+    # `unfundable` skip (cash == 0 ⇒ nothing to spend even if NAV > 0).
     last_seeded_nav_usd: float = 0.0
+    # Position-aware mark-to-market NAV: base cash + every non-base
+    # holding valued at the latest oracle price. Drives
+    # `nav_target_notional` sizing and the on-chain `reportNAV`. Diverges
+    # from `last_seeded_nav_usd` exactly when the vault holds non-base
+    # assets (i.e. after any swap has fired).
+    last_position_nav_usd: float = 0.0
     last_error: str = ""
     last_signal: dict[str, Any] = field(default_factory=dict)
 
@@ -189,7 +198,14 @@ class MeanReversionRuntime:
                 continue
 
     async def tick_bar(self) -> list[ExecutionRecord]:
-        self._seed_nav_from_chain()
+        base_cash_usd = self._seed_nav_from_chain()
+        # `observed` gates the NAV write: a bar where neither the base
+        # cash nor any holding could be read must NOT clobber a last-good
+        # NAV to 0 — the 300s reportNAV cadence would then post a false
+        # zero. Genuine 0 balances (read succeeded, vault empty) DO count
+        # as observed and update NAV.
+        observed = base_cash_usd is not None
+        nav_usd = base_cash_usd or 0.0
         produced: list[ExecutionRecord] = []
         for asset in self._strategy.asset_universe:
             if asset == "USDC":
@@ -202,6 +218,15 @@ class MeanReversionRuntime:
                 _log.warning("mean_reversion.oracle.error", asset=asset, err=str(exc))
                 self.stats.last_error = str(exc)
                 continue
+            # Position-aware NAV: every LONG entry swaps mUSDC → asset,
+            # so without crediting the held asset back, NAV reads ~0 once
+            # cash is spent and `nav_target_notional` sizes every entry
+            # to 0 (the vault gets permanently stuck). Mark each holding
+            # to the latest signed oracle price in this bundle.
+            held = self._holding_value_usd(asset, bundle)
+            if held is not None:
+                nav_usd += held
+                observed = True
             self.stats.bars_observed += 1
             intent = self._strategy.on_bar(asset, bundle.market)
             if intent is None:
@@ -210,7 +235,46 @@ class MeanReversionRuntime:
             record = await self._handle_signal(asset, intent, bundle)
             if record is not None:
                 produced.append(record)
+        # NAV is set once per bar, after every holding is priced. on_bar
+        # this bar saw the prior bar's NAV (one 60s warmup after a cold
+        # start, since the position book is empty until the first fetch);
+        # the 300s reportNAV cadence always reads the fresh value.
+        if self._executor.live and observed:
+            self._strategy._set_nav(nav_usd)
+            self.stats.last_position_nav_usd = nav_usd
         return produced
+
+    def _holding_value_usd(self, asset: str, bundle: SnapshotBundle) -> float | None:
+        """USD value of the vault's on-chain balance of `asset`, marked
+        to the latest signed oracle price in `bundle`.
+
+        Returns 0.0 when the read succeeded but the vault holds none of
+        the asset (a real observation). Returns None when the value
+        could not be observed — dry-run, unknown asset, or a failed
+        balanceOf — so the caller leaves NAV at its last-good value
+        instead of treating an RPC blip as a $0 position."""
+        if not self._executor.live:
+            return None
+        idx = self._asset_idx.get(asset)
+        if idx is None:
+            return None
+        token = self._universe[idx]
+        if not token or not bundle.signed:
+            return None
+        dec = (self._cfg.asset_decimals or {}).get(asset, 18)
+        try:
+            raw = read_erc20_balance(
+                w3=self._executor.w3,
+                token_address=token,
+                holder_address=self._executor.vault,
+            )
+        except Exception as exc:
+            _log.warning("mean_reversion.nav.holding_read_failed", asset=asset, err=str(exc))
+            return None
+        if raw <= 0:
+            return 0.0
+        price_usd = bundle.signed[-1].price_e18 / 1e18
+        return (raw / (10**dec)) * price_usd
 
     async def _handle_signal(
         self,
@@ -290,7 +354,11 @@ class MeanReversionRuntime:
                 "mean_reversion.signal.unfundable",
                 asset=asset,
                 amount_in=amount_in,
-                seeded_nav_usd=self.stats.last_seeded_nav_usd,
+                # cash == 0 while position_nav > 0 is the diagnostic
+                # signature of "vault drained to assets, no base leg to
+                # spend" — it can only recover by exiting a held position.
+                seeded_cash_usd=self.stats.last_seeded_nav_usd,
+                position_nav_usd=self.stats.last_position_nav_usd,
             )
             self.stats.signals_unfundable += 1
             self.stats.last_error = "amount_in resolved to 0 wei — strategy vault under-funded"
@@ -354,19 +422,26 @@ class MeanReversionRuntime:
         return record
 
     # ── NAV seed from on-chain balance ────────────────────────
-    def _seed_nav_from_chain(self) -> None:
-        """Read `IERC20(USDC).balanceOf(vault)` and set the strategy's
-        `available_capital` + `nav` to that value. Without this seed
-        `_size()` returns 0 (NAV = 0), which the directional circuit
-        rejects via Constraint 0 (`amount_in > 0`). Silently no-ops in
-        dry-run mode (no live web3) so unit tests don't need a chain."""
+    def _seed_nav_from_chain(self) -> float | None:
+        """Seed `available_capital` (spendable base cash) + the exact
+        wei balance from `IERC20(USDC).balanceOf(vault)`, and return that
+        cash in USD. NAV is *not* set here — `tick_bar` owns a
+        position-aware NAV (base cash + every non-base holding marked to
+        the latest oracle price). Seeding NAV to base-cash-only would
+        report ~0 once the vault has swapped its base leg into assets,
+        collapsing `nav_target_notional` sizing.
+
+        Returns the cash USD when observed (0.0 is a valid observation —
+        an empty base leg). Returns None when it could not be read
+        (dry-run or a failed RPC) so `tick_bar` keeps the last-good NAV
+        rather than posting a false zero."""
         if not self._executor.live:
-            return
+            return None
         base_asset = self._universe[0] if self._universe else ""
         if not base_asset:
-            return
+            return None
         try:
-            seeded = seed_strategy_capital(
+            cash = seed_strategy_capital(
                 strategy=self._strategy,
                 w3=self._executor.w3,
                 base_asset_address=base_asset,
@@ -374,10 +449,13 @@ class MeanReversionRuntime:
                 base_asset_decimals=self._cfg.asset_decimals.get("USDC", 18)
                 if self._cfg.asset_decimals
                 else 18,
+                set_nav=False,
             )
-            self.stats.last_seeded_nav_usd = seeded
+            self.stats.last_seeded_nav_usd = cash
+            return cash
         except Exception as exc:
             _log.warning("mean_reversion.nav.seed_failed", err=str(exc))
+            return None
 
     # ── NAV tick ──────────────────────────────────────────────
     async def _nav_loop(self) -> None:

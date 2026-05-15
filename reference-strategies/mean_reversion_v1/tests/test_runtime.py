@@ -380,6 +380,93 @@ def test_runtime_rejects_symbol_address_lockstep_violation() -> None:
         )
 
 
+# ── Position-aware NAV (fix A): drained-to-asset vault ─────────
+class _LiveExecutorStub:
+    """Minimal live executor for the NAV path — `tick_bar`'s NAV branch
+    only reads `.live`, `.w3`, `.vault`."""
+
+    live = True
+    w3 = object()
+    vault = "0x" + "ee" * 20
+    chain_id = 2368
+
+
+@pytest.mark.asyncio
+async def test_nav_is_position_aware_when_base_drained(monkeypatch) -> None:
+    """The exact live Kite stuck-state: vault holds 0 mUSDC but ~2 WETH.
+    Base-only seeding would report NAV ≈ 0 and size every entry to 0.
+    Position-aware NAV must mark the held WETH to the oracle price so
+    `nav` reflects the real footprint while spendable cash stays 0."""
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+    usdc_addr, weth_addr = universe[0], universe[2]  # idx0=USDC, idx2=WETH
+
+    def _fake_balance(*, w3, token_address, holder_address) -> int:
+        del w3, holder_address
+        return {usdc_addr: 0, weth_addr: 2 * 10**18}.get(token_address, 0)
+
+    # seed reads base via helios.runtime.nav_seed; holdings via runtime.
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _fake_balance)
+    monkeypatch.setattr("mean_reversion_v1.runtime.read_erc20_balance", _fake_balance)
+
+    strategy = MeanReversionStrategy(n_sigma_x100=200)
+    rt = MeanReversionRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({"WETH": _flat_prices()}),  # flat ⇒ no signal
+        prover=_StubProver(),
+        executor=_LiveExecutorStub(),  # type: ignore[arg-type]
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+
+    records = await rt.tick_bar()
+
+    assert records == []
+    assert rt.stats.signals_fired == 0
+    # Spendable base cash is 0 (vault drained into WETH)…
+    assert strategy.available_capital == 0.0
+    assert rt.stats.last_seeded_nav_usd == 0.0
+    # …but NAV marks the 2 WETH at the flat $1000 oracle price = $2000.
+    assert strategy.nav == pytest.approx(2_000.0)
+    assert rt.stats.last_position_nav_usd == pytest.approx(2_000.0)
+
+
+@pytest.mark.asyncio
+async def test_nav_holding_read_failure_is_conservative(monkeypatch) -> None:
+    """A flaky `balanceOf` for a held asset must not crash the bar or
+    inflate NAV — the holding is simply skipped (NAV understated this
+    bar, corrected next), never overstated above what the chain holds."""
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+
+    def _boom(*, w3, token_address, holder_address) -> int:
+        del w3, token_address, holder_address
+        raise RuntimeError("rpc backend forked")
+
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _boom)
+    monkeypatch.setattr("mean_reversion_v1.runtime.read_erc20_balance", _boom)
+
+    strategy = MeanReversionStrategy(n_sigma_x100=200)
+    strategy._set_nav(1_750.0)  # last-good MTM from a prior healthy bar
+    rt = MeanReversionRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({"WETH": _flat_prices()}),
+        prover=_StubProver(),
+        executor=_LiveExecutorStub(),  # type: ignore[arg-type]
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+
+    records = await rt.tick_bar()  # must not raise
+
+    assert records == []
+    # Nothing observed this bar (seed + holding reads all failed) → the
+    # last-good NAV is preserved, NOT clobbered to 0 (a false zero would
+    # otherwise leak into the next reportNAV).
+    assert strategy.nav == 1_750.0
+    assert rt.stats.last_position_nav_usd == 0.0  # never written this bar
+
+
 def test_runtime_accepts_aligned_2_asset_universe() -> None:
     """The matching shape — Base-style 2-symbol strategy + 2-real-address
     + 6-empty padding — must construct cleanly so the production Base
