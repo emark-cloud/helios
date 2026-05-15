@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
@@ -377,6 +379,19 @@ class PriceAnchorScheduler:
     same window the anchor verified, eliminating the
     `UnknownOracleRoot()` race between live snapshot state and the
     most-recent committed root.
+
+    Commit-on-demand mode: when `liveness_sec` is set the per-bar
+    `interval_bars` counter is replaced by a *global* time gate — a
+    heartbeat commit fires only if no real commit (a forced trade
+    commit via `force_commit*`, or a prior heartbeat) landed within
+    `liveness_sec`. Strategies anchor their own fresh root just before
+    proving via `force_commit*`; the heartbeat exists solely to keep
+    `OraclePriceAnchor.latest().committedAt` inside the AllocatorVault
+    auto-defund staleness window during trade-quiet periods. The clock
+    is global because that on-chain `latest()` is global: any one
+    asset's recent commit keeps the whole system's liveness window
+    fresh. Leaving `liveness_sec` unset preserves the original
+    `interval_bars` behaviour verbatim (back-compat for tests/CLI).
     """
 
     store: SnapshotStore
@@ -384,9 +399,20 @@ class PriceAnchorScheduler:
     interval_bars: int = 50
     chain_depth: int = 16  # how many bars feed into the Poseidon root
     mirror: CommitMirror | None = None
+    # Commit-on-demand: global heartbeat interval in seconds. None →
+    # legacy per-asset `interval_bars` counter.
+    liveness_sec: int | None = None
+    # Injected for deterministic tests (sync `on_bar` + fake clock).
+    # `monotonic` (not wall-clock) so NTP steps can't move the gate
+    # backward (double-commit) or forward (staleness breach).
+    clock: Callable[[], float] = time.monotonic
 
     _last_window_end_ms: int = 0
     _bar_counter: dict[str, int] = field(default_factory=dict)
+    # Global wall-position of the last *mined* commit (any asset, forced
+    # or heartbeat). None until the first mined commit. Advances only on
+    # `rec.submitted`, mirroring on-chain `latest().committedAt`.
+    _last_any_commit_ms: int | None = None
     _nonce: int = 0
 
     def on_bar(self, asset: str) -> CommitRecord | None:
@@ -396,6 +422,7 @@ class PriceAnchorScheduler:
             return None
         rec = self.poster.post(prepared.payload)
         self._sync_nonce(rec)
+        self._mark_committed(rec)
         self._record_mirror(asset, rec, prepared)
         return rec
 
@@ -408,6 +435,36 @@ class PriceAnchorScheduler:
             return None
         rec = await self.poster.post_async(prepared.payload)
         self._sync_nonce(rec)
+        self._mark_committed(rec)
+        self._record_mirror(asset, rec, prepared)
+        return rec
+
+    def force_commit(self, asset: str) -> CommitRecord | None:
+        """Commit `asset` NOW, bypassing the cadence gate. Backs the
+        on-demand `POST /v1/anchor/commit` endpoint so a strategy can
+        anchor a fresh root immediately before it proves a trade. A
+        forced commit also advances the global liveness clock, so it
+        doubles as a heartbeat (the next heartbeat skips if a trade just
+        committed). Returns None only if there is no snapshot window yet
+        (cold start) — the caller should then skip the trade."""
+        prepared = self._build_prepared(asset)
+        if prepared is None:
+            return None
+        rec = self.poster.post(prepared.payload)
+        self._sync_nonce(rec)
+        self._mark_committed(rec)
+        self._record_mirror(asset, rec, prepared)
+        return rec
+
+    async def force_commit_async(self, asset: str) -> CommitRecord | None:
+        """Async `force_commit` — used by the FastAPI endpoint so the
+        up-to-30s receipt wait stays off the event loop."""
+        prepared = self._build_prepared(asset)
+        if prepared is None:
+            return None
+        rec = await self.poster.post_async(prepared.payload)
+        self._sync_nonce(rec)
+        self._mark_committed(rec)
         self._record_mirror(asset, rec, prepared)
         return rec
 
@@ -423,6 +480,17 @@ class PriceAnchorScheduler:
         if rec.submitted:
             self._nonce = rec.nonce + 1
 
+    def _mark_committed(self, rec: CommitRecord) -> None:
+        """Advance the global liveness clock — but only on a real mined
+        commit. `OraclePriceAnchor.latest().committedAt` (read by the
+        AllocatorVault auto-defund gate and the StrategyVault freshness
+        gate) moves only on a submitted commit, so the off-chain
+        heartbeat gate must mirror that: a dry-run or failed submit must
+        NOT satisfy the liveness window, otherwise the gate would
+        suppress the retry that keeps auto-defund armed."""
+        if rec.submitted:
+            self._last_any_commit_ms = int(self.clock() * 1000)
+
     def _record_mirror(self, asset: str, rec: CommitRecord, prepared: _PreparedCommit) -> None:
         """Mirror the committed window if (a) we were given a mirror and
         (b) the on-chain submit actually mined. Dry-run posts don't
@@ -437,13 +505,40 @@ class PriceAnchorScheduler:
             prepared.window_end_ms,
         )
 
-    def _prepare(self, asset: str) -> _PreparedCommit | None:
+    def _gate(self, asset: str) -> bool:
+        """Decide whether to attempt a heartbeat commit this bar.
+
+        Liveness mode (`liveness_sec` set): a single global time gate.
+        The sequential poller (`tick_once` awaits one asset's
+        `on_bar_async` fully before the next) means the first asset past
+        the gate commits, `_mark_committed` advances the global clock,
+        and the remaining assets in the same tick are suppressed — so
+        exactly one heartbeat commit lands per `liveness_sec`, with
+        automatic failover to the next asset if a submit fails.
+
+        Back-compat (`liveness_sec is None`): the original per-asset
+        `interval_bars` counter, byte-for-byte.
+        """
+        if self.liveness_sec is not None:
+            # Suppress (return False) while a mined commit is still
+            # within the window; otherwise allow the heartbeat.
+            return not (
+                self._last_any_commit_ms is not None
+                and int(self.clock() * 1000) - self._last_any_commit_ms < self.liveness_sec * 1000
+            )
         c = self._bar_counter.get(asset, 0) + 1
         self._bar_counter[asset] = c
         if c < self.interval_bars:
-            return None
+            return False
         self._bar_counter[asset] = 0
+        return True
 
+    def _prepare(self, asset: str) -> _PreparedCommit | None:
+        if not self._gate(asset):
+            return None
+        return self._build_prepared(asset)
+
+    def _build_prepared(self, asset: str) -> _PreparedCommit | None:
         # Atomic `(snaps, root)` — the previous shape called `recent` and
         # `chain_root` as two locked operations and a poller append between
         # them produced a committed root that didn't match the window.
@@ -481,15 +576,25 @@ class PriceAnchorScheduler:
 
 @dataclass
 class YieldAnchorScheduler:
-    """Same as `PriceAnchorScheduler` but for the yield store."""
+    """Same as `PriceAnchorScheduler` but for the yield store.
+
+    Yield has no on-chain freshness gate (`StrategyVault` checks the
+    yield root via `isKnownRoot` only) and the canonical yield root has
+    no on-chain consumer, so this runs purely as a long backstop
+    heartbeat via `liveness_sec` (e.g. 3600s) — enough to keep the Arb
+    mirror's root `isKnownRoot` without per-bar gas. No `force_commit`
+    (no on-demand yield path)."""
 
     store: YieldStore
     poster: AnchorPoster
     interval_bars: int = 50
     chain_depth: int = 16
+    liveness_sec: int | None = None
+    clock: Callable[[], float] = time.monotonic
 
     _last_window_end_ms: int = 0
     _bar_counter: dict[str, int] = field(default_factory=dict)
+    _last_any_commit_ms: int | None = None
     _nonce: int = 0
 
     def on_bar(self, market_id: str) -> CommitRecord | None:
@@ -498,6 +603,7 @@ class YieldAnchorScheduler:
             return None
         rec = self.poster.post(payload)
         self._sync_nonce(rec)
+        self._mark_committed(rec)
         return rec
 
     async def on_bar_async(self, market_id: str) -> CommitRecord | None:
@@ -506,6 +612,7 @@ class YieldAnchorScheduler:
             return None
         rec = await self.poster.post_async(payload)
         self._sync_nonce(rec)
+        self._mark_committed(rec)
         return rec
 
     def _sync_nonce(self, rec: CommitRecord) -> None:
@@ -513,13 +620,32 @@ class YieldAnchorScheduler:
         if rec.submitted:
             self._nonce = rec.nonce + 1
 
-    def _prepare(self, market_id: str) -> CommitPayload | None:
+    def _mark_committed(self, rec: CommitRecord) -> None:
+        """See `PriceAnchorScheduler._mark_committed` — same rationale."""
+        if rec.submitted:
+            self._last_any_commit_ms = int(self.clock() * 1000)
+
+    def _gate(self, market_id: str) -> bool:
+        """See `PriceAnchorScheduler._gate` — same liveness/back-compat
+        switch. Used here as a long backstop heartbeat."""
+        if self.liveness_sec is not None:
+            return not (
+                self._last_any_commit_ms is not None
+                and int(self.clock() * 1000) - self._last_any_commit_ms < self.liveness_sec * 1000
+            )
         c = self._bar_counter.get(market_id, 0) + 1
         self._bar_counter[market_id] = c
         if c < self.interval_bars:
-            return None
+            return False
         self._bar_counter[market_id] = 0
+        return True
 
+    def _prepare(self, market_id: str) -> CommitPayload | None:
+        if not self._gate(market_id):
+            return None
+        return self._build_payload(market_id)
+
+    def _build_payload(self, market_id: str) -> CommitPayload | None:
         snaps, root_int = self.store.snapshot_window(market_id, self.chain_depth)
         if not snaps:
             return None

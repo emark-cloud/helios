@@ -11,17 +11,35 @@ from eth_account.messages import encode_typed_data
 from eth_keys.datatypes import Signature
 from helios.types import MarketSnapshot
 from momentum_v1.executor import TradeExecutor
-from momentum_v1.oracle_client import OracleClient, OracleEmptyError, SignedSnapshot, SnapshotBundle
+from momentum_v1.oracle_client import (
+    OracleClient,
+    OracleCommitError,
+    OracleEmptyError,
+    SignedSnapshot,
+    SnapshotBundle,
+)
 from momentum_v1.prover_client import ProofResult, ProverClient, ProverDegraded
 from momentum_v1.runtime import MomentumRuntime, RuntimeConfig
 from momentum_v1.strategy import MomentumStrategy
 
 
 class _StubOracle(OracleClient):
-    def __init__(self, prices_per_asset: dict[str, list[int]]) -> None:
+    def __init__(
+        self, prices_per_asset: dict[str, list[int]], *, commit_fails: bool = False
+    ) -> None:
         self._prices = prices_per_asset
+        self._commit_fails = commit_fails
+        self.commit_calls: list[str] = []
+        self.fetch_calls: list[str] = []
+
+    async def request_commit(self, asset: str) -> dict[str, Any]:  # type: ignore[override]
+        self.commit_calls.append(asset)
+        if self._commit_fails:
+            raise OracleCommitError("stub commit failure")
+        return {"asset": asset, "committed": True}
 
     async def fetch_recent(self, asset: str, n: int) -> SnapshotBundle:  # type: ignore[override]
+        self.fetch_calls.append(asset)
         prices = self._prices.get(asset)
         if not prices:
             raise OracleEmptyError(asset)
@@ -102,11 +120,11 @@ def _executor() -> TradeExecutor:
 
 
 def _runtime(
-    prices_per_asset: dict[str, list[int]], **kwargs
+    prices_per_asset: dict[str, list[int]], *, commit_fails: bool = False, **kwargs
 ) -> tuple[MomentumRuntime, _StubProver]:
     strategy = MomentumStrategy(signal_threshold=0.005, lookback_bars=5)
     strategy.set_capital(10_000)
-    oracle = _StubOracle(prices_per_asset)
+    oracle = _StubOracle(prices_per_asset, commit_fails=commit_fails)
     prover = _StubProver(**kwargs)
     rt = MomentumRuntime(
         strategy=strategy,
@@ -163,6 +181,39 @@ async def test_prover_degraded_records_failure() -> None:
     assert rt.stats.signals_fired == 1
     assert rt.stats.proof_failures == 1
     assert rt.stats.last_error == "stub"
+
+
+@pytest.mark.asyncio
+async def test_signal_anchors_commit_before_proving() -> None:
+    prices = [int((2000 + i * 5) * 10**18) for i in range(16)]
+    rt, _ = _runtime({"WETH": prices})
+    records = await rt.tick_bar()
+    assert len(records) == 1
+    oracle = rt._oracle
+    assert isinstance(oracle, _StubOracle)
+    # Commit-on-demand fired exactly once, only for the asset that
+    # produced a signal (other universe assets have no prices → skipped
+    # before any commit).
+    assert oracle.commit_calls == ["WETH"]
+    # WETH was fetched twice: tick_bar's read + the _handle_signal
+    # re-fetch, so the witness proves exactly the just-committed window.
+    assert oracle.fetch_calls.count("WETH") == 2
+    assert rt.stats.proofs_generated == 1
+
+
+@pytest.mark.asyncio
+async def test_commit_failure_skips_trade_safely() -> None:
+    prices = [int((2000 + i * 5) * 10**18) for i in range(16)]
+    rt, prover = _runtime({"WETH": prices}, commit_fails=True)
+    records = await rt.tick_bar()
+    # Signal fired but the anchor commit didn't mine → safe skip, no
+    # proof attempted (strictly better than an on-chain revert).
+    assert records == []
+    assert rt.stats.signals_fired == 1
+    assert rt.stats.commit_failures == 1
+    assert rt.stats.proofs_generated == 0
+    assert prover.calls == []
+    assert "stub commit failure" in rt.stats.last_error
 
 
 @pytest.mark.asyncio

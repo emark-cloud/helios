@@ -37,6 +37,10 @@ class Settings(BaseServiceSettings):
     model_config = SettingsConfigDict(env_prefix="MEAN_REV_", env_file=".env", extra="ignore")
 
     oracle_endpoint: str = Field(default="", validation_alias="ORACLE_ENDPOINT")
+    # Commit-on-demand: shared secret for POST /v1/anchor/commit. Same
+    # value as the oracle service's ORACLE_ANCHOR_COMMIT_TOKEN. Unset →
+    # the oracle endpoint is disabled, so trades safe-skip (loud).
+    anchor_commit_token: str = Field(default="", validation_alias="ORACLE_ANCHOR_COMMIT_TOKEN")
     prover_endpoint: str = Field(default="", validation_alias="PROVER_ENDPOINT")
     strategy_vault_address: str = Field(default="", validation_alias="STRATEGY_VAULT_ADDRESS")
     mock_router_address: str = Field(default="", validation_alias="MOCK_SWAP_ROUTER_ADDRESS")
@@ -141,7 +145,11 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     http_client = httpx.AsyncClient(
         timeout=35.0, headers={"User-Agent": "helios-mean-reversion/0.1"}
     )
-    oracle = OracleClient(cfg.oracle_endpoint, client=http_client) if cfg.oracle_endpoint else None
+    oracle = (
+        OracleClient(cfg.oracle_endpoint, client=http_client, commit_token=cfg.anchor_commit_token)
+        if cfg.oracle_endpoint
+        else None
+    )
     prover = ProverClient(cfg.prover_endpoint, client=http_client) if cfg.prover_endpoint else None
     executor = TradeExecutor(
         rpc_url=cfg.kite_rpc_url,

@@ -42,12 +42,14 @@ class OracleClient:
         self,
         endpoint: str,
         client: httpx.AsyncClient | None = None,
+        commit_token: str = "",
     ) -> None:
         if not endpoint:
             raise ValueError("oracle endpoint required")
         self._endpoint = endpoint.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=10.0)
         self._owns_client = client is None
+        self._commit_token = commit_token
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -95,6 +97,29 @@ class OracleClient:
             )
         return out
 
+    async def request_commit(self, asset: str) -> dict[str, Any]:
+        """Anchor a fresh price root for `asset` on-chain NOW
+        (commit-on-demand). Called immediately before proving so the
+        proof's `oracle_root` is ~0s old against StrategyVault's 180s
+        freshness gate. Raises `OracleCommitError` on any non-200
+        (endpoint disabled, bad/missing token, cold start, dry-run, or
+        failed submit) — the runtime treats that as a safe skip, which
+        is strictly better than submitting a proof that reverts
+        `UnknownOracleRoot`/`OracleRootStale` on-chain."""
+        headers = {"Authorization": f"Bearer {self._commit_token}"} if self._commit_token else {}
+        resp = await self._client.post(
+            f"{self._endpoint}/v1/anchor/commit",
+            params={"asset": asset},
+            headers=headers,
+        )
+        if resp.status_code != 200:
+            try:
+                detail = str(resp.json().get("detail", ""))
+            except Exception:
+                detail = resp.text
+            raise OracleCommitError(f"anchor commit {resp.status_code}: {detail}")
+        return resp.json()
+
     async def _fetch_chain_root(self, asset: str, n: int) -> bytes:
         resp = await self._client.get(
             f"{self._endpoint}/v1/snapshots/root",
@@ -116,6 +141,15 @@ class OracleEmptyError(RuntimeError):
 
     The runtime treats this as a soft-skip — no signal can fire on an
     empty price history. Logged at INFO, not WARN.
+    """
+
+
+class OracleCommitError(RuntimeError):
+    """`POST /v1/anchor/commit` did not return a mined commit.
+
+    Raised on endpoint-disabled (token unset), auth failure, cold
+    start, dry-run, or a failed on-chain submit. The runtime treats
+    this as a safe skip of the current bar's trade.
     """
 
 
