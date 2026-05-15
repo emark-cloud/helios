@@ -14,6 +14,7 @@ import { useState } from "react";
 import { Numeric } from "@/components/atoms/Numeric";
 import { ChevronDown } from "./icons";
 import { ShieldIcon } from "@/components/icon";
+import { decodeTokenAmount, formatAssetSymbol } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import {
   explorerTxUrl,
@@ -36,7 +37,7 @@ export function AuditTradeRow({
   const explorer = explorerTxUrl(chainId, trade.txHash);
   const ts = Number(trade.timestamp);
   const isoTs = new Date(ts * 1000).toISOString();
-  const sizeUsd = decodeAmount(trade.amountIn);
+  const sizeIn = decodeTokenAmount(trade.amountIn, trade.assetIn, chainId);
 
   const proofState: "valid" | "failed" = trade.proofValid ? "valid" : "failed";
 
@@ -60,9 +61,9 @@ export function AuditTradeRow({
         </td>
         <td className="px-3 py-3 align-top text-fg-secondary">{directionLabel(trade.direction)}</td>
         <td className="px-3 py-3 align-top">
-          <Numeric>{sizeUsd != null ? formatUsd(sizeUsd, { compact: true, cents: false }) : "—"}</Numeric>
+          <Numeric>{formatAmount(sizeIn)}</Numeric>
           <div className="font-mono text-[12px] text-fg-muted">
-            {formatAddress(trade.assetIn)} → {formatAddress(trade.assetOut)}
+            {formatAssetSymbol(trade.assetIn, chainId)} → {formatAssetSymbol(trade.assetOut, chainId)}
           </div>
         </td>
         <td className="px-3 py-3 align-top">
@@ -174,9 +175,15 @@ function directionLabel(direction: number): string {
   return `op ${direction}`;
 }
 
-function decodeAmount(raw: string): number | null {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n === 0) return 0;
-  if (n < 1e15) return n / 1e6;
-  return null;
+/** USD-pegged assets get `$`; other universe tokens render as a token
+ *  quantity with their symbol (no frontend price oracle). Unknown → "—". */
+function formatAmount(
+  decoded: { amount: number; symbol: string; isUsd: boolean } | null,
+): string {
+  if (decoded == null) return "—";
+  if (decoded.isUsd) return formatUsd(decoded.amount, { compact: true, cents: false });
+  const qty = decoded.amount.toLocaleString("en-US", {
+    maximumFractionDigits: decoded.amount < 1 ? 6 : 4,
+  });
+  return `${qty} ${decoded.symbol}`;
 }

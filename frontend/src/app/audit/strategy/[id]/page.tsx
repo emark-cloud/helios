@@ -30,6 +30,7 @@ import {
   formatAddress,
   formatStrategyClass,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import { fetchStrategyAudit } from "@/lib/goldsky";
 import {
@@ -143,7 +144,7 @@ function HeaderCard({
 }): JSX.Element {
   const explorer = explorerAddressUrl(strategy.chainId, strategy.id);
   const operatorExplorer = explorerAddressUrl(strategy.chainId, strategy.operator);
-  const stake = Number(strategy.stakeAmount) / 1e6;
+  const stake = mUsdcRawToUsd(strategy.stakeAmount, strategy.chainId);
 
   return (
     <section className="rounded-md border border-surface-line bg-surface-panel p-5">

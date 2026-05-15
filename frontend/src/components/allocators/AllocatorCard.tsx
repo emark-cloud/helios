@@ -15,7 +15,7 @@ import type { Route } from "next";
 
 import { Numeric } from "@/components/atoms/Numeric";
 import { cn } from "@/lib/cn";
-import { formatAddress, formatBpsAsPct, formatUsd } from "@/lib/format";
+import { formatAddress, formatBpsAsPct, formatUsd, mUsdcRawToUsd } from "@/lib/format";
 import type { AllocatorDirectoryRow } from "@/lib/goldsky";
 
 import { referenceBrandFor } from "./referenceBrands";
@@ -152,12 +152,10 @@ function Stat({
   );
 }
 
-/// Subgraph capital amounts arrive as USDC integer strings (6
-/// decimals). Display USD throughout: divide by 1e6.
+/// Allocator capital/stake are Kite-mUSDC integers (18-dec — the
+/// AllocatorRegistry only deploys on Kite). Never the bare /1e6.
 function usdcToUsd(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return n / 1e6;
+  return mUsdcRawToUsd(raw, 2368);
 }
 
 function readReputation(raw: string): number {

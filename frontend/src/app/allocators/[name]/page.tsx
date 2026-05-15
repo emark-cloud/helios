@@ -25,6 +25,7 @@ import {
   formatBpsAsPct,
   formatTimestamp,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 
 export default function AllocatorDetailPage({
@@ -241,8 +242,9 @@ function inferChainId(
   return null;
 }
 
+// The AllocatorRegistry only deploys on Kite (CLAUDE.md › Key
+// addresses), so allocator stake / capital are always Kite-mUSDC
+// (18-decimal). Scale accordingly — never the bare /1e6.
 function usdcToUsd(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return n / 1e6;
+  return mUsdcRawToUsd(raw, 2368);
 }

@@ -11,6 +11,7 @@ import {
   formatRelative,
   formatStrategyClass,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import type { AllocatorDecisionRow } from "@/lib/goldsky";
 
@@ -62,7 +63,10 @@ export function AllocatorDecisionsTable({
         <tbody>
           {decisions.map((d) => {
             const ts = Number(d.timestamp);
-            const amount = usdcToUsd(d.amount);
+            // Decision capital is denominated in the target strategy's
+            // chain mUSDC (Kite 18-dec / Base+Arb 6-dec). Kite fallback
+            // when the decision has no joined strategy.
+            const amount = mUsdcRawToUsd(d.amount, d.strategy?.chainId ?? 2368);
             const txHref = explorerTxUrl(chainId, d.txHash);
             return (
               <tr key={d.id} className="border-b border-surface-line last:border-b-0">
@@ -122,8 +126,3 @@ function KindChip({ kind }: { kind: string }): JSX.Element {
   );
 }
 
-function usdcToUsd(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return n / 1e6;
-}

@@ -20,7 +20,7 @@ import {
   referenceBrandFor,
 } from "@/components/allocators/referenceBrands";
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
-import { formatBpsAsPct, formatUsd } from "@/lib/format";
+import { formatBpsAsPct, formatUsd, mUsdcRawToUsd } from "@/lib/format";
 import {
   fetchAllocatorLeaderboard,
   type AllocatorLeaderboardRow,
@@ -202,8 +202,7 @@ function sumDeltas(updates: ReadonlyArray<{ delta: string }>): number {
   return acc;
 }
 
+// AllocatorRegistry is Kite-only — capital is Kite-mUSDC (18-dec).
 function usdcToUsd(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return n / 1e6;
+  return mUsdcRawToUsd(raw, 2368);
 }
