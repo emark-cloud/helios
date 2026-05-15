@@ -8,6 +8,8 @@
  * graphql-request or apollo. Cache via TanStack Query at the call site.
  */
 
+import { isCanonicalStrategyClass } from "./format";
+
 // Build-time injection. In production / dev the env var is set;
 // in CI (Playwright e2e) it isn't, so fall back to a relative URL
 // that contains "subgraphs" so test route mocks (`**/subgraphs/**`)
@@ -151,6 +153,11 @@ export async function fetchStrategies(
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
     for (const row of r.value) {
+      // Drop phantom/test registrations: the subgraph marks legacy-registry
+      // StrategyRegistered events active=true, but only the three canonical
+      // ClassIds are real strategies. Mirrors the engine's SR-v3
+      // RegistryActiveCheck on the display side. See ClassIds.sol.
+      if (!isCanonicalStrategyClass(row.declaredClass)) continue;
       if (!merged.has(row.id)) merged.set(row.id, row);
     }
   }
@@ -749,6 +756,7 @@ const LANDING_STATS_QUERY = /* GraphQL */ `
   query LandingStats {
     strategies(first: 1000, where: { active: true }) {
       id
+      declaredClass
       totalAttestedTrades
     }
     allocators(first: 1000, where: { active: true }) {
@@ -773,7 +781,7 @@ const LANDING_STATS_QUERY = /* GraphQL */ `
 
 export async function fetchLandingStats(signal?: AbortSignal): Promise<LandingStats> {
   type Raw = {
-    strategies: Array<{ id: string; totalAttestedTrades: number }>;
+    strategies: Array<{ id: string; declaredClass: string; totalAttestedTrades: number }>;
     allocators: Array<{ id: string }>;
     allocations: Array<{ capitalDeployed: string }>;
     trades: LandingStats["recentTrades"];
@@ -787,11 +795,17 @@ export async function fetchLandingStats(signal?: AbortSignal): Promise<LandingSt
       // Tolerate malformed rows so the page still renders.
     }
   }
+  // Same phantom gate as fetchStrategies — drop non-canonical-class
+  // legacy-registry registrations so the headline count matches the
+  // /strategies directory.
+  const realStrategies = data.strategies.filter((s) =>
+    isCanonicalStrategyClass(s.declaredClass),
+  );
   let attested = 0;
-  for (const s of data.strategies) attested += s.totalAttestedTrades || 0;
+  for (const s of realStrategies) attested += s.totalAttestedTrades || 0;
   return {
     totalCapitalUsdE6: totalE6.toString(),
-    activeStrategies: data.strategies.length,
+    activeStrategies: realStrategies.length,
     attestedTrades: attested,
     activeAllocators: data.allocators.length,
     recentTrades: data.trades,

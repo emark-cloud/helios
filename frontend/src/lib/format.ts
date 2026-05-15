@@ -172,6 +172,24 @@ export function classSlugToHash(slug: string): string | null {
   return SLUG_TO_HASH[slug] ?? null;
 }
 
+/**
+ * True iff `cls` (slug or on-chain bytes32) is one of the three
+ * canonical strategy classes in `contracts/src/ClassIds.sol`.
+ *
+ * Used to gate the `/strategies` directory: the subgraph indexes
+ * `StrategyRegistered` events from legacy registries (V1/V2-WS9) as
+ * `active=true`, so phantom test registrations with non-canonical
+ * class hashes — not present in the canonical SR-v3 — would otherwise
+ * surface in the directory. The reputation engine already filters
+ * these via its on-chain `RegistryActiveCheck`; this is the matching
+ * display-side gate.
+ */
+export function isCanonicalStrategyClass(cls: string): boolean {
+  if (!cls) return false;
+  if (isBytes32(cls)) return HASH_TO_SLUG[cls.toLowerCase()] != null;
+  return SLUG_TO_HASH[cls] != null;
+}
+
 export function chainName(chainId: number): "Kite" | "Base" | "Arbitrum" | "Anvil" | "Unknown" {
   if (chainId === 2368) return "Kite";
   if (chainId === 84_532) return "Base";
