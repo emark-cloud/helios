@@ -1,8 +1,9 @@
 """MeanReversionStrategy.on_bar — class invariant cases.
 
-Verifies long entry on N-sigma down, short entry on N-sigma up, exit on
-mean re-cross while in position, stop-loss exit, no-signal in flat
-market, and that USDC never produces a signal.
+Verifies long entry on N-sigma down, long-only behaviour on N-sigma up
+(overshoot-exit when long, no-op when flat — spot venue can't short),
+exit on mean re-cross while in position, stop-loss exit, no-signal in
+flat market, and that USDC never produces a signal.
 """
 
 from __future__ import annotations
@@ -54,15 +55,33 @@ def test_long_entry_on_n_sigma_down() -> None:
     assert intent.is_stop_loss is False
 
 
-def test_short_entry_on_n_sigma_up() -> None:
+def test_no_short_when_flat_on_n_sigma_up() -> None:
+    """Long-only on spot: an N-sigma UP move while flat is not
+    actionable (no inventory to sell, no borrow on a spot AMM) — the
+    pre-fix SHORT entry was unfundable and reverted as
+    TradeCallFailed(1). Must be a clean no-op."""
     s = MeanReversionStrategy(n_sigma_x100=200)
     s.set_capital(10_000)
     snap = _snapshot("WETH", prices=_flat_with_pop(mean=1000.0, pop=300.0))
+    assert s.on_bar("WETH", snap) is None
+
+
+def test_overshoot_exit_when_long_on_n_sigma_up() -> None:
+    """Long-only on spot: an N-sigma UP move while holding a long is a
+    take-profit exit (price overshot far above the mean), sized in
+    asset units against the held position — fundable from inventory."""
+    s = MeanReversionStrategy(n_sigma_x100=200)
+    s.set_capital(10_000)
+    s.set_position("WETH", qty=0.5, avg_price=900.0, direction=Direction.LONG)
+    snap = _snapshot("WETH", prices=_flat_with_pop(mean=1000.0, pop=300.0))
     intent = s.on_bar("WETH", snap)
     assert intent is not None
-    assert intent.direction == Direction.SHORT
+    assert intent.direction == Direction.EXIT
     assert intent.asset_in == "WETH"
     assert intent.asset_out == "USDC"
+    assert intent.amount_in_asset == 0.5
+    assert intent.amount_in_usd is None
+    assert intent.is_signal_flip is True
 
 
 def test_no_entry_when_z_below_threshold() -> None:

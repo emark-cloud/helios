@@ -210,9 +210,24 @@ def _resolve_amount_in(
     dec = (asset_decimals or {}).get(asset_in)
 
     if intent.amount_in_usd is not None:
-        if dec is not None:
-            return int(intent.amount_in_usd * 10**dec)
-        return int(intent.amount_in_usd * 10**18)
+        if dec is None:
+            # Legacy Phase-1 same-unit mode (no asset_decimals): USD*1e18.
+            return int(intent.amount_in_usd * 10**18)
+        usd_scaled = int(intent.amount_in_usd * 10**dec)
+        if asset_in == "USDC":
+            # USDC is the USD-pegged base (1 USDC ≈ $1 — the convention
+            # used across this strategy and asset_universe[0]); the USD
+            # notional is already the token amount in its decimals.
+            return usd_scaled
+        # Priced asset_in (e.g. a sell of WETH/WBTC): convert the USD
+        # notional to asset_in units at asset_in's USD price
+        # (`last_price_e18`). Without this a $X intent is mis-encoded as
+        # X whole tokens — orders of magnitude oversized and unfundable
+        # (the swap's safeTransferFrom of an asset the vault doesn't hold
+        # at that size reverts as TradeCallFailed(1)).
+        if last_price_e18 <= 0:
+            raise ValueError("amount_in_usd for a priced asset_in needs last_price_e18 > 0")
+        return usd_scaled * 10**18 // last_price_e18
 
     if intent.amount_in_asset is not None:
         if dec is not None:

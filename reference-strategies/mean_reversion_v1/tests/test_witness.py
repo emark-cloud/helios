@@ -122,6 +122,35 @@ def test_amount_in_usd_scaled_to_e18() -> None:
     assert int(req.inputs["amount_in"]) == int(1234.5 * 10**18)
 
 
+def test_amount_in_usd_priced_asset_converts_via_price() -> None:
+    """Fix #1: a USD notional on a priced (non-USDC) asset_in must be
+    converted to asset units at last_price_e18 — not scaled raw by the
+    asset's decimals, which mis-encoded $1000 as 1000 WETH (~$2M) and
+    reverted the unfundable swap as TradeCallFailed(1)."""
+    req = _build(
+        intent=_intent(
+            asset_in="WETH",
+            asset_out="USDC",
+            direction=Direction.SHORT,
+            amount_in_usd=1000.0,
+        ),
+        asset_decimals={"WETH": 18, "USDC": 18},
+        price_observations_e18=[2000 * 10**18] * 16,
+    )
+    # $1000 of WETH @ $2000 = 0.5 WETH = 5e17 wei (not 1000 * 1e18).
+    assert int(req.inputs["amount_in"]) == 5 * 10**17
+
+
+def test_amount_in_usd_usdc_base_unchanged_under_decimals() -> None:
+    """Fix #1 must not regress the LONG/base leg: USDC is USD-pegged so
+    the notional maps straight to token units at its own decimals."""
+    req = _build(
+        intent=_intent(asset_in="USDC", asset_out="WETH", amount_in_usd=1000.0),
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    assert int(req.inputs["amount_in"]) == 1000 * 10**6
+
+
 def test_min_amount_out_respects_slippage() -> None:
     # Cross-decimal slippage (Phase-6 Constraint 2). Default fixture is
     # LONG USDC→WETH at $2000 / WETH, both 18-dec when asset_decimals

@@ -135,16 +135,25 @@ class MeanReversionStrategy(StrategyAgent):
                 is_nav_targeted=True,
             )
 
-        # ── Short entry: N-sigma UP, flat-or-long ───────────────────────
-        if z >= n_sigma and position >= 0:
+        # ── N-sigma UP: long-only on spot ───────────────────────────────
+        # The venue is a spot AMM and a fresh vault is USDC-only, so a
+        # short entry is unfundable: it would `safeTransferFrom` an
+        # `asset` the vault doesn't hold, reverting as TradeCallFailed(1).
+        # Long-only behaviour: if we hold the asset and price has
+        # overshot far above the mean, take profit (exit the long); if
+        # flat there is nothing to sell and no borrow on spot, so the
+        # spike is simply not actionable.
+        if z >= n_sigma and position > 0:
             return TradeIntent(
                 asset_in=asset,
                 asset_out="USDC",
-                amount_in_usd=self._size(),
-                direction=Direction.SHORT,
+                amount_in_asset=position,
+                direction=Direction.EXIT,
                 max_slippage_bps=self._max_slippage_bps,
-                is_nav_targeted=True,
+                is_signal_flip=True,
             )
+        if z >= n_sigma and position == 0:
+            return None
 
         # ── Mean re-cross exit: deviation magnitude has fallen below ────
         # the entry threshold. Match the circuit's `flip_excess` ≥ 0 gate
