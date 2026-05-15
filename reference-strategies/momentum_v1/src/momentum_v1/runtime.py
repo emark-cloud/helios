@@ -88,6 +88,11 @@ class RuntimeStats:
     signals_fired: int = 0
     proofs_generated: int = 0
     proof_failures: int = 0
+    # Signals dropped before the prover because the vault is too thinly
+    # funded for `amount_in` to resolve to ≥ 1 wei. Kept distinct from
+    # `proof_failures` so an under-funded vault is not conflated with a
+    # genuinely broken prover (corrupt zkey, OOM, …).
+    signals_unfundable: int = 0
     execs_submitted: int = 0
     nav_reports: int = 0
     last_block_window_end: int = 0
@@ -259,6 +264,25 @@ class MomentumRuntime:
         except ValueError as exc:
             _log.warning("momentum.witness.invalid", asset=asset, err=str(exc))
             self.stats.last_error = str(exc)
+            return None
+
+        amount_in = int(request.inputs["amount_in"])
+        if amount_in < 1:
+            # NAV-seed rounded the position to 0 wei (worst on the
+            # low-decimal legs — WBTC 8-dec, WSOL 9-dec). The circuit's
+            # Constraint 0 (`amount_in > 0`, momentum_v1.circom:186) would
+            # reject this, but proving it anyway burns a witness-gen cycle
+            # and surfaces as an indistinguishable `prover.degraded`. Skip
+            # with an honest, greppable signal pointing at the real cause:
+            # the vault is under-funded.
+            _log.warning(
+                "momentum.signal.unfundable",
+                asset=asset,
+                amount_in=amount_in,
+                seeded_nav_usd=self.stats.last_seeded_nav_usd,
+            )
+            self.stats.signals_unfundable += 1
+            self.stats.last_error = "amount_in resolved to 0 wei — strategy vault under-funded"
             return None
 
         try:

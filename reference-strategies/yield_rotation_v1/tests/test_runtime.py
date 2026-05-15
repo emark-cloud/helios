@@ -140,6 +140,35 @@ async def test_tick_yield_records_prover_degraded_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unfundable_rotation_caught_not_crash() -> None:
+    """`RotationIntent` int-coerces `amount_in_usd` and rejects `<= 0`
+    *at construction* (helios/types.py), so an under-funded yr vault
+    surfaces as a sub-$1 rotation that raises inside `on_yield_tick` —
+    before any witness/proof. Without the runtime guard that ValueError
+    propagates out of `_tick_loop` and kills the tick loop. It must
+    instead be recorded as `signals_unfundable` (never `proof_failures`),
+    the prover never called, and the loop must survive. Mirrors the live
+    Kite under-funding scale (~2.86e-13 mUSDC NAV)."""
+    ticks = {
+        1: YieldTick(market_id=1, apy_bps_e6=420 * 1_000_000, timestamp_ms=1),
+        2: YieldTick(market_id=2, apy_bps_e6=550 * 1_000_000, timestamp_ms=1),
+    }
+    runtime, prover, executor = _make_runtime(ticks=ticks)
+    runtime._strategy.set_capital(2.86e-13)  # the actual seeded-NAV scale on Kite
+
+    record = await runtime.tick_yield()  # must NOT raise
+
+    assert record is None
+    assert runtime.stats.signals_fired == 1
+    assert runtime.stats.signals_unfundable == 1
+    assert runtime.stats.proof_failures == 0
+    assert runtime.stats.proofs_generated == 0
+    assert len(executor.pending) == 0
+    assert prover.calls == [], "prover must not be called for an unfundable rotation"
+    assert "under-funded" in runtime.stats.last_error
+
+
+@pytest.mark.asyncio
 async def test_tick_yield_no_op_when_oracle_returns_nothing() -> None:
     runtime, _prover, executor = _make_runtime(ticks={})
     record = await runtime.tick_yield()

@@ -166,6 +166,36 @@ async def test_prover_degraded_records_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unfundable_signal_skips_prover_before_constraint0() -> None:
+    """A vault too thinly funded for `amount_in` to resolve to ≥ 1 wei
+    must be dropped *before* the prover: counted as `signals_unfundable`,
+    never `proof_failures`, and never sent to snarkjs (where circuit
+    Constraint 0 would reject it as an indistinguishable
+    `prover.degraded`). Mirrors the live Kite under-funding scale —
+    `int(nav·fraction · 10**6)` floors to 0 on the USDC leg."""
+    prices = [int((2000 + i * 5) * 10**18) for i in range(16)]  # LONG signal
+    rt, prover = _runtime({"WETH": prices})
+    rt._cfg = RuntimeConfig(  # type: ignore[attr-defined]
+        bar_interval_sec=60,
+        nav_interval_sec=300,
+        block_window_size=50,
+        declared_class_field=0xABC,
+        asset_decimals={"USDC": 6, "WETH": 18},
+    )
+    rt._strategy.set_capital(2.86e-13)  # the actual seeded-NAV scale on Kite
+
+    records = await rt.tick_bar()
+
+    assert records == []
+    assert rt.stats.signals_fired == 1
+    assert rt.stats.signals_unfundable == 1
+    assert rt.stats.proof_failures == 0
+    assert rt.stats.proofs_generated == 0
+    assert prover.calls == [], "prover must not be called for a 0-wei amount_in"
+    assert "under-funded" in rt.stats.last_error
+
+
+@pytest.mark.asyncio
 async def test_oracle_empty_skips_silently() -> None:
     rt, _ = _runtime({})  # no prices for any asset
     records = await rt.tick_bar()

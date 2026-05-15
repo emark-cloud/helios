@@ -181,6 +181,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "signals_fired": s.signals_fired,
             "proofs_generated": s.proofs_generated,
             "proof_failures": s.proof_failures,
+            "signals_unfundable": s.signals_unfundable,
             "execs_submitted": s.execs_submitted,
             "nav_reports": s.nav_reports,
             "last_signal": s.last_signal,

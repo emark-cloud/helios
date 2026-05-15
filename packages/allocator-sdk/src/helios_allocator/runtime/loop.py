@@ -81,6 +81,21 @@ class LoopConfig:
     # target oscillates; only the post-window net delta fires. Default
     # 300s. 0 disables the gate.
     cross_chain_flush_cadence_sec: int = 300
+    # Local (same-chain) anti-dust-churn floor: minimum |delta| (asset
+    # wei) for an allocate/defund op to actually execute on-chain. An
+    # allocate→defund round-trip costs ~10 bps of swap spread plus the
+    # strategy's NAV float-clamp rounding; below that fixed cost the
+    # move is strictly value-destructive, so sub-floor ops are dropped
+    # (the capital stays where it is — dust is not worth a tx). This
+    # also breaks the cold-start churn loop once scores diverge by
+    # epsilon and the incumbency tie-break in `_compute_target` no
+    # longer fully pins the set. Default 0 (disabled) — the SDK can't
+    # assume the consumer's asset decimals, so the real floor is opted
+    # in by the deployment: Sentinel sets it from
+    # `SENTINEL_MIN_LOCAL_ALLOC_USD_WEI` (1e15 = 0.001 mUSDC on Kite's
+    # 18-dec scale). Mirrors the `min_cross_chain_alloc_usd_wei`
+    # convention (0 = back-compat for tests / scenario mode).
+    min_local_alloc_usd_wei: int = 0
 
 
 class AllocatorLoop:
@@ -269,7 +284,7 @@ class AllocatorLoop:
         # Steps 1+2: rank + target allocation, gated on rebalance cadence.
         if self._should_rebalance(user, ts):
             target = self._compute_target(user)
-            ops = self._diff(user, target)
+            ops = self._filter_dust_ops(user, self._diff(user, target))
             _log.info(
                 "allocator.tick_user.diff",
                 user=user.meta.user_address,
@@ -334,7 +349,27 @@ class AllocatorLoop:
             return []
         scores = self._allocator.rank_strategies(user.meta, candidates)
         # Best-first ordering — `allocate` truncates at max_strategies_count.
-        order = sorted(zip(candidates, scores, strict=True), key=lambda p: p[1], reverse=True)
+        #
+        # The sort key is fully deterministic and incumbency-sticky:
+        # (score, currently-funded, strategy_id), all descending. The
+        # secondary keys only matter when `score` ties — which is the
+        # cold-start steady state: every strategy sits at the baseline
+        # reputation with ~0 NAV, so `rank_strategies` returns identical
+        # scores for all of them. A plain stable sort then preserves
+        # whatever order Goldsky happened to return the candidates in,
+        # which reshuffles every refresh → the kept top-N flaps → a
+        # funded strategy drops out for one cadence and is defunded
+        # (RANK_DROP), then re-allocated next cadence. Each round-trip
+        # bleeds principal (swap spread + NAV-clamp rounding), so the
+        # flap is actively value-destructive, not just noisy. Preferring
+        # the incumbent on a tie pins the kept set until a challenger
+        # *genuinely* outscores it, with no tuned margin.
+        incumbents = {sid for sid, a in user.allocations.items() if not a.defunded}
+        order = sorted(
+            zip(candidates, scores, strict=True),
+            key=lambda p: (p[1], p[0].strategy_id in incumbents, p[0].strategy_id),
+            reverse=True,
+        )
         ranked = [c for c, _ in order]
         return self._allocator.allocate(user.meta, ranked, user.delegated_capital_usd)
 
@@ -347,6 +382,36 @@ class AllocatorLoop:
             sid: a.capital_deployed_usd for sid, a in user.allocations.items() if not a.defunded
         }
         return _diff_allocations(current, target)
+
+    def _filter_dust_ops(
+        self, user: UserState, ops: list[tuple[str, int]]
+    ) -> list[tuple[str, int]]:
+        """Drop ops below `min_local_alloc_usd_wei`.
+
+        An allocate/defund round-trip costs more (swap spread +
+        NAV-clamp rounding) than a sub-floor delta is worth, so moving
+        it on-chain destroys value. Skipping leaves the capital where it
+        is — dust is harmless parked; it is not harmless churned. This
+        is the second half of the anti-churn fix: the incumbency
+        tie-break pins the set while scores are exactly tied, and this
+        floor absorbs the residual once dust NAV makes scores diverge by
+        epsilon. 0 disables (tests / scenario mode)."""
+        floor = self._cfg.min_local_alloc_usd_wei
+        if floor <= 0:
+            return ops
+        kept: list[tuple[str, int]] = []
+        for sid, delta in ops:
+            if abs(delta) < floor:
+                _log.info(
+                    "allocator.allocation.dust_skip",
+                    user=user.meta.user_address,
+                    strategy=sid,
+                    delta=str(delta),
+                    floor=floor,
+                )
+                continue
+            kept.append((sid, delta))
+        return kept
 
     # ── Step 5: apply diffs ───────────────────────────────────
     async def _apply_diffs(

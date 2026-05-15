@@ -188,6 +188,119 @@ async def test_swap_cycle_defunds_before_allocates() -> None:
     assert last_defund < first_alloc, methods
 
 
+class _TiedAllocator(BaseAllocator):
+    """Cold-start shape: every candidate scores identically. Funds only
+    the top-ranked one, so which strategy stays funded is decided
+    entirely by `_compute_target`'s tie-break."""
+
+    name = "Tied"
+    fee_rate_bps = 0
+    supported_classes = ("momentum_v1",)
+
+    def rank_strategies(
+        self, user: MetaStrategy, candidates: list[StrategyCandidate]
+    ) -> list[float]:
+        return [1.0] * len(candidates)
+
+    def allocate(
+        self, user: MetaStrategy, ranked: list[StrategyCandidate], capital: int
+    ) -> list[AllocationTarget]:
+        if not ranked or capital <= 0:
+            return []
+        c = ranked[0]
+        return [
+            AllocationTarget(
+                strategy_id=c.strategy_id,
+                chain_id=c.chain_id,
+                capital_usd=capital,
+                weight_bps=10_000,
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_cold_start_tie_keeps_incumbent_no_rank_drop() -> None:
+    """Cold-start steady state: all strategies tied at baseline score.
+    A funded incumbent must NOT be defunded just because the candidate
+    order flipped between Goldsky refreshes. Without the incumbency
+    tie-break the loop would defund the incumbent (RANK_DROP) and
+    re-allocate the challenger every cadence, bleeding principal —
+    the live bug observed on 2026-05-15.
+    """
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+    user.last_rebalance_ts = now_ts() - 10_000  # past cadence
+
+    sid_incumbent = "0x" + "11" * 20
+    sid_challenger = "0x" + "22" * 20
+    user.allocations[sid_incumbent] = AllocationState(
+        strategy_id=sid_incumbent,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=10_000,
+        high_water_mark_usd=10_000,
+        nav_usd=10_000,
+    )
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    # Serve the challenger FIRST — a plain stable sort on tied scores
+    # would put it at rank 0 and displace the incumbent.
+    goldsky = _StubGoldsky([_row(sid_challenger), _row(sid_incumbent)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_TiedAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    methods = [c.method for c in onchain.pending]
+    assert "defundStrategy" not in methods, methods
+    kinds = [e.kind for e in store.recent_events(user.meta.user_address)]
+    assert "STRATEGY_DEFUNDED" not in kinds, kinds
+    assert not user.allocations[sid_incumbent].defunded
+
+
+@pytest.mark.asyncio
+async def test_sub_floor_ops_are_filtered_as_dust() -> None:
+    """An op below `min_local_alloc_usd_wei` must not reach the chain —
+    moving dust costs more (swap spread + NAV-clamp rounding) than it
+    moves. With the gate at 0 the same op executes, proving the gate
+    is the cause."""
+
+    async def _run(floor: int) -> list[str]:
+        store = AllocatorStore()
+        user = store.upsert_user(_meta())
+        user.delegated_capital_usd = 500_000  # ~5e5 wei — dust vs 1e15 floor
+        onchain = AllocatorOnChain(
+            rpc_url="",
+            operator_pk="",
+            allocator_vault_address="",
+            allocator_registry_address="",
+            chain_id=2368,
+        )
+        loop = AllocatorLoop(
+            store=store,
+            allocator=_AlwaysFirstAllocator(),
+            goldsky=_StubGoldsky([_row("0x" + "11" * 20)]),
+            onchain=onchain,
+            config=LoopConfig(min_local_alloc_usd_wei=floor),
+        )
+        await loop.tick_once(now=now_ts())
+        return [c.method for c in onchain.pending]
+
+    assert await _run(10**15) == []  # dust skipped
+    assert await _run(0) == ["allocateToStrategy"]  # gate off → executes
+
+
 @pytest.mark.asyncio
 async def test_stale_nav_strategies_dropped_from_candidates() -> None:
     """Strategies whose navOracle stopped posting drop out of the

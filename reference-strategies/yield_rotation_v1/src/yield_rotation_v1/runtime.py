@@ -84,6 +84,11 @@ class RuntimeStats:
     signals_fired: int = 0
     proofs_generated: int = 0
     proof_failures: int = 0
+    # Signals dropped before the prover because the vault is too thinly
+    # funded for `amount_rotating` to resolve to ≥ 1 wei. Kept distinct
+    # from `proof_failures` so an under-funded vault is not conflated
+    # with a genuinely broken prover (corrupt zkey, OOM, …).
+    signals_unfundable: int = 0
     execs_submitted: int = 0
     nav_reports: int = 0
     last_block_window_end: int = 0
@@ -181,7 +186,26 @@ class YieldRotationRuntime:
         if not ticks:
             return None
         self.stats.ticks_observed += 1
-        intent = self._strategy.on_yield_tick(ticks)
+        try:
+            intent = self._strategy.on_yield_tick(ticks)
+        except ValueError as exc:
+            # Unlike momentum/mean_reversion (float `amount_in` that
+            # floors to 0 in the witness builder), `RotationIntent`
+            # int-coerces `amount_in_usd` and rejects `<= 0` at
+            # construction (helios/types.py). So an under-funded vault
+            # surfaces *here*, as a sub-$1 rotation that can't even build
+            # an intent. Without this catch the ValueError propagates out
+            # of `_tick_loop` and kills the tick loop entirely. Treat the
+            # positivity failure as the same "vault under-funded" signal;
+            # re-raise anything else (e.g. an m_from==m_to logic bug must
+            # not be silently swallowed).
+            if "positive" not in str(exc):
+                raise
+            _log.warning("yield_rotation.signal.unfundable", err=str(exc))
+            self.stats.signals_fired += 1
+            self.stats.signals_unfundable += 1
+            self.stats.last_error = "rotation notional resolved to 0 — strategy vault under-funded"
+            return None
         if intent is None:
             return None
         self.stats.signals_fired += 1

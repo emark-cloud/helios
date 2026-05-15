@@ -138,6 +138,19 @@ class Settings(BaseServiceSettings):
         default=300,
         validation_alias="SENTINEL_CROSS_CHAIN_FLUSH_CADENCE_SEC",
     )
+    # Local (same-chain) anti-dust-churn floor. An allocate→defund
+    # round-trip costs ~10 bps swap spread + NAV float-clamp rounding;
+    # below this |delta| the move destroys more value than it moves, so
+    # the op is skipped and the capital stays put. This is what stops
+    # the cold-start RANK_DROP flap from bleeding a meta-strategy user's
+    # principal down to dust (observed live 2026-05-15). Default 1e15
+    # wei = 0.001 mUSDC on Kite's 18-dec canonical scale — ~3 orders of
+    # magnitude above observed dust, ~3 below any real allocation. 0
+    # disables (tests / scenario mode).
+    min_local_alloc_usd_wei: int = Field(
+        default=10**15,
+        validation_alias="SENTINEL_MIN_LOCAL_ALLOC_USD_WEI",
+    )
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -175,6 +188,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             fee_check_interval_sec=cfg.fee_check_interval_sec,
             min_cross_chain_alloc_usd_wei=cfg.min_cross_chain_alloc_usd_wei,
             cross_chain_flush_cadence_sec=cfg.cross_chain_flush_cadence_sec,
+            min_local_alloc_usd_wei=cfg.min_local_alloc_usd_wei,
         ),
     )
 
