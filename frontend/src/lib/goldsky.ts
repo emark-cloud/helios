@@ -8,7 +8,7 @@
  * graphql-request or apollo. Cache via TanStack Query at the call site.
  */
 
-import { isCanonicalStrategyClass } from "./format";
+import { isCanonicalStrategyClass, mUsdcRawToUsd } from "./format";
 
 // Build-time injection. In production / dev the env var is set;
 // in CI (Playwright e2e) it isn't, so fall back to a relative URL
@@ -733,10 +733,10 @@ export async function fetchStrategyAudit(
 // ── Landing / judge stats ───────────────────────────────────────────
 
 export type LandingStats = {
-  /** Total capital under management — sum of every Allocation
-   *  entity's capitalDeployed (per-event delta; subgraph note in
-   *  schema.graphql). */
-  totalCapitalUsdE6: string;
+  /** Total capital under management, in USD. Summed per chain with
+   *  that chain's mUSDC decimals (Kite 18-dec / Base+Arb 6-dec) before
+   *  aggregating — raw integers can't be summed across chains. */
+  totalCapitalUsd: number;
   activeStrategies: number;
   attestedTrades: number;
   activeAllocators: number;
@@ -786,28 +786,77 @@ export async function fetchLandingStats(signal?: AbortSignal): Promise<LandingSt
     allocations: Array<{ capitalDeployed: string }>;
     trades: LandingStats["recentTrades"];
   };
-  const data = await gqlRequest<Raw>(LANDING_STATS_QUERY, undefined, signal);
-  let totalE6 = 0n;
-  for (const a of data.allocations) {
-    try {
-      totalE6 += BigInt(a.capitalDeployed);
-    } catch {
-      // Tolerate malformed rows so the page still renders.
+
+  // Fan out across every configured chain subgraph, same posture as
+  // fetchStrategies. Capital must be scaled per chain (mUSDC decimals
+  // differ) before summing; counts dedupe by entity id.
+  const results = await Promise.allSettled(
+    CROSS_CHAIN_ENDPOINTS.map(async ({ chainId, endpoint }) => ({
+      chainId,
+      data: await gqlRequest<Raw>(LANDING_STATS_QUERY, undefined, signal, endpoint),
+    })),
+  );
+  if (results.every((r) => r.status === "rejected")) {
+    const first = results[0];
+    if (first && first.status === "rejected") throw first.reason;
+    throw new GoldskyError("Goldsky returned no data", 0);
+  }
+
+  const strategyTrades = new Map<string, number>();
+  const allocatorIds = new Set<string>();
+  const tradesById = new Map<string, LandingStats["recentTrades"][number]>();
+  let totalCapitalUsd = 0;
+
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    const { chainId, data } = r.value;
+
+    // Same phantom gate as fetchStrategies — drop non-canonical-class
+    // legacy-registry registrations so the headline count matches the
+    // /strategies directory.
+    for (const s of data.strategies) {
+      if (!isCanonicalStrategyClass(s.declaredClass)) continue;
+      const key = s.id.toLowerCase();
+      if (!strategyTrades.has(key)) strategyTrades.set(key, s.totalAttestedTrades || 0);
+    }
+    for (const a of data.allocators) allocatorIds.add(a.id.toLowerCase());
+
+    // capitalDeployed is a raw mUSDC integer in this chain's decimals;
+    // sum raw then scale once so float drift can't accumulate.
+    let chainRaw = 0n;
+    for (const a of data.allocations) {
+      try {
+        chainRaw += BigInt(a.capitalDeployed);
+      } catch {
+        // Tolerate malformed rows so the page still renders.
+      }
+    }
+    totalCapitalUsd += mUsdcRawToUsd(chainRaw, chainId);
+
+    for (const t of data.trades) {
+      if (tradesById.has(t.id)) continue;
+      tradesById.set(t.id, {
+        ...t,
+        strategy: {
+          ...t.strategy,
+          chainId: t.strategy.chainId > 0 ? t.strategy.chainId : chainId,
+        },
+      });
     }
   }
-  // Same phantom gate as fetchStrategies — drop non-canonical-class
-  // legacy-registry registrations so the headline count matches the
-  // /strategies directory.
-  const realStrategies = data.strategies.filter((s) =>
-    isCanonicalStrategyClass(s.declaredClass),
-  );
+
   let attested = 0;
-  for (const s of realStrategies) attested += s.totalAttestedTrades || 0;
+  for (const n of strategyTrades.values()) attested += n;
+
+  const recentTrades = [...tradesById.values()]
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+    .slice(0, 12);
+
   return {
-    totalCapitalUsdE6: totalE6.toString(),
-    activeStrategies: realStrategies.length,
+    totalCapitalUsd,
+    activeStrategies: strategyTrades.size,
     attestedTrades: attested,
-    activeAllocators: data.allocators.length,
-    recentTrades: data.trades,
+    activeAllocators: allocatorIds.size,
+    recentTrades,
   };
 }

@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Numeric } from "@/components/atoms/Numeric";
 import { fetchLandingStats, type LandingStats } from "@/lib/goldsky";
-import { formatUsd, mUsdcRawToUsd } from "@/lib/format";
+import { formatUsd } from "@/lib/format";
 
 export function LandingStatsBand(): JSX.Element {
   const query = useQuery<LandingStats, Error>({
@@ -24,10 +24,9 @@ export function LandingStatsBand(): JSX.Element {
   });
 
   const data = query.data;
-  // `fetchLandingStats` only queries the canonical Kite subgraph, so the
-  // 18-dec mUSDC scaling applies. Field name preserves the legacy `_E6`
-  // suffix to avoid a subgraph schema bump.
-  const totalUsd = data ? mUsdcRawToUsd(data.totalCapitalUsdE6, 2368) : null;
+  // fetchLandingStats already sums capital per chain with the right
+  // mUSDC decimals and returns USD.
+  const totalUsd = data ? data.totalCapitalUsd : null;
 
   const cells: Array<{ label: string; value: string }> = [
     {
