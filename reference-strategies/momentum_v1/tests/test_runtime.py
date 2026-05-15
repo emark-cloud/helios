@@ -388,6 +388,200 @@ def test_runtime_rejects_symbol_address_lockstep_violation() -> None:
         )
 
 
+# ── Position-aware NAV + position-book sync from chain (A+B) ────
+from momentum_v1.executor import ExecutionPlan, ExecutionRecord  # noqa: E402
+
+
+class _LiveTradeExecutor(TradeExecutor):
+    """Live executor (live=True) whose `submit` does not dial out.
+    `build_plan` is the real pure calldata builder so the witness/clamp
+    path is exercised end-to-end."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            rpc_url="http://stub",
+            operator_pk="0x" + "11" * 32,
+            strategy_vault_address="0x" + "ee" * 20,
+            mock_router_address="0x" + "ab" * 20,
+            chain_id=2368,
+        )
+        self._w3 = object()  # balanceOf is monkeypatched; never dialled
+
+    def submit(self, plan: ExecutionPlan, **extras: Any) -> ExecutionRecord:
+        return ExecutionRecord(plan=plan, submitted=False, extras=dict(extras))
+
+
+def _rising() -> list[int]:
+    """~0.4%/bar up — recent_return over 5 bars beats the 0.5% threshold."""
+    return [int((2000 + i * 5) * 10**18) for i in range(16)]
+
+
+def _falling() -> list[int]:
+    """~0.4%/bar down — recent_return below -0.5% ⇒ EXIT signal flip."""
+    return [int((2000 - i * 5) * 10**18) for i in range(16)]
+
+
+def _flat16() -> list[int]:
+    return [2000 * 10**18] * 16
+
+
+def _live_rt(
+    monkeypatch,
+    prices: dict[str, list[int]],
+    *,
+    balances: dict[str, int],
+    asset_decimals: dict[str, int] | None = None,
+) -> tuple[MomentumRuntime, _StubProver]:
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+    by_addr = {universe[0]: balances.get("USDC", 0), universe[2]: balances.get("WETH", 0)}
+
+    def _bal(*, w3, token_address, holder_address) -> int:
+        del w3, holder_address
+        return by_addr.get(token_address, 0)
+
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _bal)
+    monkeypatch.setattr("momentum_v1.runtime.read_erc20_balance", _bal)
+
+    strategy = MomentumStrategy(signal_threshold=0.005, lookback_bars=5)
+    prover = _StubProver()
+    rt = MomentumRuntime(
+        strategy=strategy,
+        oracle=_StubOracle(prices),
+        prover=prover,
+        executor=_LiveTradeExecutor(),
+        config=RuntimeConfig(
+            bar_interval_sec=60,
+            nav_interval_sec=300,
+            block_window_size=50,
+            declared_class_field=0xABC,
+            asset_decimals=asset_decimals,
+        ),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+    return rt, prover
+
+
+@pytest.mark.asyncio
+async def test_nav_is_position_aware_when_base_drained(monkeypatch) -> None:
+    """Vault holds 0 mUSDC but 2 WETH. Base-only seeding would report
+    NAV ≈ 0 and size every entry to 0; position-aware NAV marks the
+    held WETH to the oracle price while spendable cash stays 0."""
+    rt, _ = _live_rt(
+        monkeypatch,
+        {"WETH": _flat16()},  # flat ⇒ no signal
+        balances={"USDC": 0, "WETH": 2 * 10**18},
+        asset_decimals={"USDC": 18, "WETH": 18, "WBTC": 8, "WSOL": 9},
+    )
+
+    records = await rt.tick_bar()
+
+    assert records == []
+    assert rt.stats.signals_fired == 0
+    assert rt._strategy.available_capital == 0.0
+    assert rt.stats.last_seeded_nav_usd == 0.0
+    assert rt._strategy.nav == pytest.approx(4_000.0)  # 2 WETH @ $2000
+    assert rt.stats.last_position_nav_usd == pytest.approx(4_000.0)
+
+
+@pytest.mark.asyncio
+async def test_rehydrated_position_exits_on_flip_and_clamps(monkeypatch) -> None:
+    """The runtime never wrote the position book, so momentum could
+    never EXIT the WETH it holds. Syncing the position from chain lets a
+    momentum signal-flip emit an EXIT, with amount_in clamped to the
+    held WETH so the sell leg can't ulp-overshoot (TradeCallFailed(1))."""
+    raw = 38_609_100_195_824_967
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _falling()},  # recent_return < -threshold ⇒ EXIT
+        balances={"USDC": 0, "WETH": raw},
+        asset_decimals={"USDC": 18, "WETH": 18, "WBTC": 8, "WSOL": 9},
+    )
+
+    records = await rt.tick_bar()
+
+    assert rt.stats.signals_fired == 1
+    assert len(records) == 1
+    assert rt._strategy.position_for("WETH") > 0  # rehydrated from chain
+    inputs = prover.calls[0]["inputs"]
+    assert inputs["is_exit"] == "1"
+    assert inputs["is_signal_flip"] == "1"
+    assert int(inputs["asset_in_idx"]) == 2  # WETH slot
+    amount_in = int(inputs["amount_in"])
+    assert 1 <= amount_in <= raw  # clamped to exact on-chain balance
+
+
+@pytest.mark.asyncio
+async def test_long_does_not_refire_when_position_held_on_chain(monkeypatch) -> None:
+    """The cash-drain root cause: with no position write-back the LONG
+    guard (position <= 0) was always true, so positive momentum re-bought
+    every bar until empty. Syncing the held WETH stops it."""
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _rising()},  # LONG signal every bar
+        balances={"USDC": 0, "WETH": 2 * 10**18},  # already long
+        asset_decimals={"USDC": 18, "WETH": 18},
+    )
+
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") > 0
+    assert rt.stats.signals_fired == 0  # no re-LONG
+    assert prover.calls == []
+    assert records == []
+
+
+@pytest.mark.asyncio
+async def test_subdust_holding_is_not_a_position(monkeypatch) -> None:
+    """A few wei of residue must not block a legitimate re-entry: below
+    the dust floor momentum is flat and the LONG fires."""
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _rising()},
+        balances={"USDC": 5_000 * 10**18, "WETH": 11},  # 11 wei ≈ $0 ≪ $1
+        asset_decimals={"USDC": 18, "WETH": 18},
+    )
+    rt._strategy._set_nav(5_000.0)  # warmed runtime (NAV set end-of-bar)
+
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") == 0.0  # dust ≠ position
+    assert rt.stats.signals_fired == 1
+    assert len(records) == 1
+    assert prover.calls[0]["inputs"]["is_long_entry"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_no_position_sync_in_dry_run(monkeypatch) -> None:
+    """Sync is gated on executor.live: a dry-run runtime must not
+    rehydrate (existing dry-run behaviour preserved)."""
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+
+    def _bal(*, w3, token_address, holder_address) -> int:
+        del w3, token_address, holder_address
+        return 2 * 10**18
+
+    monkeypatch.setattr("momentum_v1.runtime.read_erc20_balance", _bal)
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _bal)
+
+    strategy = MomentumStrategy(signal_threshold=0.005, lookback_bars=5)
+    strategy.set_capital(10_000)
+    rt = MomentumRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({"WETH": _falling()}),
+        prover=_StubProver(),
+        executor=_executor(),  # rpc_url="" ⇒ live=False
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") == 0.0  # no sync when not live
+    assert rt.stats.signals_fired == 0
+    assert records == []
+
+
 def test_runtime_accepts_aligned_2_asset_universe() -> None:
     strategy = MomentumStrategy(
         signal_threshold=0.005, lookback_bars=5, asset_universe=("USDC", "WETH")
