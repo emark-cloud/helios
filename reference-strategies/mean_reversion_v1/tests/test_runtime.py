@@ -467,6 +467,180 @@ async def test_nav_holding_read_failure_is_conservative(monkeypatch) -> None:
     assert rt.stats.last_position_nav_usd == 0.0  # never written this bar
 
 
+# ── Position-book sync from chain (fix B): unstick a drained vault ──
+from mean_reversion_v1.executor import ExecutionPlan, ExecutionRecord  # noqa: E402
+
+
+class _LiveTradeExecutor(TradeExecutor):
+    """Live executor (live=True) whose `submit` does not dial out.
+    `build_plan` is the real pure calldata builder so the witness/clamp
+    path is exercised end-to-end."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            rpc_url="http://stub",
+            operator_pk="0x" + "11" * 32,
+            strategy_vault_address="0x" + "ee" * 20,
+            mock_router_address="0x" + "ab" * 20,
+            chain_id=2368,
+        )
+        self._w3 = object()  # balanceOf is monkeypatched; never dialled
+
+    def submit(self, plan: ExecutionPlan, **extras: Any) -> ExecutionRecord:
+        return ExecutionRecord(plan=plan, submitted=False, extras=dict(extras))
+
+
+def _recross_prices() -> list[int]:
+    """Small spread, last bar back at the mean ⇒ |z| < n_sigma."""
+    return [1000 * 10**18] * 14 + [1010 * 10**18, 1000 * 10**18]
+
+
+def _live_rt(
+    monkeypatch,
+    prices: dict[str, list[int]],
+    *,
+    balances: dict[str, int],
+    asset_decimals: dict[str, int] | None = None,
+) -> tuple[MeanReversionRuntime, _StubProver]:
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+    by_addr = {universe[0]: balances.get("USDC", 0), universe[2]: balances.get("WETH", 0)}
+
+    def _bal(*, w3, token_address, holder_address) -> int:
+        del w3, holder_address
+        return by_addr.get(token_address, 0)
+
+    # seed reads base via helios.runtime.nav_seed; holdings via runtime.
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _bal)
+    monkeypatch.setattr("mean_reversion_v1.runtime.read_erc20_balance", _bal)
+
+    strategy = MeanReversionStrategy(n_sigma_x100=200)
+    prover = _StubProver()
+    rt = MeanReversionRuntime(
+        strategy=strategy,
+        oracle=_StubOracle(prices),
+        prover=prover,
+        executor=_LiveTradeExecutor(),
+        config=RuntimeConfig(
+            bar_interval_sec=60,
+            nav_interval_sec=300,
+            block_window_size=50,
+            declared_class_field=0xABC,
+            asset_decimals=asset_decimals,
+        ),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+    return rt, prover
+
+
+@pytest.mark.asyncio
+async def test_rehydrated_position_exits_on_recross_and_clamps(monkeypatch) -> None:
+    """The live unstick: the runtime never wrote the position book, so
+    after any LONG (or a restart) the strategy thinks it is flat and can
+    never sell the WETH the vault holds. Syncing the position from chain
+    before on_bar lets a mean re-cross emit an EXIT, and the amount is
+    clamped to the held WETH so the sell leg can't ulp-overshoot and
+    revert as TradeCallFailed(1)."""
+    raw = 38_609_100_195_824_967  # the real on-chain WETH from the stuck vault
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _recross_prices()},
+        balances={"USDC": 0, "WETH": raw},
+        asset_decimals={"USDC": 18, "WETH": 18, "WBTC": 8, "WSOL": 9},
+    )
+
+    records = await rt.tick_bar()
+
+    assert rt.stats.signals_fired == 1
+    assert len(records) == 1
+    # Position was rehydrated purely from the on-chain balance.
+    assert rt._strategy.position_for("WETH") > 0
+    inputs = prover.calls[0]["inputs"]
+    assert inputs["is_exit"] == "1"
+    assert inputs["is_signal_flip"] == "1"
+    assert int(inputs["asset_in_idx"]) == 2  # WETH slot (USDC,WBTC,WETH,WSOL)
+    amount_in = int(inputs["amount_in"])
+    # The clamp pins amount_in to the vault's exact WETH balance: never
+    # above it (no overshoot revert), and still fundable (≥ 1 wei).
+    assert 1 <= amount_in <= raw
+
+
+@pytest.mark.asyncio
+async def test_long_does_not_refire_when_position_held_on_chain(monkeypatch) -> None:
+    """The cash-drain root cause: with no position write-back the LONG
+    guard (`position <= 0`) was always true, so a persistent down-signal
+    re-bought every bar until the vault was empty. Syncing the position
+    from chain makes the guard see the held WETH and stop."""
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _dip_prices()},  # z ≪ -n_sigma every bar
+        balances={"USDC": 0, "WETH": 2 * 10**18},  # already long ~$2000
+        asset_decimals={"USDC": 18, "WETH": 18},
+    )
+
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") > 0  # rehydrated
+    assert rt.stats.signals_fired == 0  # no re-LONG
+    assert prover.calls == []
+    assert records == []
+
+
+@pytest.mark.asyncio
+async def test_subdust_holding_is_not_a_position(monkeypatch) -> None:
+    """A few wei of residue must not count as a position: it would block
+    a legitimate re-entry on a still-valid down-signal. Below the dust
+    floor the strategy is treated as flat and the LONG fires."""
+    rt, prover = _live_rt(
+        monkeypatch,
+        {"WETH": _dip_prices()},
+        balances={"USDC": 5_000 * 10**18, "WETH": 11},  # 11 wei ≈ $0 ≪ $1
+        asset_decimals={"USDC": 18, "WETH": 18},
+    )
+    # NAV is written at end of tick_bar (the documented one-bar cold
+    # warmup); a warmed runtime has it populated, so the LONG can size.
+    rt._strategy._set_nav(5_000.0)
+
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") == 0.0  # dust ≠ position
+    assert rt.stats.signals_fired == 1
+    assert len(records) == 1
+    assert prover.calls[0]["inputs"]["is_long_entry"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_no_position_sync_in_dry_run(monkeypatch) -> None:
+    """The sync is gated on `executor.live`: a dry-run runtime must not
+    rehydrate (existing dry-run behaviour preserved). Even with a WETH
+    balance the position book stays empty and a re-cross is a no-op."""
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+
+    def _bal(*, w3, token_address, holder_address) -> int:
+        del w3, token_address, holder_address
+        return 2 * 10**18
+
+    monkeypatch.setattr("mean_reversion_v1.runtime.read_erc20_balance", _bal)
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _bal)
+
+    strategy = MeanReversionStrategy(n_sigma_x100=200)
+    strategy.set_capital(10_000)
+    rt = MeanReversionRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({"WETH": _recross_prices()}),
+        prover=_StubProver(),
+        executor=_executor(),  # rpc_url="" ⇒ live=False
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+    records = await rt.tick_bar()
+
+    assert rt._strategy.position_for("WETH") == 0.0  # no sync when not live
+    assert rt.stats.signals_fired == 0
+    assert records == []
+
+
 def test_runtime_accepts_aligned_2_asset_universe() -> None:
     """The matching shape — Base-style 2-symbol strategy + 2-real-address
     + 6-empty padding — must construct cleanly so the production Base
