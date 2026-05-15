@@ -71,6 +71,24 @@ _STRATEGY_VAULT_LAST_NAV_ABI: tuple[dict[str, Any], ...] = (
     },
 )
 
+# `userTotalDeployed` is the aggregate principal `AllocatorVault` has
+# routed for a user across *all* their active strategies. The on-chain
+# `_checkMetaStrategyBounds` reverts `MetaCapacityExceeded` when
+# `userTotalDeployed + newAmount > meta.maxCapital`, so the loop must
+# subtract it from the deployable budget — otherwise capital deployed
+# under a *prior* onboard of the same wallet (which the in-memory store
+# doesn't track) silently consumes the cap and every fresh
+# `allocateToStrategy` reverts.
+_ALLOCATOR_VAULT_USER_DEPLOYED_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "userTotalDeployed",
+        "stateMutability": "view",
+        "inputs": [{"name": "user", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+)
+
 # CXR-0c — Minimal OFT.quoteSend fragment so the allocator can price an
 # `allocateToRemoteStrategy` call before submitting. The result feeds the
 # `MessagingFee` calldata arg + the tx `value` field.
@@ -550,6 +568,35 @@ class AllocatorOnChain:
 
     async def read_user_vault_balance_async(self, user: str) -> int | None:
         return await asyncio.to_thread(self.read_user_vault_balance, user)
+
+    def read_user_total_deployed(self, user: str) -> int | None:
+        """`AllocatorVault.userTotalDeployed(user)` in raw asset wei, or
+        None in stub mode / when the allocator vault address is unset.
+
+        The loop subtracts the portion of this not tracked by its own
+        in-memory store (capital deployed under a prior onboard of the
+        same wallet) from the meta-capital headroom, so a re-onboard
+        doesn't drive every `allocateToStrategy` into
+        `MetaCapacityExceeded`. A failed read returns None — the loop
+        then treats the orphan as zero and falls back to the plain
+        `min(delegated, maxCapital)` clamp, which is still strictly
+        safer than the pre-fix unclamped behaviour.
+        """
+        if not self._live or not self._allocator_vault:
+            return None
+        self._ensure_live()
+        assert self._w3 is not None
+        try:
+            c = self._w3.eth.contract(
+                address=Web3.to_checksum_address(self._allocator_vault),
+                abi=list(_ALLOCATOR_VAULT_USER_DEPLOYED_ABI),
+            )
+            return int(c.functions.userTotalDeployed(Web3.to_checksum_address(user)).call())
+        except Exception:
+            return None
+
+    async def read_user_total_deployed_async(self, user: str) -> int | None:
+        return await asyncio.to_thread(self.read_user_total_deployed, user)
 
     def read_strategy_nav_timestamp(self, strategy: str) -> int | None:
         """Return `StrategyVault.lastNAVTimestamp(strategy)` or None in

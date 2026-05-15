@@ -269,11 +269,30 @@ class AllocatorLoop:
         if balance is not None:
             user.delegated_capital_usd = balance
 
+        # On-chain aggregate principal already routed for this user. The
+        # AllocatorVault meta-capital cap (`userTotalDeployed + newAmount
+        # <= meta.maxCapital`) is enforced against this value, not
+        # against the loop's in-memory view, so `_compute_target` has to
+        # see it to size within headroom. None (stub / RPC failure) →
+        # treated as zero orphan downstream.
+        try:
+            on_chain_deployed = await self._onchain.read_user_total_deployed_async(
+                user.meta.user_address
+            )
+        except Exception as exc:  # pragma: no cover — defensive RPC guard
+            _log.warning(
+                "allocator.user_total_deployed.error",
+                user=user.meta.user_address,
+                err=str(exc),
+            )
+            on_chain_deployed = None
+
         _log.info(
             "allocator.tick_user",
             user=user.meta.user_address,
             balance=str(balance) if balance is not None else "none",
             delegated=str(user.delegated_capital_usd),
+            on_chain_deployed=str(on_chain_deployed) if on_chain_deployed is not None else "none",
             allocations=len(user.allocations),
             last_rebalance_ts=user.last_rebalance_ts,
         )
@@ -283,7 +302,7 @@ class AllocatorLoop:
 
         # Steps 1+2: rank + target allocation, gated on rebalance cadence.
         if self._should_rebalance(user, ts):
-            target = self._compute_target(user)
+            target = self._compute_target(user, on_chain_deployed)
             ops = self._filter_dust_ops(user, self._diff(user, target))
             _log.info(
                 "allocator.tick_user.diff",
@@ -321,6 +340,17 @@ class AllocatorLoop:
                 call = await self._onchain.defund_async(
                     user.meta.user_address, alloc.strategy_id, "DRAWDOWN_BREACH"
                 )
+                # Fix #2 — if the drawdown defund reverted the position
+                # is still live and still in breach; leave `defunded`
+                # False so the next tick retries instead of marking it
+                # closed off a failed call.
+                if call.error:
+                    _log.warning(
+                        "allocator.drawdown_defund.onchain_rejected",
+                        user=user.meta.user_address,
+                        strategy=alloc.strategy_id,
+                    )
+                    continue
                 alloc.defunded = True
                 self._store.emit_event(
                     AllocatorEvent(
@@ -341,12 +371,47 @@ class AllocatorLoop:
         cadence = max(60, user.meta.rebalance_cadence_sec)
         return ts - user.last_rebalance_ts >= cadence
 
-    def _compute_target(self, user: UserState) -> list[AllocationTarget]:
+    def _compute_target(
+        self, user: UserState, on_chain_deployed: int | None
+    ) -> list[AllocationTarget]:
         if user.delegated_capital_usd <= 0:
             return []
         candidates = list(self._candidates)
+        # Fix #4 — respect the user's signed `allowed_chains`. A
+        # candidate on a chain outside the meta-strategy mandate must
+        # never become a target (no local submit, no cross-chain defer,
+        # no bridge). `chain_id == 0` is a legacy / untagged Goldsky row
+        # and is treated as local-and-allowed so pre-CXR fixtures keep
+        # working. An empty `allowed_chains` disables the gate (older
+        # meta payloads that never carried the field).
+        allowed = {int(c) for c in user.meta.allowed_chains}
+        if allowed:
+            candidates = [c for c in candidates if c.chain_id == 0 or c.chain_id in allowed]
         if not candidates:
             return []
+
+        # Fix #1 + #3 — size within the on-chain meta-capital headroom.
+        # `BaseAllocator.allocate` derives the per-strategy cap as
+        # `capital * maxPerStrategyBps / 1e4`; the on-chain check uses
+        # `maxCapital * maxPerStrategyBps / 1e4`. Passing the raw
+        # UserVault balance (which can exceed maxCapital) therefore
+        # breaches *both* the aggregate and per-strategy on-chain caps.
+        # Clamp to maxCapital, then subtract the orphaned on-chain
+        # principal (deployed under a prior onboard, untracked by this
+        # store) so `userTotalDeployed + sum(new) <= maxCapital` holds.
+        # `maxCapital <= 0` means uncapped (mirrors the StrategyVault
+        # capacity convention) → balance-only sizing.
+        cap = user.meta.max_capital_usd
+        budget = min(user.delegated_capital_usd, cap) if cap > 0 else user.delegated_capital_usd
+        if on_chain_deployed is not None:
+            managed = sum(
+                a.capital_deployed_usd for a in user.allocations.values() if not a.defunded
+            )
+            orphaned = max(0, on_chain_deployed - managed)
+            budget = max(0, budget - orphaned)
+        if budget <= 0:
+            return []
+
         scores = self._allocator.rank_strategies(user.meta, candidates)
         # Best-first ordering — `allocate` truncates at max_strategies_count.
         #
@@ -371,7 +436,7 @@ class AllocatorLoop:
             reverse=True,
         )
         ranked = [c for c, _ in order]
-        return self._allocator.allocate(user.meta, ranked, user.delegated_capital_usd)
+        return self._allocator.allocate(user.meta, ranked, budget)
 
     def _diff(
         self,
@@ -446,51 +511,7 @@ class AllocatorLoop:
         # remote one — fast-path is local-only by construction.
         ops = self._defer_remote_ops(user, ops, target_by_id, ts)
 
-        if self._is_pure_redistribution(user, ops, target_by_id):
-            # AllocatorVault.rebalance asserts sum(weights_bps) == 10_000.
-            # The score-weighted allocator can drop ≤ N USD as rounding
-            # remainder so the raw weights occasionally sum to 9_999;
-            # absorb the slack onto the largest weight so the contract
-            # check passes without changing target ratios materially.
-            # Iterate `target_by_id` instead of the original `target` list:
-            # `_defer_remote_ops` may have popped remote entries from
-            # `target_by_id` (see its docstring), and those entries must
-            # NOT enter the on-chain `rebalance` call. The original
-            # `target` list is left alone so downstream tx-shape tests
-            # / dashboard fixtures still see the full intended split.
-            local_targets = [t for t in target if t.strategy_id in target_by_id]
-            weights = [t.weight_bps for t in local_targets]
-            slack = 10_000 - sum(weights)
-            if slack != 0:
-                largest = max(range(len(weights)), key=lambda i: weights[i])
-                weights[largest] += slack
-            rebal_call = await self._onchain.rebalance_async(
-                user.meta.user_address,
-                [t.strategy_id for t in local_targets],
-                weights,
-            )
-            for t in local_targets:
-                alloc = user.allocations.get(t.strategy_id)
-                if alloc is None:
-                    continue
-                prior = alloc.capital_deployed_usd
-                alloc.capital_deployed_usd = t.capital_usd
-                alloc.last_rebalance_ts = ts
-                if t.capital_usd == prior:
-                    continue
-                kind = "ALLOCATION_INCREASED" if t.capital_usd > prior else "ALLOCATION_DECREASED"
-                self._store.emit_event(
-                    AllocatorEvent(
-                        user_address=user.meta.user_address,
-                        kind=kind,  # type: ignore[arg-type]
-                        strategy_id=t.strategy_id,
-                        amount_usd=abs(t.capital_usd - prior),
-                        reason="REBALANCE",
-                        timestamp=ts,
-                        tx_hash=rebal_call.tx_hash,
-                    )
-                )
-            self._emit_rebalance_complete(user, ts, tx_hash=rebal_call.tx_hash)
+        if await self._try_rebalance_fastpath(user, target, ops, target_by_id, ts):
             return
 
         # Defunds first, then allocates. AllocatorVault checks
@@ -505,6 +526,22 @@ class AllocatorLoop:
                 alloc_call = await self._onchain.allocate_async(
                     user.meta.user_address, strategy_id, delta
                 )
+                # Fix #2 — only mirror into the store when the chain
+                # accepted the call. A reverted allocate (e.g.
+                # MetaCapacityExceeded on a re-onboard) previously still
+                # bumped `capital_deployed_usd`, so the dashboard showed
+                # capital that never landed on-chain. `_submit` already
+                # logged `allocator.onchain.submit_failed`; skip the
+                # mirror so the store stays reconciled with the chain.
+                if alloc_call.error:
+                    _log.warning(
+                        "allocator.allocation.onchain_rejected",
+                        user=user.meta.user_address,
+                        strategy=strategy_id,
+                        amount=str(delta),
+                        method="allocateToStrategy",
+                    )
+                    continue
                 tgt = target_by_id.get(strategy_id)
                 chain_id = tgt.chain_id if tgt else 0
                 kind: str
@@ -543,6 +580,18 @@ class AllocatorLoop:
                 defund_call = await self._onchain.defund_async(
                     user.meta.user_address, strategy_id, "RANK_DROP"
                 )
+                # Fix #2 — a reverted defund leaves the capital deployed
+                # on-chain; don't flip `defunded` (it would orphan the
+                # position from the loop's view and skew the next diff).
+                if defund_call.error:
+                    _log.warning(
+                        "allocator.allocation.onchain_rejected",
+                        user=user.meta.user_address,
+                        strategy=strategy_id,
+                        amount=str(-delta),
+                        method="defund",
+                    )
+                    continue
                 if strategy_id in user.allocations:
                     user.allocations[strategy_id].defunded = True
                 self._store.emit_event(
@@ -557,6 +606,82 @@ class AllocatorLoop:
                     )
                 )
         self._emit_rebalance_complete(user, ts)
+
+    async def _try_rebalance_fastpath(
+        self,
+        user: UserState,
+        target: list[AllocationTarget],
+        ops: list[tuple[str, int]],
+        target_by_id: dict[str, AllocationTarget],
+        ts: int,
+    ) -> bool:
+        """Fast-path: pure in-place redistribution. When every touched
+        strategy keeps a non-zero allocation and the deltas sum to zero
+        (capital moves between live strategies, no idle in/out), batch
+        the diffs into one `rebalance(weights_bps)` call. The contract
+        preserves total deployed across the listed strategies, so this
+        is optimal for the winner-takes-more-from-loser case. Returns
+        True when it handled the cycle (caller must not fall through to
+        the per-op path); False to defer to per-op allocate/defund.
+        """
+        if not self._is_pure_redistribution(user, ops, target_by_id):
+            return False
+        # AllocatorVault.rebalance asserts sum(weights_bps) == 10_000.
+        # The score-weighted allocator can drop ≤ N USD as rounding
+        # remainder so the raw weights occasionally sum to 9_999;
+        # absorb the slack onto the largest weight so the contract
+        # check passes without changing target ratios materially.
+        # Iterate `target_by_id` instead of the original `target` list:
+        # `_defer_remote_ops` may have popped remote entries from
+        # `target_by_id` (see its docstring), and those entries must
+        # NOT enter the on-chain `rebalance` call. The original
+        # `target` list is left alone so downstream tx-shape tests
+        # / dashboard fixtures still see the full intended split.
+        local_targets = [t for t in target if t.strategy_id in target_by_id]
+        weights = [t.weight_bps for t in local_targets]
+        slack = 10_000 - sum(weights)
+        if slack != 0:
+            largest = max(range(len(weights)), key=lambda i: weights[i])
+            weights[largest] += slack
+        rebal_call = await self._onchain.rebalance_async(
+            user.meta.user_address,
+            [t.strategy_id for t in local_targets],
+            weights,
+        )
+        # Fix #2 — a reverted rebalance changed nothing on-chain;
+        # don't rewrite `capital_deployed_usd` to the intended
+        # targets or the store diverges from the chain and the next
+        # diff is computed off fiction.
+        if rebal_call.error:
+            _log.warning(
+                "allocator.rebalance.onchain_rejected",
+                user=user.meta.user_address,
+                strategies=[t.strategy_id for t in local_targets],
+            )
+            return True
+        for t in local_targets:
+            alloc = user.allocations.get(t.strategy_id)
+            if alloc is None:
+                continue
+            prior = alloc.capital_deployed_usd
+            alloc.capital_deployed_usd = t.capital_usd
+            alloc.last_rebalance_ts = ts
+            if t.capital_usd == prior:
+                continue
+            kind = "ALLOCATION_INCREASED" if t.capital_usd > prior else "ALLOCATION_DECREASED"
+            self._store.emit_event(
+                AllocatorEvent(
+                    user_address=user.meta.user_address,
+                    kind=kind,  # type: ignore[arg-type]
+                    strategy_id=t.strategy_id,
+                    amount_usd=abs(t.capital_usd - prior),
+                    reason="REBALANCE",
+                    timestamp=ts,
+                    tx_hash=rebal_call.tx_hash,
+                )
+            )
+        self._emit_rebalance_complete(user, ts, tx_hash=rebal_call.tx_hash)
+        return True
 
     def _defer_remote_ops(
         self,

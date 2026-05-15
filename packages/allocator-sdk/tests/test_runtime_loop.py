@@ -12,7 +12,7 @@ import pytest
 from helios_allocator import BaseAllocator
 from helios_allocator.runtime.goldsky import AllocatorGoldsky, StrategyDirectoryRow
 from helios_allocator.runtime.loop import AllocatorLoop, LoopConfig
-from helios_allocator.runtime.onchain import AllocatorOnChain
+from helios_allocator.runtime.onchain import AllocatorOnChain, OnChainCall
 from helios_allocator.runtime.state import AllocationState, AllocatorStore, now_ts
 from helios_allocator.types import (
     AllocationTarget,
@@ -63,12 +63,19 @@ class _AlwaysFirstAllocator(BaseAllocator):
         ]
 
 
-def _meta() -> MetaStrategy:
+# Default permits the CXR destination chains: the cross-chain tests
+# feed Base/Arb candidates and exercise the defer/bridge mechanics,
+# which only make sense when the destination is within the user's
+# signed mandate. Kite-only tests feed 2368/0 candidates, for which
+# the `allowed_chains` gate is a no-op, so the wider default doesn't
+# change their behaviour. `test_off_policy_chain_is_gated_out`
+# overrides with Kite-only to pin the gate itself.
+def _meta(allowed_chains: tuple[int, ...] = (2368, 84_532, 421_614)) -> MetaStrategy:
     return MetaStrategy(
         user_address="0x" + "ab" * 20,
         allowed_strategy_classes=("momentum_v1",),
         allowed_assets=("USDC",),
-        allowed_chains=(2368,),
+        allowed_chains=allowed_chains,
         max_capital_usd=10_000,
         max_per_strategy_bps=10_000,
         max_strategies_count=2,
@@ -932,7 +939,14 @@ async def test_cross_chain_two_strategies_same_chain_collapse_to_one_batch_send(
     meta = _meta()
     # Need max_strategies_count >= 2 so the second candidate isn't
     # pruned by the meta-strategy gate.
-    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
+    # This test works in 18-dec canonical wei (delegated = 100e18) so
+    # per-entry amounts clear the OFT shared-decimals floor (1e12). The
+    # cap-aware budget clamp (`min(delegated, max_capital)`) would
+    # otherwise shrink the split below that floor, so the cap must be
+    # expressed in the same wei scale, not the toy `_meta()` default.
+    multi_meta = MetaStrategy(
+        **{**meta.__dict__, "max_strategies_count": 4, "max_capital_usd": 1_000 * 10**18}
+    )
     user = store.upsert_user(multi_meta)
     # Use 18-dec canonical scale so per-entry amounts survive the
     # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
@@ -986,7 +1000,14 @@ async def test_cross_chain_two_strategies_different_chains_fire_two_single_sends
     """
     store = AllocatorStore()
     meta = _meta()
-    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
+    # This test works in 18-dec canonical wei (delegated = 100e18) so
+    # per-entry amounts clear the OFT shared-decimals floor (1e12). The
+    # cap-aware budget clamp (`min(delegated, max_capital)`) would
+    # otherwise shrink the split below that floor, so the cap must be
+    # expressed in the same wei scale, not the toy `_meta()` default.
+    multi_meta = MetaStrategy(
+        **{**meta.__dict__, "max_strategies_count": 4, "max_capital_usd": 1_000 * 10**18}
+    )
     user = store.upsert_user(multi_meta)
     # Use 18-dec canonical scale so per-entry amounts survive the
     # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
@@ -1052,3 +1073,169 @@ async def test_cross_chain_threshold_zero_disables_gate() -> None:
     # before the dust floor.
     remote_calls = [c for c in onchain.pending if c.method == "allocateToRemoteStrategy"]
     assert len(remote_calls) == 1
+
+
+# ── Regression: cap-aware sizing + reconciled store + chain policy ──
+
+
+class _DeployedOnChain(AllocatorOnChain):
+    """Stub that reports a non-zero on-chain `userTotalDeployed` (an
+    orphan from a prior onboard the in-memory store doesn't track) and
+    leaves the seeded delegated balance in place."""
+
+    def __init__(self, deployed: int) -> None:
+        super().__init__(
+            rpc_url="",
+            operator_pk="",
+            allocator_vault_address="",
+            allocator_registry_address="",
+            chain_id=2368,
+        )
+        self._deployed = deployed
+
+    async def read_user_total_deployed_async(self, user: str) -> int | None:
+        return self._deployed
+
+    async def read_user_vault_balance_async(self, user: str) -> int | None:
+        return None  # keep the test-seeded delegated balance
+
+
+class _RejectingOnChain(AllocatorOnChain):
+    """Stub whose `allocateToStrategy` reverts on-chain (the
+    MetaCapacityExceeded shape from the re-onboard incident)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            rpc_url="",
+            operator_pk="",
+            allocator_vault_address="",
+            allocator_registry_address="",
+            chain_id=2368,
+        )
+
+    async def allocate_async(self, user: str, strategy: str, amount: int) -> OnChainCall:
+        return OnChainCall(
+            method="allocateToStrategy",
+            user=user,
+            strategy=strategy,
+            amount=amount,
+            error="('0xccdb4f34', '0xccdb4f34')",  # MetaCapacityExceeded
+        )
+
+    async def read_user_vault_balance_async(self, user: str) -> int | None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_target_clamps_to_meta_cap_minus_orphaned_deployed() -> None:
+    """Fix #1 + #3 — the loop must size within the on-chain meta-capital
+    headroom, not off the raw UserVault balance, and must subtract the
+    orphaned on-chain principal (deployed under a prior onboard, not in
+    this store) so `userTotalDeployed + new <= maxCapital` holds.
+
+    Pins the exact incident: delegated 50_000 >> maxCapital 10_000,
+    3_000 already deployed on-chain → deployable budget is
+    min(50_000, 10_000) - 3_000 = 7_000."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())  # max_capital_usd=10_000
+    user.delegated_capital_usd = 50_000
+
+    sid = "0x" + "11" * 20
+    goldsky = _StubGoldsky([_row(sid)])  # Kite, chain 2368
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=_DeployedOnChain(deployed=3_000),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    assert sid in user.allocations
+    assert user.allocations[sid].capital_deployed_usd == 7_000
+
+
+@pytest.mark.asyncio
+async def test_orphaned_deployed_exhausts_cap_yields_no_target() -> None:
+    """Fix #3 — when the orphaned on-chain principal already meets (or
+    exceeds) maxCapital there is no headroom; the loop must allocate
+    nothing rather than submit a doomed `allocateToStrategy`."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())  # max_capital_usd=10_000
+    user.delegated_capital_usd = 50_000
+
+    sid = "0x" + "11" * 20
+    goldsky = _StubGoldsky([_row(sid)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=_DeployedOnChain(deployed=10_000),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    assert sid not in user.allocations
+
+
+@pytest.mark.asyncio
+async def test_onchain_rejected_allocate_not_mirrored_into_store() -> None:
+    """Fix #2 — a reverted `allocateToStrategy` must NOT bump the
+    in-memory store. Pre-fix the dashboard showed capital that never
+    landed on-chain because the mirror ran unconditionally."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())
+    user.delegated_capital_usd = 10_000
+
+    sid = "0x" + "11" * 20
+    goldsky = _StubGoldsky([_row(sid)])
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=_RejectingOnChain(),
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    assert sid not in user.allocations
+    events = store.recent_events(user.meta.user_address)
+    assert not [e for e in events if e.kind in ("ALLOCATION_CREATED", "ALLOCATION_INCREASED")]
+
+
+@pytest.mark.asyncio
+async def test_off_policy_chain_is_gated_out() -> None:
+    """Fix #4 — a candidate on a chain outside the user's signed
+    `allowed_chains` must produce no target at all: no local submit, no
+    cross-chain defer, no bridge. Contrast
+    `test_remote_chain_allocation_defers_and_skips_onchain_submit`,
+    where the remote chain IS within the (default) mandate and so
+    legitimately defers."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta(allowed_chains=(2368,)))  # Kite-only mandate
+    user.delegated_capital_usd = 10_000
+
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    base_sid = "0x" + "bb" * 20
+    goldsky = _StubGoldsky([_row_chain(base_sid, 84_532)])  # off-policy
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    assert onchain.pending == []
+    assert base_sid not in user.allocations
+    events = store.recent_events(user.meta.user_address)
+    assert not [
+        e for e in events if e.kind in ("CROSS_CHAIN_ALLOCATION_DEFERRED", "ALLOCATION_CREATED")
+    ]
