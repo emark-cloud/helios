@@ -23,7 +23,7 @@ import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from helios.runtime.nav_seed import read_erc20_balance, seed_strategy_capital
-from helios.types import TradeIntent
+from helios.types import Direction, TradeIntent
 
 from mean_reversion_v1.executor import ExecutionRecord, TradeExecutor
 from mean_reversion_v1.oracle_client import OracleClient, OracleEmptyError, SnapshotBundle
@@ -32,6 +32,14 @@ from mean_reversion_v1.strategy import MeanReversionStrategy
 from mean_reversion_v1.witness import PRICE_OBSERVATIONS, build_mean_reversion_witness
 
 _log = structlog.get_logger(__name__)
+
+# A held balance worth less than this is accounting dust, not a
+# tradeable position: it must not (a) count as `position > 0` and block
+# a fresh LONG when the down-signal is still valid, nor (b) trigger a
+# spurious EXIT that proves+submits a ~0-value swap. mean_reversion
+# sizes entries in tens–hundreds of USD, so $1 is comfortably below any
+# real position and is an accounting-hygiene floor, not a signal knob.
+_POSITION_DUST_USD = 1.0
 
 
 def _sign_nav_eip712(
@@ -218,21 +226,35 @@ class MeanReversionRuntime:
                 _log.warning("mean_reversion.oracle.error", asset=asset, err=str(exc))
                 self.stats.last_error = str(exc)
                 continue
-            # Position-aware NAV: every LONG entry swaps mUSDC → asset,
-            # so without crediting the held asset back, NAV reads ~0 once
-            # cash is spent and `nav_target_notional` sizes every entry
-            # to 0 (the vault gets permanently stuck). Mark each holding
-            # to the latest signed oracle price in this bundle.
-            held = self._holding_value_usd(asset, bundle)
+            # Position-aware NAV + position-book sync from one balance
+            # read: every LONG swaps mUSDC → asset, so crediting the held
+            # asset back keeps NAV honest, and reflecting it into the
+            # strategy's position book (before on_bar) stops the re-LONG
+            # drain and lets a re-cross/overshoot emit an EXIT.
+            held = self._read_holding(asset, bundle)
+            this_raw: int | None = None
             if held is not None:
-                nav_usd += held
+                this_raw, val_usd = held
+                nav_usd += val_usd
                 observed = True
+                self._sync_position_from_chain(asset, this_raw, val_usd, bundle)
             self.stats.bars_observed += 1
             intent = self._strategy.on_bar(asset, bundle.market)
             if intent is None:
                 continue
             self.stats.signals_fired += 1
-            record = await self._handle_signal(asset, intent, bundle)
+            # Clamp `amount_in` to the on-chain balance of *this trade's*
+            # asset_in: USDC base cash for a LONG, the held asset for an
+            # EXIT. Base-only clamping let an EXIT (asset_in = WETH)
+            # ulp-overshoot the vault's WETH and revert as
+            # TradeCallFailed(1) on the sell leg.
+            if intent.asset_in == "USDC":
+                asset_in_raw = self._strategy._base_asset_balance_wei
+            elif intent.asset_in == asset:
+                asset_in_raw = this_raw
+            else:
+                asset_in_raw = None  # defensive: mean_rev only emits USDC|asset
+            record = await self._handle_signal(asset, intent, bundle, asset_in_raw)
             if record is not None:
                 produced.append(record)
         # NAV is set once per bar, after every holding is priced. on_bar
@@ -244,15 +266,15 @@ class MeanReversionRuntime:
             self.stats.last_position_nav_usd = nav_usd
         return produced
 
-    def _holding_value_usd(self, asset: str, bundle: SnapshotBundle) -> float | None:
-        """USD value of the vault's on-chain balance of `asset`, marked
-        to the latest signed oracle price in `bundle`.
+    def _read_holding(self, asset: str, bundle: SnapshotBundle) -> tuple[int, float] | None:
+        """Return `(raw_balance, usd_value)` for the vault's on-chain
+        holding of `asset`, marked to the latest signed oracle price.
 
-        Returns 0.0 when the read succeeded but the vault holds none of
-        the asset (a real observation). Returns None when the value
-        could not be observed — dry-run, unknown asset, or a failed
-        balanceOf — so the caller leaves NAV at its last-good value
-        instead of treating an RPC blip as a $0 position."""
+        `(0, 0.0)` when the read succeeded but the vault holds none (a
+        real observation). None when it could not be observed — dry-run,
+        unknown asset, or a failed balanceOf — so callers leave NAV /
+        the position book at their last-good value rather than treating
+        an RPC blip as a $0 position."""
         if not self._executor.live:
             return None
         idx = self._asset_idx.get(asset)
@@ -272,15 +294,43 @@ class MeanReversionRuntime:
             _log.warning("mean_reversion.nav.holding_read_failed", asset=asset, err=str(exc))
             return None
         if raw <= 0:
-            return 0.0
+            return 0, 0.0
         price_usd = bundle.signed[-1].price_e18 / 1e18
-        return (raw / (10**dec)) * price_usd
+        return raw, (raw / (10**dec)) * price_usd
+
+    def _sync_position_from_chain(
+        self, asset: str, raw: int, usd_value: float, bundle: SnapshotBundle
+    ) -> None:
+        """Make the strategy's position book reflect on-chain truth
+        *before* `on_bar`.
+
+        The runtime never mirrors fills into the strategy, so without
+        this the book is empty every run (not just after a restart):
+        `position <= 0` stays true so a LONG re-fires every bar and
+        drains all cash, while the EXIT branches (`position > 0`) are
+        unreachable — the vault can never sell back. Deriving the
+        position from the vault's actual balance each bar is the single
+        source of truth: it subsumes restart amnesia and the missing
+        write-back, stops the re-LONG drain, and lets a re-cross/overshoot
+        actually emit an EXIT. `avg_entry_price` is a price proxy —
+        mean_reversion's signals use absolute price (stop-loss) and the
+        z-score (entry/exit), never the average, so it does not affect
+        behaviour. Dust below the floor clears the position so a fresh
+        down-signal can still re-enter."""
+        dec = (self._cfg.asset_decimals or {}).get(asset, 18)
+        if raw > 0 and usd_value >= _POSITION_DUST_USD:
+            price_proxy = bundle.signed[-1].price_e18 / 1e18 if bundle.signed else 0.0
+            self._strategy._set_position(asset, raw / (10**dec), price_proxy, Direction.LONG)
+        else:
+            # qty == 0 pops the entry (StrategyAgent._set_position) → flat.
+            self._strategy._set_position(asset, 0.0, 0.0, Direction.LONG)
 
     async def _handle_signal(
         self,
         asset: str,
         intent: TradeIntent,
         bundle: SnapshotBundle,
+        asset_in_balance_raw: int | None = None,
     ) -> ExecutionRecord | None:
         # Commit-on-demand: anchor a fresh root for this asset NOW so the
         # proof's `oracle_root` is ~0s old against StrategyVault's 180s
@@ -332,9 +382,10 @@ class MeanReversionRuntime:
                 # swap amount across mixed-decimal universes.
                 asset_decimals=self._cfg.asset_decimals,
                 # Clamp `amount_in` to the vault's exact integer balance
-                # so the swap's `safeTransferFrom` cannot revert on a
-                # float-roundtrip drift from `seed_strategy_capital`.
-                base_asset_balance_raw=self._strategy._base_asset_balance_wei,
+                # of *this trade's* asset_in (USDC for a LONG, the held
+                # asset for an EXIT) so the swap's `safeTransferFrom`
+                # cannot revert on a float-roundtrip drift.
+                base_asset_balance_raw=asset_in_balance_raw,
             )
         except ValueError as exc:
             _log.warning("mean_reversion.witness.invalid", asset=asset, err=str(exc))
