@@ -193,3 +193,74 @@ export function formatStrategyName(
   }
   return formatAddress(id);
 }
+
+// ── Token metadata ──────────────────────────────────────────────────
+//
+// Subgraph Trade.amountIn / minAmountOut are raw integers in the
+// token's own decimals. The Phase-6 multi-asset universe mixes
+// decimals (mUSDC 18-dec on Kite / 6-dec on Base+Arb, mWBTC 8,
+// mWETH 18, mSOL 9), so a single `/1e6` is wrong for almost
+// everything. Resolve per (chainId, address).
+
+type TokenMeta = { symbol: string; decimals: number; isUsd: boolean };
+
+// OP-Stack WETH9 predeploy (Base-Sepolia spot universe — see CLAUDE.md
+// §12.1). Not in the deployments JSON because it's a chain predeploy.
+const BASE_WETH9 = "0x4200000000000000000000000000000000000006";
+
+const TOKEN_META: Readonly<Record<string, TokenMeta>> = (() => {
+  const out: Record<string, TokenMeta> = {};
+  const put = (chainId: number, addr: string | undefined, m: TokenMeta): void => {
+    if (addr) out[`${chainId}:${addr.toLowerCase()}`] = m;
+  };
+
+  const k = KITE.addresses;
+  put(KITE.chainId, k.usdc, { symbol: "mUSDC", decimals: 18, isUsd: true });
+  put(KITE.chainId, k.mWbtc, { symbol: "mWBTC", decimals: 8, isUsd: false });
+  put(KITE.chainId, k.mWeth, { symbol: "mWETH", decimals: 18, isUsd: false });
+  put(KITE.chainId, k.mSol, { symbol: "mSOL", decimals: 9, isUsd: false });
+
+  const b = BASE.addresses;
+  put(BASE.chainId, b.usdc, { symbol: "mUSDC", decimals: 6, isUsd: true });
+  put(BASE.chainId, BASE_WETH9, { symbol: "WETH", decimals: 18, isUsd: false });
+
+  const a = ARB.addresses;
+  put(ARB.chainId, a.usdc, { symbol: "mUSDC", decimals: 6, isUsd: true });
+
+  return out;
+})();
+
+export function tokenMetaFor(asset: string, chainId: number): TokenMeta | null {
+  if (!asset) return null;
+  return TOKEN_META[`${chainId}:${asset.toLowerCase()}`] ?? null;
+}
+
+/** Short token symbol for `asset` on `chainId`, else the truncated address. */
+export function formatAssetSymbol(asset: string, chainId: number): string {
+  return tokenMetaFor(asset, chainId)?.symbol ?? formatAddress(asset);
+}
+
+/**
+ * Decode a raw subgraph token amount into a display quantity using the
+ * token's true decimals. Returns null for tokens we don't know — the
+ * caller renders "—" rather than guessing a scale (the old heuristic
+ * mis-scaled every 18-dec value to "$0").
+ */
+export function decodeTokenAmount(
+  raw: string,
+  asset: string,
+  chainId: number,
+): { amount: number; symbol: string; isUsd: boolean } | null {
+  const meta = tokenMetaFor(asset, chainId);
+  if (!meta) return null;
+  let big: bigint;
+  try {
+    big = BigInt(raw);
+  } catch {
+    return null;
+  }
+  const scale = 10n ** BigInt(meta.decimals);
+  const whole = Number(big / scale);
+  const frac = Number(big % scale) / Number(scale);
+  return { amount: whole + frac, symbol: meta.symbol, isUsd: meta.isUsd };
+}

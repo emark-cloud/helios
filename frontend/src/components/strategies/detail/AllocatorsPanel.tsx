@@ -18,11 +18,12 @@ import {
   formatRelative,
   formatStrategyClass,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import type { StrategyAllocationRow, StrategyDetail } from "@/lib/goldsky";
 
 export function AllocatorsPanel({ strategy }: { strategy: StrategyDetail }): JSX.Element {
-  const aggregated = aggregateByAllocator(strategy.allocations);
+  const aggregated = aggregateByAllocator(strategy.allocations, strategy.chainId);
 
   return (
     <section data-testid="strategy-allocators">
@@ -53,11 +54,14 @@ type AggregatedEntry = {
   rows: StrategyAllocationRow[];
 };
 
-function aggregateByAllocator(rows: StrategyAllocationRow[]): AggregatedEntry[] {
+function aggregateByAllocator(
+  rows: StrategyAllocationRow[],
+  chainId: number,
+): AggregatedEntry[] {
   const byAlloc = new Map<string, AggregatedEntry>();
   for (const row of rows) {
     const id = row.allocator.id.toLowerCase();
-    const usd = Number(row.capitalDeployed) / 1e6;
+    const usd = mUsdcRawToUsd(row.capitalDeployed, chainId);
     const ts = Number(row.lastRebalanceAt);
     const isActive = row.defundedAt == null;
 

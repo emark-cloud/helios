@@ -15,15 +15,24 @@ import { useMemo, useState } from "react";
 
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
 import { cn } from "@/lib/cn";
-import { formatPct, formatTimestamp, formatUsd } from "@/lib/format";
+import { formatPct, formatTimestamp, formatUsd, mUsdcRawToUsd } from "@/lib/format";
 import type { NavSnapshotRow } from "@/lib/goldsky";
 
 type Window = "24h" | "7d" | "30d";
 
-export function NavTimeline({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX.Element {
+export function NavTimeline({
+  snapshots,
+  chainId,
+}: {
+  snapshots: NavSnapshotRow[];
+  chainId: number;
+}): JSX.Element {
   const [windowSel, setWindow] = useState<Window>("24h");
 
-  const points = useMemo(() => buildPoints(snapshots, windowSel), [snapshots, windowSel]);
+  const points = useMemo(
+    () => buildPoints(snapshots, windowSel, chainId),
+    [snapshots, windowSel, chainId],
+  );
 
   if (points.length < 2) {
     return (
@@ -99,7 +108,7 @@ function SectionHeader({
 
 type Point = { ts: number; nav: number; hwm: number };
 
-function buildPoints(snapshots: NavSnapshotRow[], window: Window): Point[] {
+function buildPoints(snapshots: NavSnapshotRow[], window: Window, chainId: number): Point[] {
   if (snapshots.length === 0) return [];
   const cutoff = Math.floor(Date.now() / 1000) - windowSeconds(window);
 
@@ -111,7 +120,7 @@ function buildPoints(snapshots: NavSnapshotRow[], window: Window): Point[] {
   const out: Point[] = [];
   let runningHwm = 0;
   for (const s of filtered) {
-    const nav = Number(s.totalNAV) / 1e6;
+    const nav = mUsdcRawToUsd(s.totalNAV, chainId);
     runningHwm = Math.max(runningHwm, nav);
     out.push({ ts: Number(s.timestamp), nav, hwm: runningHwm });
   }

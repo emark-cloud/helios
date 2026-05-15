@@ -13,12 +13,13 @@ import {
   formatStrategyClass,
   formatTimestamp,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import type { StrategyDetail } from "@/lib/goldsky";
 
 export function ManifestHeader({ strategy }: { strategy: StrategyDetail }): JSX.Element {
-  const stake = usdcToUsd(strategy.stakeAmount);
-  const capacity = usdcToUsd(strategy.maxCapacity);
+  const stake = mUsdcRawToUsd(strategy.stakeAmount, strategy.chainId);
+  const capacity = mUsdcRawToUsd(strategy.maxCapacity, strategy.chainId);
 
   const explorer = explorerAddressUrl(strategy.chainId, strategy.id);
   const operatorExplorer = explorerAddressUrl(strategy.chainId, strategy.operator);
@@ -109,12 +110,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <dd className="mt-0.5 font-mono">{children}</dd>
     </div>
   );
-}
-
-function usdcToUsd(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return n / 1e6;
 }
 
 function readReputation(raw: string): number {

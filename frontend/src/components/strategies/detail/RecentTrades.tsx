@@ -12,6 +12,7 @@ import type { Route } from "next";
 
 import { Numeric } from "@/components/atoms/Numeric";
 import { ProofBadge } from "@/components/atoms/ProofBadge";
+import { decodeTokenAmount, formatAssetSymbol } from "@/lib/addresses";
 import {
   explorerTxUrl,
   formatAddress,
@@ -78,8 +79,8 @@ export function RecentTrades({
 function Row({ chainId, trade }: { chainId: number; trade: StrategyTradeRow }): JSX.Element {
   const explorer = explorerTxUrl(chainId, trade.txHash);
   const ts = Number(trade.timestamp);
-  const sizeUsd = decodeAmountUsd(trade.amountIn, trade.assetIn);
-  const minOutUsd = decodeAmountUsd(trade.minAmountOut, trade.assetOut);
+  const sizeIn = decodeTokenAmount(trade.amountIn, trade.assetIn, chainId);
+  const minOut = decodeTokenAmount(trade.minAmountOut, trade.assetOut, chainId);
 
   return (
     <tr className="border-b border-surface-line last:border-b-0 hover:bg-surface-elev">
@@ -93,19 +94,17 @@ function Row({ chainId, trade }: { chainId: number; trade: StrategyTradeRow }): 
         {directionLabel(trade.direction)}
       </td>
       <td className="px-3 py-2.5 font-mono text-xs text-fg-secondary" title={trade.assetIn}>
-        {formatAddress(trade.assetIn)}
+        {formatAssetSymbol(trade.assetIn, chainId)}
       </td>
       <td className="px-3 py-2.5 font-mono text-xs text-fg-secondary" title={trade.assetOut}>
-        {formatAddress(trade.assetOut)}
+        {formatAssetSymbol(trade.assetOut, chainId)}
       </td>
       <td className="px-3 py-2.5 text-right">
-        <Numeric align="right">
-          {sizeUsd != null ? formatUsd(sizeUsd, { compact: true, cents: false }) : "—"}
-        </Numeric>
+        <Numeric align="right">{formatAmount(sizeIn)}</Numeric>
       </td>
       <td className="px-3 py-2.5 text-right">
         <Numeric align="right" tone="muted">
-          {minOutUsd != null ? formatUsd(minOutUsd, { compact: true, cents: false }) : "—"}
+          {formatAmount(minOut)}
         </Numeric>
       </td>
       <td className="px-3 py-2.5 text-center">
@@ -140,21 +139,17 @@ function directionLabel(direction: number): string {
   return `op ${direction}`;
 }
 
-/// Subgraph emits raw uint256 amounts. For USDC.e (Kite) we know
-/// 6 decimals; for unknown tokens we fall back to "—" rather than
-/// guess. This keeps the column honest until the strategy detail
-/// surface starts joining trades to a token-decimals table.
-const KNOWN_USDC = new Set<string>([
-  // Kite testnet mUSDC
-  "0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
-]);
-
-function decodeAmountUsd(raw: string, asset: string): number | null {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n === 0) return 0;
-  if (KNOWN_USDC.has(asset.toLowerCase())) return n / 1e6;
-  // Heuristic: if the value fits sub-1B with 6 decimals, render it
-  // as USDC. Falls back to "—" for clearly non-USDC magnitudes.
-  if (n < 1e15) return n / 1e6;
-  return null;
+/// Render a decoded trade amount. USD-pegged assets get the `$`
+/// treatment; other universe tokens render as a token quantity with
+/// their symbol (no price oracle on the frontend, so a USD figure
+/// would be a fabrication). Unknown tokens → "—".
+function formatAmount(
+  decoded: { amount: number; symbol: string; isUsd: boolean } | null,
+): string {
+  if (decoded == null) return "—";
+  if (decoded.isUsd) return formatUsd(decoded.amount, { compact: true, cents: false });
+  const qty = decoded.amount.toLocaleString("en-US", {
+    maximumFractionDigits: decoded.amount < 1 ? 6 : 4,
+  });
+  return `${qty} ${decoded.symbol}`;
 }

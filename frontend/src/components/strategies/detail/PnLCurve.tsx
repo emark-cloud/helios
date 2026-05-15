@@ -11,13 +11,19 @@
 import { useMemo } from "react";
 
 import { Numeric, toneFor } from "@/components/atoms/Numeric";
-import { formatPct, formatTimestamp, formatUsd } from "@/lib/format";
+import { formatPct, formatTimestamp, formatUsd, mUsdcRawToUsd } from "@/lib/format";
 import type { NavSnapshotRow } from "@/lib/goldsky";
 
 type Point = { ts: number; pnl: number; drawdownPct: number };
 
-export function PnLCurve({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX.Element {
-  const points = useMemo(() => buildPoints(snapshots), [snapshots]);
+export function PnLCurve({
+  snapshots,
+  chainId,
+}: {
+  snapshots: NavSnapshotRow[];
+  chainId: number;
+}): JSX.Element {
+  const points = useMemo(() => buildPoints(snapshots, chainId), [snapshots, chainId]);
 
   if (points.length < 2) {
     return (
@@ -67,13 +73,13 @@ export function PnLCurve({ snapshots }: { snapshots: NavSnapshotRow[] }): JSX.El
   );
 }
 
-function buildPoints(snapshots: NavSnapshotRow[]): Point[] {
+function buildPoints(snapshots: NavSnapshotRow[], chainId: number): Point[] {
   if (snapshots.length === 0) return [];
   const ordered = [...snapshots].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-  const baseNav = Number(ordered[0]!.totalNAV) / 1e6;
+  const baseNav = mUsdcRawToUsd(ordered[0]!.totalNAV, chainId);
   let runningHwm = baseNav;
   return ordered.map((s) => {
-    const nav = Number(s.totalNAV) / 1e6;
+    const nav = mUsdcRawToUsd(s.totalNAV, chainId);
     runningHwm = Math.max(runningHwm, nav);
     const drawdown = runningHwm > 0 ? ((runningHwm - nav) / runningHwm) * 100 : 0;
     return { ts: Number(s.timestamp), pnl: nav - baseNav, drawdownPct: drawdown };
