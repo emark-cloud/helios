@@ -235,7 +235,11 @@ export function OnboardClient(): JSX.Element {
 
       <Section step="4" title="Sign">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
-          <CommitmentSummary form={form} />
+          <CommitmentSummary
+              form={form}
+              onAmountChange={(usd) => setForm((f) => ({ ...f, max_capital_usd: usd }))}
+              disabled={submitState.kind === "submitting"}
+            />
           <div className="flex flex-col gap-3">
             {!passport.enabled ? <MintDemoUsdcButton /> : null}
             <SignPanel
