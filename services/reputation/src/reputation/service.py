@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 import httpx
 from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from reputation import score as _score
@@ -49,6 +49,24 @@ class Settings(BaseServiceSettings):
         default="", validation_alias="REPUTATION_ALLOCATOR_REGISTRY_ADDRESS"
     )
     http_port: int = 8002
+    # Gas optimization knob: 0 = never re-post a semantically-unchanged
+    # reputation payload (recommended — there is NO on-chain consumer that
+    # needs periodic refresh; registries are write-only delta sinks, no
+    # staleness gate, contrast the oracle's real 180s AllocatorVault gate).
+    # A positive value re-posts an unchanged payload at least that often
+    # purely as a cosmetic /audit + subgraph freshness heartbeat.
+    force_repost_sec: int = Field(default=0, validation_alias="REPUTATION_FORCE_REPOST_SEC")
+
+    @field_validator("force_repost_sec")
+    @classmethod
+    def _force_repost_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                "REPUTATION_FORCE_REPOST_SEC must be >= 0 (0 = never force; "
+                "positive = cosmetic dashboard/subgraph freshness heartbeat "
+                "only — no on-chain consumer requires it)"
+            )
+        return v
 
 
 def _serialize_cohort(c: CohortStats) -> dict[str, object]:
@@ -227,6 +245,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         signer=signer,
         poll_interval_sec=cfg.poll_interval_sec,
         anchor=anchor,
+        force_repost_sec=cfg.force_repost_sec,
     )
 
     @asynccontextmanager
@@ -250,6 +269,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "anchor": cfg.anchor_address,
             "goldsky_endpoint": cfg.goldsky_endpoint,
             "typehash_version": signer.typehash_version,
+            "force_repost_sec": cfg.force_repost_sec,
+            "posts": engine.post_count,
+            "skipped_unchanged": engine.skipped_unchanged_count,
         }
 
     @router.get("/scores/recent")

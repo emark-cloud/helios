@@ -80,6 +80,38 @@ class AllocatorEngineUpdate:
     posted: PostedUpdate | None = None
 
 
+def _dedup_key(u: ReputationUpdate) -> tuple[object, ...]:
+    """Semantic identity of the on-chain `ReputationData` payload, keyed by
+    everything the contract stores **except `lastUpdateBlock`**.
+
+    `lastUpdateBlock` is reset to `now_unix` every tick (see
+    `_compute_update` / `_compute_allocator_update`), so it must be excluded
+    or the payload would never be byte-identical and dedup could never fire.
+    Excluding it is safe: the only on-chain consumer of `lastUpdateBlock` is
+    `ReputationAnchor`'s monotonic replay guard
+    (`data.lastUpdateBlock <= prev.lastUpdateBlock` reverts `StaleUpdate()`),
+    and since we still set it to `now_unix` on every *actual* post, a post
+    after a long skip gap always carries a strictly larger value and never
+    trips that guard.
+
+    `components_hash` is included as a safe superset: v1 does not store it
+    on-chain, but it is derived from the rounded e4 component tuple
+    (`score.py`), so sub-quantum window-slide drift yields an identical key
+    while any on-chain-visible component move flips it. Version-agnostic —
+    derived from `ReputationUpdate` fields, never the packed calldata.
+    """
+    return (
+        u.actor.lower(),
+        int(u.actor_type),
+        int(u.current_score),
+        int(u.total_attested_trades),
+        int(u.total_realized_pnl),
+        int(u.max_drawdown_bps),
+        int(u.proof_validity_rate_bps),
+        bytes(u.components_hash or b"").rjust(32, b"\x00"),
+    )
+
+
 class ReputationEngine:
     def __init__(
         self,
@@ -87,11 +119,28 @@ class ReputationEngine:
         signer: ReputationSigner,
         poll_interval_sec: int = 60,
         anchor: AnchorPoster | None = None,
+        force_repost_sec: int = 0,
     ) -> None:
         self._goldsky = goldsky
         self._signer = signer
         self._anchor = anchor
         self._interval = max(5, poll_interval_sec)
+        # Gas optimization: skip the on-chain `postReputationUpdate` tx when
+        # an actor's payload is semantically unchanged since the last
+        # SUCCESSFULLY-SUBMITTED post. There is no on-chain freshness gate on
+        # reputation (registries are write-only delta sinks; contrast the
+        # oracle's real 180s AllocatorVault gate), so skipping is zero-impact.
+        # `force_repost_sec > 0` re-posts an unchanged payload at least that
+        # often purely as a cosmetic /audit + subgraph freshness heartbeat.
+        self._force_repost_sec = max(0, force_repost_sec)
+        # (actor.lower(), actor_type_int) -> (dedup_key, armed_at_unix).
+        # Armed ONLY on a genuinely submitted post (mirrors the oracle anchor
+        # `rec.submitted` discipline). In-memory only: a restart empties it,
+        # so each actor re-posts exactly once then dedup resumes — harmless
+        # and desirable; deliberately NOT seeded from chain.
+        self._last_submitted: dict[tuple[str, int], tuple[tuple[object, ...], int]] = {}
+        self._skip_unchanged_count = 0
+        self._post_count = 0
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._latest: dict[str, EngineUpdate] = {}
@@ -118,6 +167,62 @@ class ReputationEngine:
     @property
     def latest_allocators(self) -> dict[str, AllocatorEngineUpdate]:
         return dict(self._latest_allocators)
+
+    @property
+    def post_count(self) -> int:
+        return self._post_count
+
+    @property
+    def skipped_unchanged_count(self) -> int:
+        return self._skip_unchanged_count
+
+    def _should_post(self, u: ReputationUpdate, now_unix: int) -> bool:
+        """False ⇒ skip the on-chain tx because the last successfully
+        submitted payload for this actor is semantically identical
+        (excluding `lastUpdateBlock`) and the optional cosmetic
+        force-repost interval has not elapsed."""
+        prev = self._last_submitted.get((u.actor.lower(), int(u.actor_type)))
+        if prev is None:
+            return True  # never submitted (or first tick after restart)
+        prev_key, armed_at = prev
+        if _dedup_key(u) != prev_key:
+            return True  # genuine on-chain-visible change
+        # Payload unchanged: re-post only if the cosmetic force-repost
+        # interval has elapsed (no on-chain consumer requires this).
+        return self._force_repost_sec > 0 and now_unix - armed_at >= self._force_repost_sec
+
+    def _arm_if_submitted(
+        self, u: ReputationUpdate, posted: PostedUpdate | None, now_unix: int
+    ) -> None:
+        """Advance the cache ONLY on a genuinely submitted post. Dry-run
+        (`posted is None`), registry-skip / RPC failure (`submitted` False)
+        all leave the cache untouched so the next tick retries."""
+        if posted is not None and posted.submitted:
+            self._last_submitted[(u.actor.lower(), int(u.actor_type))] = (
+                _dedup_key(u),
+                now_unix,
+            )
+
+    async def _maybe_post(
+        self, update: ReputationUpdate, signed: SignedUpdate, now_unix: int
+    ) -> PostedUpdate | None:
+        """Shared gate for the strategy + allocator post seams."""
+        if self._anchor is None:
+            return None
+        if not self._should_post(update, now_unix):
+            self._skip_unchanged_count += 1
+            _log.info(
+                "reputation.anchor.skip_unchanged",
+                actor=update.actor,
+                actor_type=int(update.actor_type),
+                score_e4=update.current_score,
+            )
+            return None
+        posted = await self._anchor.post_async(signed)
+        self._arm_if_submitted(update, posted, now_unix)
+        if posted.submitted:
+            self._post_count += 1
+        return posted
 
     def subscribe(self) -> asyncio.Queue[EngineUpdate]:
         q: asyncio.Queue[EngineUpdate] = asyncio.Queue(maxsize=128)
@@ -311,7 +416,7 @@ class ReputationEngine:
             components_hash=outputs.components_hash,
         )
         signed = self._signer.sign_update(update)
-        posted = await self._anchor.post_async(signed) if self._anchor is not None else None
+        posted = await self._maybe_post(update, signed, now_unix)
         return AllocatorEngineUpdate(
             state=state,
             inputs=inputs,
@@ -379,8 +484,9 @@ class ReputationEngine:
         signed = self._signer.sign_update(update)
         # Off the event loop: `wait_for_transaction_receipt(timeout=30)`
         # would otherwise stall every other strategy's score push + the
-        # WS subscriber fanout for up to 30s per receipt.
-        posted = await self._anchor.post_async(signed) if self._anchor is not None else None
+        # WS subscriber fanout for up to 30s per receipt. `_maybe_post`
+        # also skips the tx entirely when the payload is unchanged.
+        posted = await self._maybe_post(update, signed, now_unix)
         return EngineUpdate(
             state=state,
             inputs=inputs,
