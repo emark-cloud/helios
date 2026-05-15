@@ -238,12 +238,26 @@ def _resolve_amount_in(
     dec = (asset_decimals or {}).get(asset_in)
 
     if intent.amount_in_usd is not None:
-        if dec is not None:
-            # USD-denominated leg in multi-decimal mode is always paired
-            # with the stable as `asset_in` (LONG entry: USDC → asset).
-            # Translate directly to the stable's raw decimals.
-            return int(intent.amount_in_usd * 10**dec)
-        return int(intent.amount_in_usd * 10**18)
+        if dec is None:
+            # Legacy Phase-1 same-unit mode (no asset_decimals): USD*1e18.
+            return int(intent.amount_in_usd * 10**18)
+        usd_scaled = int(intent.amount_in_usd * 10**dec)
+        if asset_in == "USDC":
+            # USDC is the USD-pegged base (1 USDC ≈ $1, asset_universe[0]);
+            # the USD notional is already the token amount in its decimals.
+            # This is the only `amount_in_usd` leg reference momentum
+            # emits today (LONG entry: USDC → asset).
+            return usd_scaled
+        # Priced asset_in (a sell of WETH/WBTC with a USD notional):
+        # convert the USD notional to asset_in units at asset_in's USD
+        # price. Without this a $X intent is mis-encoded as X whole
+        # tokens — orders of magnitude oversized and unfundable, the
+        # swap's safeTransferFrom reverting as TradeCallFailed(1).
+        # Latent in reference momentum (long-only never sells via
+        # amount_in_usd); kept correct + self-consistent for subclasses.
+        if last_price_e18 <= 0:
+            raise ValueError("amount_in_usd for a priced asset_in needs last_price_e18 > 0")
+        return usd_scaled * 10**18 // last_price_e18
 
     if intent.amount_in_asset is not None:
         if dec is not None:

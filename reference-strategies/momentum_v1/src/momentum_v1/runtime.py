@@ -27,8 +27,8 @@ from typing import Any
 import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from helios.runtime.nav_seed import seed_strategy_capital
-from helios.types import TradeIntent
+from helios.runtime.nav_seed import read_erc20_balance, seed_strategy_capital
+from helios.types import Direction, TradeIntent
 
 from momentum_v1.executor import ExecutionRecord, TradeExecutor
 from momentum_v1.oracle_client import OracleClient, OracleEmptyError, SnapshotBundle
@@ -37,6 +37,14 @@ from momentum_v1.strategy import MomentumStrategy
 from momentum_v1.witness import PRICE_OBSERVATIONS, build_momentum_witness
 
 _log = structlog.get_logger(__name__)
+
+# A held balance worth less than this is accounting dust, not a
+# tradeable position: it must not (a) count as `position > 0` and block
+# a fresh LONG when momentum is still positive, nor (b) trigger a
+# spurious EXIT proving a ~0-value swap. momentum sizes entries in
+# tens–hundreds of USD, so $1 is comfortably below any real position —
+# an accounting-hygiene floor, not a signal knob.
+_POSITION_DUST_USD = 1.0
 
 
 def _sign_nav_eip712(
@@ -101,7 +109,15 @@ class RuntimeStats:
     execs_submitted: int = 0
     nav_reports: int = 0
     last_block_window_end: int = 0
+    # Spendable base-asset (mUSDC) cash from the on-chain seed — the
+    # ceiling a LONG can fund and the number that explains an
+    # `unfundable` skip (cash == 0 ⇒ nothing to spend even if NAV > 0).
     last_seeded_nav_usd: float = 0.0
+    # Position-aware mark-to-market NAV: base cash + every non-base
+    # holding valued at the latest oracle price. Drives
+    # `nav_target_notional` sizing and on-chain `reportNAV`. Diverges
+    # from `last_seeded_nav_usd` once the vault holds non-base assets.
+    last_position_nav_usd: float = 0.0
     last_error: str = ""
     last_signal: dict[str, Any] = field(default_factory=dict)
 
@@ -193,7 +209,13 @@ class MomentumRuntime:
 
         Returns the records produced by this tick (empty when no
         signals fired). Used by tests + scenario harnesses."""
-        self._seed_nav_from_chain()
+        base_cash_usd = self._seed_nav_from_chain()
+        # `observed` gates the NAV write: a bar where neither the base
+        # cash nor any holding could be read must NOT clobber a last-good
+        # NAV to 0 — the reportNAV cadence would then post a false zero.
+        # Genuine 0 balances (read succeeded, vault empty) DO update NAV.
+        observed = base_cash_usd is not None
+        nav_usd = base_cash_usd or 0.0
         produced: list[ExecutionRecord] = []
         for asset in self._strategy.asset_universe:
             if asset == "USDC":
@@ -206,21 +228,101 @@ class MomentumRuntime:
                 _log.warning("momentum.oracle.error", asset=asset, err=str(exc))
                 self.stats.last_error = str(exc)
                 continue
+            # Position-aware NAV + position-book sync from one balance
+            # read: every LONG swaps mUSDC → asset, so crediting the held
+            # asset back keeps NAV honest, and reflecting it into the
+            # strategy's position book (before on_bar) stops the re-LONG
+            # drain and lets a signal flip emit an EXIT.
+            held = self._read_holding(asset, bundle)
+            this_raw: int | None = None
+            if held is not None:
+                this_raw, val_usd = held
+                nav_usd += val_usd
+                observed = True
+                self._sync_position_from_chain(asset, this_raw, val_usd, bundle)
             self.stats.bars_observed += 1
             intent = self._strategy.on_bar(asset, bundle.market)
             if intent is None:
                 continue
             self.stats.signals_fired += 1
-            record = await self._handle_signal(asset, intent, bundle)
+            # Clamp `amount_in` to the on-chain balance of *this trade's*
+            # asset_in: USDC base cash for a LONG, the held asset for an
+            # EXIT. Base-only clamping let an EXIT (asset_in = WETH)
+            # ulp-overshoot the vault and revert TradeCallFailed(1).
+            if intent.asset_in == "USDC":
+                asset_in_raw = self._strategy._base_asset_balance_wei
+            elif intent.asset_in == asset:
+                asset_in_raw = this_raw
+            else:
+                asset_in_raw = None  # defensive: momentum only emits USDC|asset
+            record = await self._handle_signal(asset, intent, bundle, asset_in_raw)
             if record is not None:
                 produced.append(record)
+        # NAV set once per bar after every holding is priced (on_bar this
+        # bar saw the prior bar's NAV — one cold-start warmup; the
+        # reportNAV cadence always reads the fresh value).
+        if self._executor.live and observed:
+            self._strategy._set_nav(nav_usd)
+            self.stats.last_position_nav_usd = nav_usd
         return produced
+
+    def _read_holding(self, asset: str, bundle: SnapshotBundle) -> tuple[int, float] | None:
+        """`(raw_balance, usd_value)` for the vault's on-chain holding of
+        `asset`, marked to the latest signed oracle price. `(0, 0.0)`
+        when the read succeeded but the vault holds none. None when it
+        could not be observed — dry-run, unknown asset, or a failed
+        balanceOf — so callers leave NAV / the position book at their
+        last-good value rather than treating an RPC blip as $0."""
+        if not self._executor.live:
+            return None
+        idx = self._asset_idx.get(asset)
+        if idx is None:
+            return None
+        token = self._universe[idx]
+        if not token or not bundle.signed:
+            return None
+        dec = (self._cfg.asset_decimals or {}).get(asset, 18)
+        try:
+            raw = read_erc20_balance(
+                w3=self._executor.w3,
+                token_address=token,
+                holder_address=self._executor.vault,
+            )
+        except Exception as exc:
+            _log.warning("momentum.nav.holding_read_failed", asset=asset, err=str(exc))
+            return None
+        if raw <= 0:
+            return 0, 0.0
+        price_usd = bundle.signed[-1].price_e18 / 1e18
+        return raw, (raw / (10**dec)) * price_usd
+
+    def _sync_position_from_chain(
+        self, asset: str, raw: int, usd_value: float, bundle: SnapshotBundle
+    ) -> None:
+        """Make the strategy's position book reflect on-chain truth
+        *before* on_bar. The runtime never mirrors fills, so without this
+        the book is empty every run (not just after a restart):
+        `position <= 0` stays true so a LONG re-fires every bar and
+        drains all cash, while the EXIT branch (`position > 0`) is
+        unreachable. Deriving the position from the vault's actual
+        balance each bar is the single source of truth. `avg_entry_price`
+        is a price proxy — momentum's signal uses only the return and
+        position sign, never the average. Dust below the floor clears
+        the position so a fresh momentum signal can still re-enter."""
+        dec = (self._cfg.asset_decimals or {}).get(asset, 18)
+        if raw > 0 and usd_value >= _POSITION_DUST_USD:
+            price_proxy = bundle.signed[-1].price_e18 / 1e18 if bundle.signed else 0.0
+            self._strategy._set_position(asset, raw / (10**dec), price_proxy, Direction.LONG)
+        else:
+            # qty == 0 pops the entry (StrategyAgent._set_position) → flat.
+            self._strategy._set_position(asset, 0.0, 0.0, Direction.LONG)
 
     async def _handle_signal(
         self,
         asset: str,
         intent: TradeIntent,
         bundle: SnapshotBundle,
+        asset_in_balance_raw: int | None = None,
     ) -> ExecutionRecord | None:
         # Commit-on-demand: anchor a fresh root for this asset NOW so the
         # proof's `oracle_root` is ~0s old against StrategyVault's 180s
@@ -284,9 +386,10 @@ class MomentumRuntime:
                 # (mUSDC=18, mWBTC=8, mWETH=18, mSOL=9).
                 asset_decimals=self._cfg.asset_decimals,
                 # Clamp `amount_in` to the vault's exact integer balance
-                # so the swap's `safeTransferFrom` cannot revert on a
-                # float-roundtrip drift from `seed_strategy_capital`.
-                base_asset_balance_raw=self._strategy._base_asset_balance_wei,
+                # of *this trade's* asset_in (USDC for a LONG, the held
+                # asset for an EXIT) so the swap's `safeTransferFrom`
+                # cannot revert on a float-roundtrip drift.
+                base_asset_balance_raw=asset_in_balance_raw,
             )
         except ValueError as exc:
             _log.warning("momentum.witness.invalid", asset=asset, err=str(exc))
@@ -349,21 +452,25 @@ class MomentumRuntime:
         return record
 
     # ── NAV seed from on-chain balance ────────────────────────
-    def _seed_nav_from_chain(self) -> None:
-        """Read `IERC20(USDC).balanceOf(vault)` and set the strategy's
-        `available_capital` + `nav` to that value. Without this seed
-        `_size()` returns 0 (NAV = 0), which the directional circuit
-        rejects via Constraint 0 (`amount_in > 0`). Silently no-ops in
-        dry-run mode (no live web3) so unit tests don't need a chain.
-        """
+    def _seed_nav_from_chain(self) -> float | None:
+        """Seed `available_capital` (spendable base cash) + the exact wei
+        balance from `IERC20(USDC).balanceOf(vault)`, and return that
+        cash in USD. NAV is *not* set here — `tick_bar` owns a
+        position-aware NAV (base cash + non-base holdings marked to the
+        oracle price). Base-cash-only NAV reports ~0 once the vault has
+        swapped its base leg into assets, collapsing `nav_target_notional`
+        sizing. Returns the cash USD when observed (0.0 is a valid
+        observation — an empty base leg); None when it could not be read
+        (dry-run or a failed RPC) so `tick_bar` keeps the last-good NAV
+        rather than posting a false zero."""
         if not self._executor.live:
-            return
+            return None
         # USDC is universe slot 0 by convention (Helios.md §6.5).
         base_asset = self._universe[0] if self._universe else ""
         if not base_asset:
-            return
+            return None
         try:
-            seeded = seed_strategy_capital(
+            cash = seed_strategy_capital(
                 strategy=self._strategy,
                 w3=self._executor.w3,
                 base_asset_address=base_asset,
@@ -371,10 +478,13 @@ class MomentumRuntime:
                 base_asset_decimals=self._cfg.asset_decimals.get("USDC", 18)
                 if self._cfg.asset_decimals
                 else 18,
+                set_nav=False,
             )
-            self.stats.last_seeded_nav_usd = seeded
+            self.stats.last_seeded_nav_usd = cash
+            return cash
         except Exception as exc:
             _log.warning("momentum.nav.seed_failed", err=str(exc))
+            return None
 
     # ── NAV tick ──────────────────────────────────────────────
     async def _nav_loop(self) -> None:
