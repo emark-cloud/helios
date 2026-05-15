@@ -26,11 +26,12 @@ const PCT_FMT = new Intl.NumberFormat("en-US", {
 export function formatUsd(usd: number, opts?: { compact?: boolean; cents?: boolean }): string {
   if (!Number.isFinite(usd)) return "—";
   if (opts?.compact && Math.abs(usd) >= 1_000) {
-    const k = usd / 1_000;
-    if (Math.abs(k) >= 1_000) {
-      return `$${(k / 1_000).toFixed(1)}M`;
-    }
-    return `$${k.toFixed(1)}k`;
+    const abs = Math.abs(usd);
+    const sign = usd < 0 ? "−" : "";
+    if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(2)}T`;
+    if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+    return `${sign}$${(abs / 1e3).toFixed(1)}k`;
   }
   return opts?.cents === false ? USD_NO_CENTS.format(usd) : USD_FMT.format(usd);
 }

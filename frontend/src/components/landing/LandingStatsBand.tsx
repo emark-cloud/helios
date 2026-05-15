@@ -24,9 +24,10 @@ export function LandingStatsBand(): JSX.Element {
   });
 
   const data = query.data;
-  // Subgraph BigInt (capitalDeployed is e6 USDC). Convert to USD float
-  // here so the formatter doesn't have to know.
-  const totalUsd = data ? Number(BigInt(data.totalCapitalUsdE6)) / 1_000_000 : null;
+  // Kite testnet mUSDC is 18-decimal (Base/Arb mUSDC is 6-decimal but
+  // the bulk of Phase-6 capital lives on Kite). Field name preserves the
+  // legacy `_E6` suffix to avoid a subgraph schema bump.
+  const totalUsd = data ? Number(BigInt(data.totalCapitalUsdE6) / 10n ** 12n) / 1_000_000 : null;
 
   const cells: Array<{ label: string; value: string }> = [
     {
