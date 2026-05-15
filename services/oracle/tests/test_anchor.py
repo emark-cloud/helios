@@ -737,11 +737,13 @@ class _Clock:
         return self.t
 
 
-class _SubmittedPoster:
-    """Duck-typed AnchorPoster that always reports a *mined* commit, so
+class _SubmittedPoster(AnchorPoster):
+    """`AnchorPoster` subclass that always reports a *mined* commit, so
     scheduler liveness/nonce logic (which keys off `rec.submitted`) can
     be exercised without a live chain. The real dry-run `AnchorPoster`
-    reports `submitted=False`, which deliberately never arms the gate."""
+    reports `submitted=False`, which deliberately never arms the gate.
+    Subclasses (not duck-types) so it satisfies the scheduler's
+    `poster: AnchorPoster` annotation — same pattern as `_StubProver`."""
 
     def __init__(self) -> None:
         self.posts: list[CommitPayload] = []
