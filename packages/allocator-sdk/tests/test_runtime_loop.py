@@ -301,6 +301,31 @@ async def test_sub_floor_ops_are_filtered_as_dust() -> None:
     assert await _run(0) == ["allocateToStrategy"]  # gate off → executes
 
 
+def test_watched_strategy_ids_reflects_active_directory() -> None:
+    """`watched_strategy_ids` is a sync snapshot of the Goldsky `active`
+    directory (`_directory`), not the NAV-filtered candidate set — a
+    temporarily NAV-silent but active vault must still be watched. This
+    is what `chain_watch` reads to auto-track new strategies."""
+    store = AllocatorStore()
+    onchain = AllocatorOnChain(
+        rpc_url="",
+        operator_pk="",
+        allocator_vault_address="",
+        allocator_registry_address="",
+        chain_id=2368,
+    )
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=_StubGoldsky([]),
+        onchain=onchain,
+    )
+    assert loop.watched_strategy_ids == ()  # nothing before first refresh
+    a, b = "0x" + "11" * 20, "0x" + "22" * 20
+    loop.seed_directory([_row(a), _row(b)])
+    assert loop.watched_strategy_ids == (a, b)
+
+
 @pytest.mark.asyncio
 async def test_stale_nav_strategies_dropped_from_candidates() -> None:
     """Strategies whose navOracle stopped posting drop out of the

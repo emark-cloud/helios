@@ -192,7 +192,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         ),
     )
 
-    chain_watcher = _build_chain_watcher(cfg, store)
+    chain_watcher = _build_chain_watcher(cfg, store, loop)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -252,8 +252,16 @@ def _build_goldsky(
     )
 
 
-def _build_chain_watcher(cfg: Settings, store) -> ChainWatcher:
+def _build_chain_watcher(cfg: Settings, store, loop: AllocatorLoop) -> ChainWatcher:
     """Compose a `ChainWatcher` from environment-driven settings.
+
+    `SENTINEL_CHAIN_WATCH_STRATEGY_VAULTS` is now a *static floor*, not
+    the authoritative set: the watcher unions it with `loop`'s live
+    Goldsky `active` directory each scan, so a newly deployed strategy
+    is observed without any env edit and a retired one drops off once
+    it leaves the directory (the floor still pins anything an operator
+    lists explicitly, and survives a directory blip). Leave the env
+    empty to run purely dynamic.
 
     Stub mode kicks in whenever `kite_rpc_url` or `allocator_vault_address`
     is empty — the watcher's `live` property goes False and `start()`
@@ -278,6 +286,7 @@ def _build_chain_watcher(cfg: Settings, store) -> ChainWatcher:
             poll_interval_sec=cfg.chain_watch_poll_interval_sec,
             checkpoint_path=checkpoint_path,
         ),
+        strategy_vaults_provider=lambda: loop.watched_strategy_ids,
     )
 
 

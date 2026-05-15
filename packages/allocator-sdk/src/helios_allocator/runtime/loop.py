@@ -950,6 +950,18 @@ class AllocatorLoop:
     def candidates(self) -> list[StrategyCandidate]:
         return list(self._candidates)
 
+    @property
+    def watched_strategy_ids(self) -> tuple[str, ...]:
+        """Active strategy-vault ids the loop currently tracks, as a
+        synchronous in-memory snapshot (no I/O). Sourced from the
+        Goldsky `active` directory (`_directory`), NOT the NAV-freshness
+        filtered candidate set — a temporarily NAV-silent but active
+        vault must still be observed for defund / divergence events.
+        `chain_watch` reads this so newly deployed strategies are
+        watched without env maintenance; the loop owns the refresh
+        cadence."""
+        return tuple(r.strategy_id for r in self._directory)
+
     def seed_candidates(self, candidates: Iterable[StrategyCandidate]) -> None:
         """Used by tests + scenario mode to inject candidates without HTTP."""
         self._candidates = list(candidates)

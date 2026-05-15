@@ -237,12 +237,22 @@ class ChainWatcher:
         store: AllocatorStore,
         config: ChainWatchConfig,
         web3_factory: Callable[[], Web3] | None = None,
+        strategy_vaults_provider: Callable[[], Sequence[str]] | None = None,
     ) -> None:
         self._store = store
         self._cfg = config
         self._bindings = _build_bindings()
         self._topics = _build_topic_table(self._bindings)
         self._allocator_vault_lc = config.addresses.allocator_vault.lower()
+        # `config.addresses.strategy_vaults` is a static floor (operator
+        # can pin a winding-down vault). When a provider is supplied the
+        # effective set is refreshed each scan from
+        # `static ∪ provider()` — the loop hands us the live Goldsky
+        # `active` directory so newly deployed strategies are watched
+        # with zero env maintenance and retired ones drop off, while the
+        # static floor keeps core vaults covered through a directory
+        # blip. Provider absent ⇒ pure-static (back-compat / tests).
+        self._strategy_vaults_provider = strategy_vaults_provider
         self._strategy_vaults_lc = {a.lower() for a in config.addresses.strategy_vaults}
         self._live = bool(
             config.rpc_url and config.addresses.allocator_vault and config.chain_id > 0
@@ -316,12 +326,13 @@ class ChainWatcher:
 
         emitted = 0
         cursor = from_block
+        # Resolve the effective strategy-vault set once per scan and sync
+        # the membership-check set so `_handle_logs` (same scan) filters
+        # against the same addresses we query.
+        strategy_vaults = self._refresh_watched_set()
         addresses = [
             Web3.to_checksum_address(a)
-            for a in (
-                self._cfg.addresses.allocator_vault,
-                *self._cfg.addresses.strategy_vaults,
-            )
+            for a in (self._cfg.addresses.allocator_vault, *strategy_vaults)
             if a
         ]
         while cursor <= to_block:
@@ -339,6 +350,41 @@ class ChainWatcher:
         if self._cfg.checkpoint_path is not None and cp.flushed >= _CHECKPOINT_FLUSH_EVERY:
             self._flush_checkpoint()
         return emitted
+
+    def _effective_strategy_vaults(self) -> list[str]:
+        """`static floor ∪ provider()`, deduped case-insensitively.
+
+        The provider (the allocator loop's live Goldsky `active`
+        directory) is what makes new strategies auto-tracked. A failing
+        or empty provider degrades to the static floor rather than
+        blinding the watcher — a directory blip must not drop coverage
+        of core vaults.
+        """
+        seen: set[str] = set()
+        out: list[str] = []
+        for a in self._cfg.addresses.strategy_vaults:
+            if a and a.lower() not in seen:
+                seen.add(a.lower())
+                out.append(a)
+        if self._strategy_vaults_provider is not None:
+            try:
+                dynamic = list(self._strategy_vaults_provider())
+            except Exception as exc:  # provider must never break the scan
+                _log.warning("chain_watch.strategy_vaults_provider.error", err=str(exc))
+                dynamic = []
+            for a in dynamic:
+                if a and a.lower() not in seen:
+                    seen.add(a.lower())
+                    out.append(a)
+        return out
+
+    def _refresh_watched_set(self) -> list[str]:
+        """Recompute the effective set and sync the membership-check
+        index so `_handle_logs` filters against the same addresses the
+        scan queries. Returns the effective list for the getLogs call."""
+        effective = self._effective_strategy_vaults()
+        self._strategy_vaults_lc = {a.lower() for a in effective}
+        return effective
 
     def _ensure_w3(self) -> Web3:
         w3 = self._w3

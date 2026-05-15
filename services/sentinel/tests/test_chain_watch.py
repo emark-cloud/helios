@@ -112,6 +112,7 @@ def _watcher(
     store: AllocatorStore,
     addresses: WatchAddresses | None = None,
     web3_factory: Any | None = None,
+    strategy_vaults_provider: Any | None = None,
     **cfg_overrides: Any,
 ) -> ChainWatcher:
     cfg = _config(addresses or _addresses(), **cfg_overrides)
@@ -119,6 +120,7 @@ def _watcher(
         store=store,
         config=cfg,
         web3_factory=web3_factory or Web3,
+        strategy_vaults_provider=strategy_vaults_provider,
     )
 
 
@@ -379,6 +381,75 @@ def test_nav_divergence_fans_out_to_users_with_live_alloc() -> None:
     b_events = store.recent_events(_USER_B)
     assert any(e.kind == "NAV_DIVERGENCE" for e in a_events)
     assert all(e.kind != "NAV_DIVERGENCE" for e in b_events)
+
+
+def test_provider_unions_and_dedups_with_static_floor() -> None:
+    """Effective set = static floor ∪ provider(), deduped
+    case-insensitively. The static floor survives so a directory blip
+    can't blind the watcher to pinned vaults."""
+    static = Web3.to_checksum_address("0x" + "33" * 20)
+    dynamic = Web3.to_checksum_address("0x" + "77" * 20)
+    store = AllocatorStore()
+    w = _watcher(
+        store=store,
+        addresses=_addresses(static),
+        # provider repeats `static` (lower-cased) + adds `dynamic`
+        strategy_vaults_provider=lambda: [static.lower(), dynamic],
+    )
+    effective = w._refresh_watched_set()
+    assert {a.lower() for a in effective} == {static.lower(), dynamic.lower()}
+    assert len(effective) == 2  # static counted once despite case-diff repeat
+    assert w._strategy_vaults_lc == {static.lower(), dynamic.lower()}
+
+
+def test_provider_supplied_strategy_passes_membership_after_refresh() -> None:
+    """A strategy NOT in the static env floor but returned by the
+    provider (the live active directory) must be observed once the
+    per-scan refresh runs — this is the zero-env-maintenance path for
+    newly deployed strategies."""
+    store = _store_with_users(_USER_A)
+    user_a = store.get_user(_USER_A)
+    assert user_a is not None
+    user_a.allocations[_STRATEGY] = _alloc(strategy=_STRATEGY)
+    # Static floor deliberately excludes _STRATEGY; provider supplies it.
+    w = _watcher(
+        store=store,
+        addresses=_addresses("0x" + "99" * 20),
+        strategy_vaults_provider=lambda: [_STRATEGY],
+    )
+    # Before the scan-time refresh the provider address isn't trusted.
+    w._handle_logs([_nav_divergence_log()])
+    assert all(e.kind != "NAV_DIVERGENCE" for e in store.recent_events(_USER_A))
+    # _scan_window calls this each scan; drives dynamic discovery.
+    w._refresh_watched_set()
+    w._handle_logs([_nav_divergence_log()])
+    assert any(e.kind == "NAV_DIVERGENCE" for e in store.recent_events(_USER_A))
+
+
+def test_provider_error_falls_back_to_static_floor() -> None:
+    """A throwing provider must never break the scan — degrade to the
+    static floor rather than blinding the watcher."""
+    static = Web3.to_checksum_address("0x" + "33" * 20)
+    store = AllocatorStore()
+
+    def _boom() -> list[str]:
+        raise RuntimeError("goldsky unreachable")
+
+    w = _watcher(
+        store=store,
+        addresses=_addresses(static),
+        strategy_vaults_provider=_boom,
+    )
+    effective = w._refresh_watched_set()
+    assert [a.lower() for a in effective] == [static.lower()]
+
+
+def test_no_provider_is_pure_static_backcompat() -> None:
+    """Provider absent ⇒ effective set is exactly the static config —
+    identical to pre-change behavior."""
+    static = Web3.to_checksum_address("0x" + "33" * 20)
+    w = _watcher(store=AllocatorStore(), addresses=_addresses(static))
+    assert w._refresh_watched_set() == [static]
 
 
 def test_dedup_skips_loop_emit_with_same_tx() -> None:
