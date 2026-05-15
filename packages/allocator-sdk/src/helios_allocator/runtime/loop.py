@@ -54,6 +54,17 @@ _log = structlog.get_logger(__name__)
 # gas costs bounded.
 FEE_THRESHOLD_BPS = 500
 
+# `meta.max_capital_usd` is the user's human-USD figure as signed
+# (frontend posts e.g. 1_000); `to_sdk_meta` carries it through
+# unscaled. Every on-chain quantity the budget is reconciled against —
+# `read_user_vault_balance` and `userTotalDeployed` — is raw 18-dec
+# wei (the runtime's canonical scale, mirrored by the config's
+# `*_usd_wei` knobs and the on-chain `MetaStrategy.maxCapital`, which
+# is `max_capital_usd * 1e18`). Comparing the two requires lifting the
+# cap into wei first; without it `min(delegated_wei, cap)` collapses
+# the budget to ~`max_capital_usd` wei and every op dust-skips.
+_USD_WEI_SCALE = 10**18
+
 
 @dataclass(frozen=True, slots=True)
 class LoopConfig:
@@ -401,7 +412,7 @@ class AllocatorLoop:
         # store) so `userTotalDeployed + sum(new) <= maxCapital` holds.
         # `maxCapital <= 0` means uncapped (mirrors the StrategyVault
         # capacity convention) → balance-only sizing.
-        cap = user.meta.max_capital_usd
+        cap = user.meta.max_capital_usd * _USD_WEI_SCALE
         budget = min(user.delegated_capital_usd, cap) if cap > 0 else user.delegated_capital_usd
         if on_chain_deployed is not None:
             managed = sum(

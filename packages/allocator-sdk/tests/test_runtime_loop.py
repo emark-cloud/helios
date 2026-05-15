@@ -939,14 +939,12 @@ async def test_cross_chain_two_strategies_same_chain_collapse_to_one_batch_send(
     meta = _meta()
     # Need max_strategies_count >= 2 so the second candidate isn't
     # pruned by the meta-strategy gate.
-    # This test works in 18-dec canonical wei (delegated = 100e18) so
-    # per-entry amounts clear the OFT shared-decimals floor (1e12). The
-    # cap-aware budget clamp (`min(delegated, max_capital)`) would
-    # otherwise shrink the split below that floor, so the cap must be
-    # expressed in the same wei scale, not the toy `_meta()` default.
-    multi_meta = MetaStrategy(
-        **{**meta.__dict__, "max_strategies_count": 4, "max_capital_usd": 1_000 * 10**18}
-    )
+    # Works in 18-dec canonical wei (delegated = 100e18) so per-entry
+    # amounts clear the OFT shared-decimals floor (1e12). `_compute_target`
+    # lifts `max_capital_usd` into wei (`* _USD_WEI_SCALE`), so the toy
+    # `_meta()` cap of 10_000 USD = 1e22 wei comfortably exceeds the
+    # 100e18 delegated and the clamp is a no-op here.
+    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
     user = store.upsert_user(multi_meta)
     # Use 18-dec canonical scale so per-entry amounts survive the
     # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
@@ -1000,14 +998,12 @@ async def test_cross_chain_two_strategies_different_chains_fire_two_single_sends
     """
     store = AllocatorStore()
     meta = _meta()
-    # This test works in 18-dec canonical wei (delegated = 100e18) so
-    # per-entry amounts clear the OFT shared-decimals floor (1e12). The
-    # cap-aware budget clamp (`min(delegated, max_capital)`) would
-    # otherwise shrink the split below that floor, so the cap must be
-    # expressed in the same wei scale, not the toy `_meta()` default.
-    multi_meta = MetaStrategy(
-        **{**meta.__dict__, "max_strategies_count": 4, "max_capital_usd": 1_000 * 10**18}
-    )
+    # Works in 18-dec canonical wei (delegated = 100e18) so per-entry
+    # amounts clear the OFT shared-decimals floor (1e12). `_compute_target`
+    # lifts `max_capital_usd` into wei (`* _USD_WEI_SCALE`), so the toy
+    # `_meta()` cap of 10_000 USD = 1e22 wei comfortably exceeds the
+    # 100e18 delegated and the clamp is a no-op here.
+    multi_meta = MetaStrategy(**{**meta.__dict__, "max_strategies_count": 4})
     user = store.upsert_user(multi_meta)
     # Use 18-dec canonical scale so per-entry amounts survive the
     # OFT shared-decimals floor (10^12). $100 split two ways → 50e18
@@ -1133,12 +1129,15 @@ async def test_target_clamps_to_meta_cap_minus_orphaned_deployed() -> None:
     orphaned on-chain principal (deployed under a prior onboard, not in
     this store) so `userTotalDeployed + new <= maxCapital` holds.
 
-    Pins the exact incident: delegated 50_000 >> maxCapital 10_000,
-    3_000 already deployed on-chain → deployable budget is
-    min(50_000, 10_000) - 3_000 = 7_000."""
+    All capital quantities are 18-dec canonical wei (UserVault balance
+    + `userTotalDeployed` are raw wei; `_compute_target` lifts the
+    human `max_capital_usd` into wei via `_USD_WEI_SCALE`). Pins the
+    exact incident: delegated 50_000 >> maxCapital 10_000, 3_000
+    already deployed on-chain → deployable budget is
+    min(50_000, 10_000) - 3_000 = 7_000 (all × 1e18)."""
     store = AllocatorStore()
-    user = store.upsert_user(_meta())  # max_capital_usd=10_000
-    user.delegated_capital_usd = 50_000
+    user = store.upsert_user(_meta())  # max_capital_usd=10_000 → 1e22 wei
+    user.delegated_capital_usd = 50_000 * 10**18
 
     sid = "0x" + "11" * 20
     goldsky = _StubGoldsky([_row(sid)])  # Kite, chain 2368
@@ -1146,23 +1145,24 @@ async def test_target_clamps_to_meta_cap_minus_orphaned_deployed() -> None:
         store=store,
         allocator=_AlwaysFirstAllocator(),
         goldsky=goldsky,
-        onchain=_DeployedOnChain(deployed=3_000),
+        onchain=_DeployedOnChain(deployed=3_000 * 10**18),
     )
 
     await loop.tick_once(now=now_ts())
 
     assert sid in user.allocations
-    assert user.allocations[sid].capital_deployed_usd == 7_000
+    assert user.allocations[sid].capital_deployed_usd == 7_000 * 10**18
 
 
 @pytest.mark.asyncio
 async def test_orphaned_deployed_exhausts_cap_yields_no_target() -> None:
     """Fix #3 — when the orphaned on-chain principal already meets (or
     exceeds) maxCapital there is no headroom; the loop must allocate
-    nothing rather than submit a doomed `allocateToStrategy`."""
+    nothing rather than submit a doomed `allocateToStrategy`. All
+    quantities are 18-dec canonical wei."""
     store = AllocatorStore()
-    user = store.upsert_user(_meta())  # max_capital_usd=10_000
-    user.delegated_capital_usd = 50_000
+    user = store.upsert_user(_meta())  # max_capital_usd=10_000 → 1e22 wei
+    user.delegated_capital_usd = 50_000 * 10**18
 
     sid = "0x" + "11" * 20
     goldsky = _StubGoldsky([_row(sid)])
@@ -1170,7 +1170,7 @@ async def test_orphaned_deployed_exhausts_cap_yields_no_target() -> None:
         store=store,
         allocator=_AlwaysFirstAllocator(),
         goldsky=goldsky,
-        onchain=_DeployedOnChain(deployed=10_000),
+        onchain=_DeployedOnChain(deployed=10_000 * 10**18),
     )
 
     await loop.tick_once(now=now_ts())
@@ -1185,7 +1185,7 @@ async def test_onchain_rejected_allocate_not_mirrored_into_store() -> None:
     landed on-chain because the mirror ran unconditionally."""
     store = AllocatorStore()
     user = store.upsert_user(_meta())
-    user.delegated_capital_usd = 10_000
+    user.delegated_capital_usd = 10_000 * 10**18
 
     sid = "0x" + "11" * 20
     goldsky = _StubGoldsky([_row(sid)])
@@ -1213,7 +1213,7 @@ async def test_off_policy_chain_is_gated_out() -> None:
     legitimately defers."""
     store = AllocatorStore()
     user = store.upsert_user(_meta(allowed_chains=(2368,)))  # Kite-only mandate
-    user.delegated_capital_usd = 10_000
+    user.delegated_capital_usd = 10_000 * 10**18
 
     onchain = AllocatorOnChain(
         rpc_url="",
