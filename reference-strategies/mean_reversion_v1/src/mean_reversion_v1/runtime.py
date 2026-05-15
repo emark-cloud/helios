@@ -280,6 +280,25 @@ class MeanReversionRuntime:
             return None
 
         self.stats.proofs_generated += 1
+        # Diagnostic (TradeCallFailed(1) root-cause): emit the exact swap
+        # params so the witness `min_amount_out` can be compared against
+        # the live MockSwapRouter fill (amount_in * priceOf.num/denom).
+        _log.info(
+            "mean_reversion.exec.params",
+            asset=asset,
+            asset_in=intent.asset_in,
+            asset_out=intent.asset_out,
+            token_in=self._universe[self._asset_idx[intent.asset_in]],
+            token_out=self._universe[self._asset_idx[intent.asset_out]],
+            amount_in=request.inputs["amount_in"],
+            expected_amount_out=request.inputs["expected_amount_out"],
+            min_amount_out=request.inputs["min_amount_out"],
+            last_price_e18=request.inputs["price_observations"][-1],
+            pow10_in=request.inputs["pow10_asset_in"],
+            pow10_out=request.inputs["pow10_asset_out"],
+            max_slippage_bps=intent.max_slippage_bps,
+            nonce=nonce,
+        )
         record = self._executor.submit(
             self._executor.build_plan(
                 proof=_proof_to_bytes(proof.proof),
