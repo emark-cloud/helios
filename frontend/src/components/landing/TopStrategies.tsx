@@ -20,6 +20,7 @@ import {
   formatBpsAsPct,
   formatStrategyClass,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import { fetchStrategies, type StrategyDirectoryRow } from "@/lib/goldsky";
 
@@ -99,7 +100,7 @@ function Th({
 
 function StrategyRow({ row }: { row: StrategyDirectoryRow }): JSX.Element {
   const reputation = readReputation(row.currentReputation);
-  const stake = Number(row.stakeAmount);
+  const stake = mUsdcRawToUsd(row.stakeAmount, row.chainId);
   const href = `/strategies/${row.id.toLowerCase()}` as Route;
 
   return (

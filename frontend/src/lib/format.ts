@@ -23,6 +23,30 @@ const PCT_FMT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+/**
+ * Convert a raw mUSDC integer (subgraph BigInt string / bigint) to a USD float.
+ *
+ * Kite testnet mUSDC is 18-decimal; Base/Arb-Sepolia mUSDC is 6-decimal
+ * (see CLAUDE.md › Key addresses). Subgraph BigInt fields like
+ * `stakeAmount`, `maxCapacity`, and `capitalDeployed` are raw on-chain
+ * integers — callers must pass the row's `chainId` so we pick the right
+ * decimals here instead of dividing by `1e6` everywhere.
+ */
+export function mUsdcRawToUsd(raw: string | bigint | number, chainId: number): number {
+  if (raw == null) return 0;
+  const decimals = chainId === 2368 ? 18 : 6;
+  try {
+    const big = typeof raw === "bigint" ? raw : BigInt(raw);
+    if (decimals === 18) {
+      // Pre-divide so we don't lose precision in Number(BigInt) for 18-dec wei.
+      return Number(big / 10n ** 12n) / 1_000_000;
+    }
+    return Number(big) / 1_000_000;
+  } catch {
+    return 0;
+  }
+}
+
 export function formatUsd(usd: number, opts?: { compact?: boolean; cents?: boolean }): string {
   if (!Number.isFinite(usd)) return "—";
   if (opts?.compact && Math.abs(usd) >= 1_000) {

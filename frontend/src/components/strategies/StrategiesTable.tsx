@@ -25,6 +25,7 @@ import {
   formatBpsAsPct,
   formatStrategyClass,
   formatUsd,
+  mUsdcRawToUsd,
 } from "@/lib/format";
 import type { StrategyDirectoryRow } from "@/lib/goldsky";
 
@@ -225,7 +226,7 @@ function readPnL(row: StrategyDirectoryRow): number {
 }
 
 function readStake(row: StrategyDirectoryRow): number {
-  return Number(row.stakeAmount);
+  return mUsdcRawToUsd(row.stakeAmount, row.chainId);
 }
 
 function readSortValue(row: StrategyDirectoryRow, key: SortKey): number {
