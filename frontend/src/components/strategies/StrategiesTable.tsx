@@ -178,7 +178,10 @@ function Row({ row, selected }: { row: StrategyDirectoryRow; selected: boolean }
       )}>
       <td className="px-3 py-2.5 text-fg-primary">
         <Link href={detailHref} className="hover:text-amber" title={row.id}>
-          {formatStrategyName(row.id)}
+          {formatStrategyName(row.id, {
+            declaredClass: row.declaredClass,
+            chainId: row.chainId,
+          })}
         </Link>
       </td>
       <td className="px-3 py-2.5 text-fg-secondary">{formatStrategyClass(row.declaredClass)}</td>

@@ -19,7 +19,7 @@ import kiteTestnet from "../../../contracts/deployments/kite-testnet.json";
 import baseSepolia from "../../../contracts/deployments/base-sepolia.json";
 import arbitrumSepolia from "../../../contracts/deployments/arbitrum-sepolia.json";
 
-import { formatAddress } from "./format";
+import { chainName, formatAddress, formatStrategyClass } from "./format";
 
 export type ChainKey =
   | "kite-testnet"
@@ -165,7 +165,31 @@ export function strategyLabelFor(id: string): string | null {
   return STRATEGY_LABELS[id.toLowerCase()] ?? null;
 }
 
-/** Friendly strategy name if known, else the truncated hex address. */
-export function formatStrategyName(id: string): string {
-  return strategyLabelFor(id) ?? formatAddress(id);
+/**
+ * Friendly strategy name. Resolution order:
+ *  1. Exact address → deployment label ("Momentum · Kite #1").
+ *  2. Otherwise a class+chain name derived from `declaredClass`
+ *     ("Mean reversion · Kite") — covers superseded predecessor vaults
+ *     and NAV-retained legacy vaults that the subgraph still returns
+ *     active but that aren't in the current deployments JSON.
+ *  3. Truncated hex, only when the declared class is also unknown
+ *     (phantom / non-canonical test registrations).
+ */
+export function formatStrategyName(
+  id: string,
+  meta?: { declaredClass?: string; chainId?: number },
+): string {
+  const exact = strategyLabelFor(id);
+  if (exact) return exact;
+
+  if (meta?.declaredClass) {
+    const cls = formatStrategyClass(meta.declaredClass);
+    // formatStrategyClass returns a truncated 0x… hash for unknown
+    // classes; only treat it as a name when it actually resolved.
+    if (cls && !cls.startsWith("0x")) {
+      const chain = meta.chainId != null ? chainName(meta.chainId) : null;
+      return chain && chain !== "Unknown" ? `${cls} · ${chain}` : cls;
+    }
+  }
+  return formatAddress(id);
 }

@@ -107,7 +107,10 @@ function StrategyRow({ row }: { row: StrategyDirectoryRow }): JSX.Element {
     <tr className="border-b border-surface-line last:border-b-0 transition-none hover:bg-surface-elev">
       <td className="px-4 py-3">
         <Link href={href} className="text-fg-primary hover:text-amber" title={row.id}>
-          {formatStrategyName(row.id)}
+          {formatStrategyName(row.id, {
+            declaredClass: row.declaredClass,
+            chainId: row.chainId,
+          })}
         </Link>
       </td>
       <td className="px-4 py-3 text-fg-secondary">
