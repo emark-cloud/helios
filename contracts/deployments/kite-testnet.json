@@ -67,6 +67,7 @@
     "heliosBridgeReceiver": "0x07d92cc939BfafACde1f79EaA548b47f63fCdec0",
     "allocatorVaultImplCXR": "0x777D56F67c98519Cf5D3101156e7B7B6693F8e78",
     "strategyVaultImplCXR": "0xc3C7A30C86186Ae42aad6659bF37D80f1124feA6",
+    "strategyVaultImplNavCounterSaturation": "0xe13BfCD4DA759ef986DA7564cd730FBe9f5C1B3C",
     "allocatorVaultImplCXR0c": "0xb7Ced20bCFaa499FE1A20ef032E35770e3966C36",
     "allocatorVaultImplBatch": "0xe7b8540BaEb9c502bc6D2c4FF3114a20B8476474"
   },
