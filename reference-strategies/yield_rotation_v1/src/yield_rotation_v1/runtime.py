@@ -342,6 +342,10 @@ class YieldRotationRuntime:
             return None
         try:
             w3 = self._executor.w3
+            # `self._executor.live` (guarded above) lazily builds the
+            # Web3, so `w3` is non-None here — narrow it for the typechecker
+            # (same `assert ... is not None` invariant idiom as executor.py).
+            assert w3 is not None
             vault = w3.to_checksum_address(self._executor.vault)
             base_asset = (
                 w3.eth.contract(address=vault, abi=_VAULT_BASEASSET_ABI)

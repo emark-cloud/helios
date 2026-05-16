@@ -405,7 +405,8 @@ class _LiveTradeExecutor(TradeExecutor):
             mock_router_address="0x" + "ab" * 20,
             chain_id=2368,
         )
-        self._w3 = object()  # balanceOf is monkeypatched; never dialled
+        # balanceOf is monkeypatched; never dialled (sentinel, not a real Web3)
+        self._w3 = object()  # type: ignore[assignment]
 
     def submit(self, plan: ExecutionPlan, **extras: Any) -> ExecutionRecord:
         return ExecutionRecord(plan=plan, submitted=False, extras=dict(extras))
