@@ -23,6 +23,7 @@
     "strategyRegistry": "0x21FBC51Ed4a063078b2a8B588508CeaAd7899ce2",
     "phase6VaultYieldRotationArb": "0x516f23B9d2b6918D005d00Ccea3074cED1f8D005",
     "strategyVaultImplCXR": "0x4e6928a2Ac4c9E9dE99d4F33Fa18d31EA0bFA45c",
+    "strategyVaultImplNavCounterSaturation": "0xa57c8f8d96819380A018d24C6718262cc703bBDf",
     "mUsdcOFTAdapter": "0x23Ad5880616d23Ebe8aC13e08B631c85892736a5",
     "heliosBridgeReceiver": "0x49FDD3D9eA0e81710f67C8b22447942A0a0b03DF"
   }
