@@ -582,6 +582,43 @@ async def test_no_position_sync_in_dry_run(monkeypatch) -> None:
     assert records == []
 
 
+@pytest.mark.asyncio
+async def test_failed_base_seed_does_not_post_zero_on_cash_only_vault(monkeypatch) -> None:
+    """The live frontend-PnL bug (phase6VaultMomentum): a cash-only
+    vault whose base-cash seed transiently fails (flaky RPC) must NOT
+    post NAV=0 just because the zero-balance reads of non-base assets it
+    doesn't hold succeed. Last-good NAV must be preserved."""
+    universe = [f"0x{i:040x}" for i in range(1, 9)]
+    usdc_addr = universe[0]
+
+    def _bal(*, w3, token_address, holder_address) -> int:
+        del w3, holder_address
+        if token_address == usdc_addr:
+            raise RuntimeError("rpc RemoteDisconnected")  # base seed fails
+        return 0  # non-base reads succeed: cash-only vault holds 0 of these
+
+    monkeypatch.setattr("helios.runtime.nav_seed.read_erc20_balance", _bal)
+    monkeypatch.setattr("momentum_v1.runtime.read_erc20_balance", _bal)
+
+    strategy = MomentumStrategy(signal_threshold=0.005, lookback_bars=5)
+    strategy._set_nav(280.05)  # last-good MTM from prior healthy bars
+    rt = MomentumRuntime(
+        strategy=strategy,
+        oracle=_StubOracle({"WETH": _flat16()}),  # flat ⇒ no signal
+        prover=_StubProver(),
+        executor=_LiveTradeExecutor(),
+        config=RuntimeConfig(bar_interval_sec=60, nav_interval_sec=300, declared_class_field=0xABC),
+        allocator_address="0x" + "11" * 20,
+        asset_universe_addresses=universe,
+    )
+
+    records = await rt.tick_bar()
+
+    assert records == []
+    assert rt._strategy.nav == pytest.approx(280.05)  # last-good preserved
+    assert rt.stats.last_position_nav_usd == 0.0  # never written this bar
+
+
 def test_runtime_accepts_aligned_2_asset_universe() -> None:
     strategy = MomentumStrategy(
         signal_threshold=0.005, lookback_bars=5, asset_universe=("USDC", "WETH")

@@ -210,10 +210,17 @@ class MomentumRuntime:
         Returns the records produced by this tick (empty when no
         signals fired). Used by tests + scenario harnesses."""
         base_cash_usd = self._seed_nav_from_chain()
-        # `observed` gates the NAV write: a bar where neither the base
-        # cash nor any holding could be read must NOT clobber a last-good
-        # NAV to 0 — the reportNAV cadence would then post a false zero.
-        # Genuine 0 balances (read succeeded, vault empty) DO update NAV.
+        # The base-cash seed alone gates the NAV write. Base cash is the
+        # dominant (and for a cash-only vault, the *only*) NAV component,
+        # so if its on-chain read failed we must NOT post NAV — even
+        # though the zero-balance reads of non-base assets the vault
+        # doesn't hold "succeed". (That false-confidence path made a
+        # transient base-read RPC blip post NAV=0 on a cash-only vault,
+        # cratering the frontend's unrealized PnL.) A *successful* base
+        # read returning 0.0 (genuinely-drained vault) is not None, so
+        # observed stays True and NAV = 0 + held positions — the
+        # drained-vault unstick is unaffected. Non-base holdings only
+        # add to nav_usd; they never authorize the write on their own.
         observed = base_cash_usd is not None
         nav_usd = base_cash_usd or 0.0
         produced: list[ExecutionRecord] = []
@@ -238,7 +245,6 @@ class MomentumRuntime:
             if held is not None:
                 this_raw, val_usd = held
                 nav_usd += val_usd
-                observed = True
                 self._sync_position_from_chain(asset, this_raw, val_usd, bundle)
             self.stats.bars_observed += 1
             intent = self._strategy.on_bar(asset, bundle.market)
