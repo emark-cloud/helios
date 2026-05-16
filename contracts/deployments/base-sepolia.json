@@ -18,6 +18,7 @@
     "oraclePriceAnchor": "0x6e3c2304d1e7c8953b52e8e5f49a6dbd7ef4875b",
     "oracleYieldAnchor": "0x37714f599570bb2b8389e98d771f6176b9c96cd3",
     "strategyVaultImpl": "0x735680A32A0e5d9d23D7e8e8302F434e7F30428E",
+    "strategyVaultImplNavCounterSaturation": "0xe2Cec094113dB7662A5C237a7593e1ee826Bfa8a",
     "swapRouter": "0x94cc0aac535ccdb3c01d6787d6413c739ae12bc4",
     "mockSwapRouter": "0xc065af9b57e2666877a9b479ee61b1f249516277",
     "strategyRegistry": "0x2a94DE11521EAF190e451863bEfe0F178f04DF32",
