@@ -949,7 +949,14 @@ contract StrategyVault is
             consecutiveNavDivergenceBreaches = 0;
             return;
         }
-        uint8 next = consecutiveNavDivergenceBreaches + 1;
+        // Saturate at uint8 max. An unbounded `uint8 + 1` overflows
+        // (Panic 0x11) at 255, and because reportNAV then reverts the
+        // counter never resets — permanently bricking NAV reporting for
+        // the vault. Saturating preserves the counting/emit semantics
+        // for every realistic value (the gate only checks `>= 2`) while
+        // making the overflow impossible.
+        uint8 cur = consecutiveNavDivergenceBreaches;
+        uint8 next = cur == type(uint8).max ? cur : cur + 1;
         consecutiveNavDivergenceBreaches = next;
         if (next >= 2) {
             emit NavDivergenceObserved(address(this), signedNAV, markedFloor, snapshotNonce);

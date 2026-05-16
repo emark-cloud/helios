@@ -28,6 +28,7 @@ from typing import Any
 import structlog
 from eth_account import Account
 from eth_account.messages import encode_typed_data
+from helios.runtime.nav_seed import seed_strategy_capital
 
 from yield_rotation_v1.executor import ExecutionRecord, TradeExecutor
 from yield_rotation_v1.oracle_client import YieldOracleClient
@@ -37,6 +38,28 @@ from yield_rotation_v1.types import YieldTick
 from yield_rotation_v1.witness import build_yield_rotation_witness
 
 _log = structlog.get_logger(__name__)
+
+# Minimal views to resolve the vault's base asset + its decimals on
+# chain, so the NAV seed works on any chain (Kite mUSDC 18-dec,
+# Base/Arb 6-dec) without hardcoding an address.
+_VAULT_BASEASSET_ABI = [
+    {
+        "name": "baseAsset",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"type": "address"}],
+    }
+]
+_ERC20_DECIMALS_ABI = [
+    {
+        "name": "decimals",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"type": "uint8"}],
+    }
+]
 
 
 def _sign_nav_eip712(
@@ -91,7 +114,15 @@ class RuntimeStats:
     signals_unfundable: int = 0
     execs_submitted: int = 0
     nav_reports: int = 0
+    # NAV ticks skipped because the on-chain base-asset balance read
+    # failed — the report is deferred rather than submitting a stale /
+    # zero value below the vault's cash floor (which trips
+    # StrategyVault's NAV-divergence gate).
+    nav_seed_failures: int = 0
     last_block_window_end: int = 0
+    # Spendable base-asset (mUSDC) cash from the on-chain seed — the
+    # NAV yr reports. Without seeding this yr submits strategy.nav≈0.
+    last_seeded_nav_usd: float = 0.0
     last_error: str = ""
     last_signal: dict[str, Any] = field(default_factory=dict)
 
@@ -282,7 +313,61 @@ class YieldRotationRuntime:
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.nav_interval_sec)
             except TimeoutError:
+                if self._executor.live:
+                    seeded = self._seed_nav_from_chain()
+                    if seeded is None:
+                        # On-chain read failed: defer this report rather
+                        # than submit a stale/zero NAV below the vault's
+                        # cash floor (which trips StrategyVault's
+                        # NAV-divergence gate). Next tick retries.
+                        continue
                 self.tick_nav(self._strategy.nav)
+
+    def _seed_nav_from_chain(self) -> float | None:
+        """Seed `strategy.nav` from the vault's on-chain base-asset
+        balance so `reportNAV` is at least the cash floor.
+
+        yr never marked NAV to chain: it submitted `strategy.nav` (≈0)
+        while the vault held idle mUSDC, so every report landed >5%
+        below `baseAsset.balanceOf(vault)`. StrategyVault's
+        `_checkNavDivergence` then accumulated breaches every tick — and
+        its uint8 counter overflowed at 255 (Panic 0x11), permanently
+        bricking `reportNAV` for the vault. Reporting ≥ the cash floor
+        makes `_checkNavDivergence` take a reset branch instead.
+
+        Returns the seeded USD, or None if the on-chain read failed (the
+        caller defers the NAV report that tick rather than post a value
+        below the floor)."""
+        if not self._executor.live:
+            return None
+        try:
+            w3 = self._executor.w3
+            vault = w3.to_checksum_address(self._executor.vault)
+            base_asset = (
+                w3.eth.contract(address=vault, abi=_VAULT_BASEASSET_ABI)
+                .functions.baseAsset()
+                .call()
+            )
+            decimals = (
+                w3.eth.contract(address=w3.to_checksum_address(base_asset), abi=_ERC20_DECIMALS_ABI)
+                .functions.decimals()
+                .call()
+            )
+            usd = seed_strategy_capital(
+                strategy=self._strategy,
+                w3=w3,
+                base_asset_address=base_asset,
+                vault_address=vault,
+                base_asset_decimals=decimals,
+                set_nav=True,
+            )
+            self.stats.last_seeded_nav_usd = usd
+            return usd
+        except Exception as exc:
+            _log.warning("yield_rotation.nav.seed_failed", err=str(exc))
+            self.stats.nav_seed_failures += 1
+            self.stats.last_error = str(exc)
+            return None
 
     def tick_nav(self, total_nav_usd: float, *, timestamp: int | None = None) -> ExecutionRecord:
         """Sign + submit one NAV report. Mirrors momentum's runtime — the
