@@ -1179,6 +1179,25 @@ contract StrategyVaultTest is Test {
         assertEq(vault.consecutiveNavDivergenceBreaches(), 3);
     }
 
+    function test_NavDivergence_CounterSaturatesNoOverflow() public {
+        // Regression (live yr incident): the breach counter was an
+        // unbounded `uint8 + 1`. At 255 it overflowed (Panic 0x11), and
+        // because reportNAV then reverts the counter never reset — so
+        // reportNAV was permanently bricked for the vault. It must
+        // saturate at uint8 max instead of overflowing.
+        _stageCashFloor(1000e6);
+        // 260 consecutive >5%-below-floor reports (well past 255). With
+        // the pre-fix unbounded increment the 256th reverts Panic 0x11.
+        uint64 t = uint64(block.timestamp + 1);
+        for (uint256 i = 0; i < 260; i++) {
+            vm.warp(t);
+            _submitNAV(800e6, t); // 20% below floor → breach
+            t += 30;
+        }
+        // All 260 succeeded → counter saturated, never overflowed.
+        assertEq(vault.consecutiveNavDivergenceBreaches(), type(uint8).max);
+    }
+
     // ── slash ──────────────────────────────────────────────────────
 
     function test_Slash_OnlyRegistry() public {

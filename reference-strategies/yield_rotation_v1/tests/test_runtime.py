@@ -201,3 +201,103 @@ async def test_lifecycle_start_then_stop_is_clean() -> None:
     await runtime.stop()
     # idempotent stop
     await runtime.stop()
+
+
+# ── NAV seed from chain (yr reportNAV Panic 0x11 root-cause fix) ──
+class _Call:
+    def __init__(self, v: Any) -> None:
+        self._v = v
+
+    def call(self) -> Any:
+        if isinstance(self._v, Exception):
+            raise self._v
+        return self._v
+
+
+class _FakeFns:
+    def __init__(self, m: dict[str, Any]) -> None:
+        self._m = m
+
+    def baseAsset(self) -> _Call:  # ERC20/vault ABI name
+        return _Call(self._m["baseAsset"])
+
+    def decimals(self) -> _Call:
+        return _Call(self._m["decimals"])
+
+    def balanceOf(self, _a: str) -> _Call:  # ERC20 ABI name
+        return _Call(self._m["balanceOf"])
+
+
+class _FakeW3:
+    def __init__(self, m: dict[str, Any]) -> None:
+        self._m = m
+        self.eth = self
+
+    def contract(self, *, address: str, abi: Any) -> Any:
+        del address, abi
+        outer = self
+
+        class _C:
+            functions = _FakeFns(outer._m)
+
+        return _C()
+
+    @staticmethod
+    def to_checksum_address(a: str) -> str:
+        return a
+
+
+class _LiveStubExecutor:
+    chain_id = 2368
+    vault = "0x" + "ee" * 20
+
+    def __init__(self, w3: Any, *, live: bool = True) -> None:
+        self.w3 = w3
+        self.live = live
+
+
+def _yr_rt(stub: Any) -> YieldRotationRuntime:
+    strategy = YieldRotationStrategy(
+        allowlisted_markets=(1, 2), signal_threshold_bps=80, bridging_cost_bps=30
+    )
+    strategy.set_capital(10_000)  # seeds nav=10_000 as the prior last-good
+    return YieldRotationRuntime(
+        strategy=strategy,
+        oracle=_FakeOracle({}),  # type: ignore[arg-type]
+        prover=_FakeProver(),  # type: ignore[arg-type]
+        executor=stub,
+        config=RuntimeConfig(declared_class_field=0x9ABC),
+        market_subscriptions=[("AAVE_USDC", 1), ("COMPOUND_USDC", 2)],
+    )
+
+
+def test_seed_nav_from_chain_sets_nav_to_onchain_balance() -> None:
+    """yr must report NAV from the vault's on-chain base-asset balance,
+    not strategy.nav≈0. 383 mUSDC @ 18-dec ⇒ strategy.nav = 383.0 so
+    reportNAV lands at the cash floor (no NAV-divergence breach)."""
+    w3 = _FakeW3({"baseAsset": "0x" + "ab" * 20, "decimals": 18, "balanceOf": 383 * 10**18})
+    rt = _yr_rt(_LiveStubExecutor(w3))
+    seeded = rt._seed_nav_from_chain()
+    assert seeded == 383.0
+    assert rt._strategy.nav == 383.0
+    assert rt.stats.last_seeded_nav_usd == 383.0
+
+
+def test_seed_nav_from_chain_none_on_read_failure_preserves_nav() -> None:
+    """A flaky on-chain read must not post a stale/zero NAV: return None
+    (caller defers the report) and leave the last-good nav untouched."""
+    w3 = _FakeW3(
+        {"baseAsset": "0x" + "ab" * 20, "decimals": 18, "balanceOf": RuntimeError("rpc down")}
+    )
+    rt = _yr_rt(_LiveStubExecutor(w3))
+    rt._strategy._set_nav(1750.0)  # last-good MTM from a prior healthy tick
+    assert rt._seed_nav_from_chain() is None
+    assert rt._strategy.nav == 1750.0  # last-good preserved, not clobbered
+    assert rt.stats.nav_seed_failures == 1
+
+
+def test_seed_nav_from_chain_none_when_not_live() -> None:
+    """Dry-run (executor.live False) ⇒ no seed, returns None so the nav
+    loop keeps its existing dry-run behaviour."""
+    rt = _yr_rt(_LiveStubExecutor(_FakeW3({}), live=False))
+    assert rt._seed_nav_from_chain() is None

@@ -111,6 +111,16 @@ class TradeExecutor:
         return self._chain_id
 
     @property
+    def w3(self) -> Web3 | None:
+        """Lazily-dialed web3 handle (None in dry-run). Lets the runtime
+        read on-chain state (the NAV-seed `IERC20.balanceOf(vault)`)
+        without each caller re-dialling — mirrors the momentum/MR
+        executors."""
+        if self._w3 is None and self._live:
+            self._ensure_live()
+        return self._w3
+
+    @property
     def lending_pool(self) -> str:
         return self._lending_pool
 
