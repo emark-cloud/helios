@@ -17,7 +17,9 @@ needing live router credentials.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -133,12 +135,33 @@ class RouterPriceMirror:
     chain_id: int
     pairs: list[PairSpec]
     spread_bps: int = DEFAULT_SPREAD_BPS
+    # Gas: gate the per-bar keeper behind a GLOBAL liveness heartbeat.
+    # None/0 → legacy unconditional per-bar posting (zero-behaviour-change
+    # rollback). Positive → suppress per-bar posts while a *submitted*
+    # setPrice landed within this many seconds. There is no on-chain
+    # freshness ceiling (the router has no staleness gate; contrast the
+    # oracle anchor's ≤165s cap) — every real trade independently
+    # force-refreshes its own asset via `force_refresh_async`.
+    liveness_sec: int | None = None
+    # Injected for deterministic tests. `monotonic` (not wall-clock) so
+    # NTP steps can't move the gate backward/forward — mirrors
+    # `PriceAnchorScheduler.clock`.
+    clock: Callable[[], float] = time.monotonic
 
     pending: deque[MirrorRecord] = field(default_factory=lambda: deque(maxlen=_PENDING_RING_CAP))
     _w3: Any = field(default=None, init=False, repr=False)
     _account: Any = field(default=None, init=False, repr=False)
     _contract: Any = field(default=None, init=False, repr=False)
     _by_asset: dict[str, PairSpec] = field(default_factory=dict, init=False, repr=False)
+    # Global wall-position (ms) of the last *submitted* setPrice (any
+    # asset). None until the first mined post. Advances only on
+    # `record.submitted`, mirroring the oracle anchor's
+    # `_last_any_commit_ms`. In-memory only: a restart empties it so the
+    # first bar after a deploy re-prices, then the gate resumes — same
+    # desirable cold-start coverage as the reputation dedup cache.
+    _last_submitted_ms: int | None = field(default=None, init=False, repr=False)
+    _posts: int = field(default=0, init=False, repr=False)
+    _skipped: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # Index pairs by oracle asset so on_snapshot can look up in O(1).
@@ -150,6 +173,52 @@ class RouterPriceMirror:
     @property
     def live(self) -> bool:
         return bool(self.rpc_url and self.signer_pk and self.router_address)
+
+    @property
+    def posts(self) -> int:
+        """Count of genuinely submitted setPrice ticks (per-bar + forced)."""
+        return self._posts
+
+    @property
+    def skipped(self) -> int:
+        """Count of per-bar ticks suppressed by the liveness gate."""
+        return self._skipped
+
+    def _gate(self) -> bool:
+        """Whether the per-bar keeper should post this tick.
+
+        Liveness mode (`liveness_sec` set, > 0): a single GLOBAL time
+        gate — suppress while a *submitted* setPrice landed within the
+        window. The sequential Poller fan-out (`_compose_on_snapshot`
+        awaits one asset fully before the next) means the first asset
+        past the gate posts, `_mark` arms the global clock, and the
+        remaining assets in the same tick are suppressed — exactly one
+        heartbeat post per `liveness_sec`. Every real trade independently
+        force-refreshes its own asset via `force_refresh_async`, so the
+        heartbeat is only a cold-start / cosmetic backstop and a global
+        clock is strictly the cheaper choice (mirrors the oracle anchor
+        `_gate`, global for the same reason).
+
+        Legacy (`liveness_sec` None or 0): unconditional per-bar posting,
+        byte-for-byte the pre-gate behaviour (zero-behaviour-change
+        rollback).
+        """
+        if not self.liveness_sec:  # None or 0 → legacy unconditional
+            return True
+        return not (
+            self._last_submitted_ms is not None
+            and int(self.clock() * 1000) - self._last_submitted_ms < self.liveness_sec * 1000
+        )
+
+    def _mark(self, record: MirrorRecord) -> None:
+        """Arm the global liveness clock + bump the post counter — but
+        ONLY on a genuinely submitted tx. Dry-run (`not self.live`) and
+        failed submits leave the clock untouched so the next bar retries
+        (mirrors the oracle anchor `_mark_committed` `rec.submitted`
+        discipline and the reputation engine `_arm_if_submitted`)."""
+        if record.submitted:
+            self._last_submitted_ms = int(self.clock() * 1000)
+            self._posts += 1
 
     def _ensure_live(self) -> None:
         if self._w3 is not None:
@@ -166,18 +235,48 @@ class RouterPriceMirror:
         )
 
     def on_snapshot(self, asset: str) -> MirrorRecord | None:
-        """Synchronous entry point — convenient for tests and one-shot
-        replays. Production paths should use `on_snapshot_async`."""
+        """Synchronous per-bar entry point — convenient for tests and
+        one-shot replays. Production paths should use `on_snapshot_async`.
+        Gated: when the liveness heartbeat is armed this is a no-op."""
+        prepped = self._prepare(asset)
+        if prepped is None:
+            return None
+        if not self._gate():
+            self._skipped += 1
+            return None
+        spec, snap, s2a, a2s = prepped
+        return self._submit_sync(spec, snap, s2a, a2s)
+
+    async def on_snapshot_async(self, asset: str) -> MirrorRecord | None:
+        """Async per-bar entry point. Used in production from the `Poller`
+        on_snapshot fan-out — the blocking Web3 path runs on a worker
+        thread so the event loop stays free for FastAPI / Poller. Gated:
+        when the liveness heartbeat is armed this is a no-op."""
+        prepped = self._prepare(asset)
+        if prepped is None:
+            return None
+        if not self._gate():
+            self._skipped += 1
+            return None
+        spec, snap, s2a, a2s = prepped
+        return await asyncio.to_thread(self._submit_sync, spec, snap, s2a, a2s)
+
+    def force_refresh(self, asset: str) -> MirrorRecord | None:
+        """Post `asset` NOW, bypassing the liveness gate. Sync twin of
+        `force_refresh_async` for tests/CLI symmetry with the anchor's
+        `force_commit`."""
         prepped = self._prepare(asset)
         if prepped is None:
             return None
         spec, snap, s2a, a2s = prepped
         return self._submit_sync(spec, snap, s2a, a2s)
 
-    async def on_snapshot_async(self, asset: str) -> MirrorRecord | None:
-        """Async entry point. Used in production from the `Poller`
-        on_snapshot fan-out — the blocking Web3 path runs on a worker
-        thread so the event loop stays free for FastAPI / Poller."""
+    async def force_refresh_async(self, asset: str) -> MirrorRecord | None:
+        """Post `asset` NOW, bypassing the liveness gate. Backs the
+        on-demand `/v1/anchor/commit` seam so the router price is
+        force-fresh at trade time. Arms the global clock on submit so the
+        next idle per-bar tick is suppressed. Mirrors the oracle
+        scheduler's `force_commit_async`."""
         prepped = self._prepare(asset)
         if prepped is None:
             return None
@@ -255,6 +354,11 @@ class RouterPriceMirror:
                 asset=spec.oracle_asset,
                 err=str(exc),
             )
+        # Single arm point for the per-bar + forced live paths. The
+        # dry-run path returns above (submitted always False there, so
+        # `_mark` would be a no-op anyway); a failed submit reaches here
+        # with submitted False ⇒ clock not armed ⇒ next bar retries.
+        self._mark(record)
         self.pending.append(record)
         return record
 
