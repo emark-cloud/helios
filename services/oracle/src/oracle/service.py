@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
+import structlog
 from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query
 from pydantic import Field, field_validator
@@ -42,6 +43,8 @@ from oracle.sources.yield_base import YieldSource
 from oracle.sources.yield_compound_stub import CompoundStubSource
 from oracle.state import SnapshotStore
 from oracle.yield_state import YieldStore
+
+_log = structlog.get_logger(__name__)
 
 
 class Settings(BaseServiceSettings):
@@ -115,6 +118,23 @@ class Settings(BaseServiceSettings):
             raise ValueError("ORACLE_YIELD_ANCHOR_HEARTBEAT_SEC must be >= 1")
         return v
 
+    @field_validator("router_mirror_liveness_sec")
+    @classmethod
+    def _router_mirror_liveness_non_negative(cls, v: int) -> int:
+        # 0 = legacy unconditional per-bar (zero-behaviour-change
+        # rollback); positive = heartbeat gate. No upper clamp: the
+        # router has NO on-chain freshness gate and every trade
+        # force-refreshes its own asset via the /v1/anchor/commit seam,
+        # so a long heartbeat is fully safe (contrast
+        # ORACLE_ANCHOR_LIVENESS_SEC's 165s on-chain ceiling).
+        if v < 0:
+            raise ValueError(
+                "ROUTER_MIRROR_LIVENESS_SEC must be >= 0 (0 = legacy "
+                "unconditional per-bar; positive = heartbeat gate — no "
+                "on-chain freshness ceiling, contrast ANCHOR_LIVENESS_SEC)"
+            )
+        return v
+
     # Phase 5 cross-chain replication. Each mirror chain is fully
     # optional — leaving the RPC blank disables replication for that
     # chain. The same `ORACLE_SIGNER_PK` signs all chains; only the
@@ -169,6 +189,17 @@ class Settings(BaseServiceSettings):
     )
     router_mirror_wsol_decimals: int = Field(
         default=9, validation_alias="ROUTER_MIRROR_WSOL_DECIMALS"
+    )
+    # Gas: gate the per-bar RouterPriceMirror keeper behind a global
+    # liveness heartbeat. The router price has NO on-chain freshness
+    # gate and its ONLY consumer is the in-flight executeWithProof swap,
+    # which now force-refreshes via /v1/anchor/commit (force_refresh_async
+    # rides the existing pre-trade hook — no strategy change). 0 = legacy
+    # unconditional per-bar (~6 tx/min, zero-behaviour-change rollback);
+    # positive = suppress per-bar posts within the window (one heartbeat
+    # per window). No upper clamp (no on-chain ceiling).
+    router_mirror_liveness_sec: int = Field(
+        default=0, validation_alias="ROUTER_MIRROR_LIVENESS_SEC"
     )
 
 
@@ -373,6 +404,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "signer": signer.signer_address,
             "assets": assets,
             "sources": [s.name for s in sources],
+            "router_mirror_liveness_sec": cfg.router_mirror_liveness_sec,
+            "router_mirror_posts": router_mirror.posts if router_mirror is not None else 0,
+            "router_mirror_skipped": router_mirror.skipped if router_mirror is not None else 0,
         }
 
     @router.get("/snapshots/recent")
@@ -481,6 +515,20 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 status_code=503,
                 detail=f"commit not mined: {rec.error or 'dry-run (anchor address unset)'}",
             )
+        # On-demand router refresh: the oracle root is now mined, so
+        # force-refresh the router price for the SAME asset off the same
+        # snapshot store before the strategy submits its swap. Runs
+        # strictly after the commit mined ⇒ router price ≥ committed-root
+        # freshness (the slippage budget then absorbs only genuine
+        # microstructure, never mirror lag). Advisory: a refresh failure
+        # must NOT fail an already-mined commit — the per-bar keeper
+        # retries (the gate is not armed on failure) and the swap's own
+        # amountOutMinimum is the on-chain backstop.
+        if router_mirror is not None:
+            try:
+                await router_mirror.force_refresh_async(asset)
+            except Exception as exc:  # pragma: no cover — defensive
+                _log.warning("oracle.router_mirror.on_demand_failed", asset=asset, err=str(exc))
         return {
             "asset": asset,
             "root": str(int(rec.root_hex, 16)),
@@ -613,6 +661,7 @@ def _build_router_mirror(cfg: Settings, store: SnapshotStore) -> RouterPriceMirr
         chain_id=cfg.chain_id,
         pairs=pairs,
         spread_bps=cfg.router_mirror_spread_bps,
+        liveness_sec=cfg.router_mirror_liveness_sec,
     )
 
 
