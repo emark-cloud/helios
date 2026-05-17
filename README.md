@@ -49,10 +49,10 @@ rotation and have it count.
   UserVault — capital + meta-strategy bounds
    │ delegateToAllocator
    ▼
-  AllocatorVault (Sentinel) — routes per rank
-   │ allocateToStrategy / allocateToRemoteStrategyBatch
+  AllocatorVault (Sentinel) — ranks + coordinates per chain
+   │ allocateToStrategy (capital is chain-local; no bridging)
    ▼
-  StrategyVault — holds capital, executes trades
+  StrategyVault — holds chain-local capital, executes trades
    │ executeWithProof(Groth16 π)
    ▼
   TradeAttestationVerifier — class check
@@ -60,16 +60,27 @@ rotation and have it count.
    ▼
   Goldsky → Reputation Engine → ReputationAnchor
                                   ▲
-                LayerZero V2 ← cross-chain reputation
-                LayerZero V2 → cross-chain capital (OFT)
+                LayerZero V2 ← reputation + attestations only
+                (Base/Arb → Kite, source-paid; no capital hop)
 ```
+
+**Capital is chain-local.** Principal lives on the chain where its
+strategy executes and never crosses a chain. Kite is the single
+identity + reputation + accounting layer; LayerZero V2 carries only
+information (attestations/reputation, and in v2 the accounting
+roll-up) home to Kite — never principal. The legacy OFT capital
+path is deactivated by deliberate decision; see
+[`Helios.md §12`](./Helios.md) and
+[`docs/cross-chain-cost-roadmap.md`](./docs/cross-chain-cost-roadmap.md).
 
 **A trade in five steps.** (1) The user signs once via Kite Passport
 — a batched userOp deposits USDC, sets the meta-strategy, and
 delegates to Sentinel. (2) Sentinel ticks every 60 s, ranks all live
-strategies by realized performance + stake, and allocates capital;
-same-chain via `allocateToStrategy`, cross-chain via a batched
-LayerZero V2 OFT send. (3) Each Strategy Agent observes price + its
+strategies by realized performance + stake, and allocates capital
+via `allocateToStrategy` to vaults on its own chain — capital is
+chain-local and never bridged; cross-chain strategies are ranked and
+coordinated by identity/reputation, not funded by a principal hop.
+(3) Each Strategy Agent observes price + its
 declared signal, builds a Groth16 proof of class compliance, and
 submits `executeWithProof`. (4) The on-chain verifier rejects any
 trade that doesn't satisfy the class circuit — bad trades cannot
@@ -124,12 +135,23 @@ Live as of `v1` (2026-05-14):
 - **Real ZK-attested trades.** First 8 autonomous `TradeAttested`
   events fired from mr.kite on 2026-05-12. Each carries a 16-PI
   Groth16 proof, on-chain class-verified before settlement.
-- **Real cross-chain capital flow.** 3 LZ V2 hops delivered on
-  2026-05-14 (mom.base, mr.base, yr.arb each credited with
-  0.650331 mUSDC on destination, zero parked on BridgeReceivers).
-- **Real cross-chain reputation.** A Base→Kite update via LayerZero
-  V2 moved `currentReputation` 0 → 750 for one strategy in a single
-  hop.
+- **Capital is chain-local (by decision).** A real LayerZero V2 OFT
+  capital path was built and proven end-to-end — 3 hops delivered
+  2026-05-14 (mom.base, mr.base, yr.arb each credited 0.650331 mUSDC
+  on destination, zero parked). It is now **deactivated**: the LZ V2
+  ~1 KITE/send fixed-fee floor makes per-rebalance principal
+  bridging structurally impractical (it burned ~35 KITE before the
+  cut), and bridging principal was never the load-bearing part of
+  the thesis. Capital now lives on the chain whose venue it uses and
+  never crosses one. See *Current limitations* below and
+  [`Helios.md §12`](./Helios.md).
+- **Real cross-chain reputation (this is the cross-chain story).** A
+  Base→Kite update via LayerZero V2 moved `currentReputation`
+  0 → 750 for one strategy in a single hop. This path is
+  source-paid in free testnet ETH (~9.9 × 10⁻⁵ ETH/msg, measured),
+  never KITE — it is the live, honest LayerZero use, and the
+  mechanism behind "Kite as the canonical identity + accounting
+  layer."
 - **Deployed end-to-end.** Frontend on Vercel; sentinel + reputation
   + oracle services on a Servarica Montreal VPS; Goldsky subgraphs
   `helios/v0.9.0` + `helios-base/v0.9.0` + `helios-arbitrum/v0.9.0`
@@ -147,22 +169,33 @@ Full empirical evidence trail (every claim → on-chain artifact):
 
 ## Current limitations & mitigations
 
-**LayerZero V2 cross-chain cost.** Each `OFT.send` on Kite testnet
-costs 1.0 KITE (~$0.50–$2 mainnet equivalent), driven by the LZ
-DVN fee floor + executor base fee, not by gas. A 3-candidate
-cold-start cross-chain broadcast cost 3.2 KITE before optimization.
+**Cross-chain capital flow is deactivated in v1 (deliberate
+decision, not a gap).** Each `OFT.send` *originating on Kite* costs
+~1.0 KITE (~$0.50–$2 mainnet equivalent), driven by the LZ DVN +
+executor floor, *independent of payload* — a 3-candidate cold-start
+broadcast cost 3.2 KITE and operating the path burned ~35 KITE. The
+cost-suppression levers in
+[`docs/cross-chain-cost-roadmap.md`](./docs/cross-chain-cost-roadmap.md)
+(threshold/flush gates, same-destination batching, roadmapped
+receiver-fold + multi-user aggregation) only *amortize* this floor;
+they cannot remove it. Per-rebalance principal bridging is
+structurally impractical under LZ V2 fee economics.
 
-- *Shipped in `v1`.* Tier 1 (threshold gate skips dust ops,
-  flush cadence amortizes re-fires) + Tier 2
-  (`allocateToRemoteStrategyBatch` collapses same-destination
-  strategies into one OFT send) drops the same broadcast to
-  ~2.2 KITE.
-- *Roadmapped.* Tier 3 folds the receiver into the OFT adapter's
-  `_credit` hook (saves another ~30–40 % per hop); Tier 4
-  aggregates multiple users into one OFT send per (dst chain,
-  strategy), linear savings with concurrent user count. Full
-  design:
-  [`docs/cross-chain-cost-roadmap.md`](./docs/cross-chain-cost-roadmap.md).
+- *Shipped in `v1`.* A master kill-switch
+  (`SENTINEL_CROSS_CHAIN_CAPITAL_ENABLED`, default off) makes every
+  cross-chain allocation a zero-cost `CROSS_CHAIN_ALLOCATION_DEFERRED`
+  event. Capital is chain-local; no KITE is spent moving it. The
+  cross-chain *story* is carried entirely by the reputation/attestation
+  roll-up (Base/Arb → Kite, source-paid in free testnet ETH at
+  ~9.9 × 10⁻⁵ ETH/msg) — the part that was ever load-bearing.
+- *v2 direction (committed, documented).* **Chain-local capital +
+  Kite as a read-only accounting roll-up.** Users deposit directly
+  on the chain whose venue they want; principal and fees never cross
+  a chain; Kite holds the canonical meta-strategy identity and an
+  aggregated accounting view assembled purely from the cheap
+  attestation path. Eliminates the bridging cost entirely while
+  making the LayerZero use *more* honest. Full design:
+  [`Helios.md §12.3`](./Helios.md).
 
 **Centralized v1 trust surfaces.** Per
 [`docs/threat-model.md`](./docs/threat-model.md) +
@@ -186,6 +219,15 @@ multi-sig reputation signer, AllocatorSDK adoption push (5–10
 third-party allocators), permissionless strategy-class registration
 with circuit-submission gating, Chainlink-backed price oracle
 adapter, independent smart-contract audit.
+
+**Cross-chain v2 — chain-local capital + Kite accounting roll-up.**
+The committed cross-chain architecture: per-chain user deposits (you
+deposit on the chain whose venue you want), a Base/Arb-side allocator
+delegation surface, and a unified read-only accounting view on Kite
+assembled from the existing cheap attestation path. Principal and
+fees never cross a chain; the deactivated OFT contracts are removed
+from all paths. Eliminates the per-rebalance bridging cost entirely.
+Design: [`Helios.md §12.3`](./Helios.md).
 
 **Phase 2 (months 4–6).** Mainnet deployment on Kite L1, USDT +
 USDG stablecoin support, capacity-adjusted Sharpe in the reputation
