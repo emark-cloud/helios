@@ -69,7 +69,9 @@
     "strategyVaultImplCXR": "0xc3C7A30C86186Ae42aad6659bF37D80f1124feA6",
     "strategyVaultImplNavCounterSaturation": "0xe13BfCD4DA759ef986DA7564cd730FBe9f5C1B3C",
     "allocatorVaultImplCXR0c": "0xb7Ced20bCFaa499FE1A20ef032E35770e3966C36",
-    "allocatorVaultImplBatch": "0xe7b8540BaEb9c502bc6D2c4FF3114a20B8476474"
+    "allocatorVaultImplBatch": "0xe7b8540BaEb9c502bc6D2c4FF3114a20B8476474",
+    "allocatorVaultImplDefundUnwind": "0x02d4BEC382Cf640BB7CB67c9f49874e581fC43fe",
+    "strategyVaultImplDefundUnwind": "0x5d3Ef33068C7ECb5134875B5F4DDEd4197709883"
   },
   "lzLocalEid": 40415,
   "lzKiteEndpoint": "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32",
