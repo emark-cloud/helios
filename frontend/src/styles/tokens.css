@@ -62,7 +62,7 @@
   /* ── Foreground (typographic hierarchy) ──────────────────── */
   --fg-primary:   #e8edf5;    /* body / numerics */
   --fg-secondary: #b3becf;    /* secondary text */
-  --fg-muted:     #7886a0;    /* labels, axis ticks */
+  --fg-muted:     #808dab;    /* labels, axis ticks — WCAG AA (≥4.5:1) on surface-base/panel/elev */
   --fg-disabled:  #4a5468;
 
   /* ── Accent — amber. THE ONLY non-neutral color. ────────── */
