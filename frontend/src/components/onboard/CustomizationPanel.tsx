@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
 import { formatBpsAsPct } from "@/lib/format";
 import type { DefundForm, TemplateForm } from "@/lib/templates";
 
-const ASSET_OPTIONS = ["KITE", "ETH", "BTC"];
+const ASSET_OPTIONS = ["BTC", "ETH", "SOL"];
 const CADENCE_OPTIONS: Array<{ seconds: number; label: string }> = [
   { seconds: 900, label: "15m" },
   { seconds: 1_800, label: "30m" },

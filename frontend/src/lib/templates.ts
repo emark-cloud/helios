@@ -50,7 +50,7 @@ export type Template = {
 };
 
 const ALL_CLASSES = ["momentum_v1", "mean_reversion_v1", "yield_rotation_v1"];
-const PHASE1_ASSETS = ["KITE", "ETH", "BTC"];
+const PHASE1_ASSETS = ["BTC", "ETH", "SOL"];
 const KITE_CHAIN = 2368;
 
 export const TEMPLATES: Record<TemplateKey, Template> = {
