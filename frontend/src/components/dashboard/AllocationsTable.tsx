@@ -113,8 +113,14 @@ function Row({
   repPulseKey: string | undefined;
   selected: boolean;
 }): JSX.Element {
-  const pnl = alloc.current_nav_usd - alloc.high_water_mark_usd;
-  const pnlPct = alloc.high_water_mark_usd > 0 ? (pnl / alloc.high_water_mark_usd) * 100 : 0;
+  // A strategy with no realized-PnL baseline (HWM == 0) has never
+  // crystallized a high-water mark — it has effectively never traded.
+  // `nav - 0` would render the whole allocation NAV as fake "profit"
+  // (a never-traded strategy showing green "+"); show no PnL until a
+  // baseline exists, mirroring the drawdown cell's "—".
+  const hasPnlBaseline = alloc.high_water_mark_usd > 0;
+  const pnl = hasPnlBaseline ? alloc.current_nav_usd - alloc.high_water_mark_usd : 0;
+  const pnlPct = hasPnlBaseline ? (pnl / alloc.high_water_mark_usd) * 100 : 0;
   const explorer = explorerAddressUrl(alloc.chain_id, alloc.strategy_id);
 
   // Live event takes precedence over the static `defunded` flag so a
@@ -179,10 +185,16 @@ function Row({
         <Numeric align="right">{formatUsd(alloc.current_nav_usd, { cents: false })}</Numeric>
       </td>
       <td className="px-3 py-2.5 text-right">
-        <Numeric tone={toneFor(pnl)} align="right">
-          {pnl >= 0 ? "+" : ""}
-          {pnlPct.toFixed(2)}%
-        </Numeric>
+        {hasPnlBaseline ? (
+          <Numeric tone={toneFor(pnl)} align="right">
+            {pnl >= 0 ? "+" : ""}
+            {pnlPct.toFixed(2)}%
+          </Numeric>
+        ) : (
+          <Numeric tone="muted" align="right">
+            —
+          </Numeric>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right">
         <Numeric tone={alloc.drawdown_bps > 0 ? "negative" : "muted"} align="right">
