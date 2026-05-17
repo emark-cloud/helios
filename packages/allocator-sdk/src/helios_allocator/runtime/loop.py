@@ -260,32 +260,15 @@ class AllocatorLoop:
         return list(self._directory)
 
     async def _tick_user(self, user: UserState, ts: int) -> None:
-        # Refresh `delegated_capital_usd` from on-chain UserVault balance.
-        # `_compute_target` gates on this — without an RPC seed it stays
-        # zero (the upsert path doesn't write it) and no allocation ever
-        # fires. Reading on every tick also handles deposit/withdraw
-        # cycles transparently. RPC errors leave the prior value in
-        # place; stub mode (no UserVault address configured) returns
-        # None and we fall back to whatever the meta-strategy POST or a
-        # test fixture seeded.
-        try:
-            balance = await self._onchain.read_user_vault_balance_async(user.meta.user_address)
-        except Exception as exc:  # pragma: no cover — defensive RPC guard
-            _log.warning(
-                "allocator.user_vault_balance.error",
-                user=user.meta.user_address,
-                err=str(exc),
-            )
-            balance = None
-        if balance is not None:
-            user.delegated_capital_usd = balance
-
-        # On-chain aggregate principal already routed for this user. The
-        # AllocatorVault meta-capital cap (`userTotalDeployed + newAmount
-        # <= meta.maxCapital`) is enforced against this value, not
-        # against the loop's in-memory view, so `_compute_target` has to
-        # see it to size within headroom. None (stub / RPC failure) →
-        # treated as zero orphan downstream.
+        # On-chain aggregate principal already routed for this user
+        # (`userTotalDeployed`). Read this FIRST: the UserVault balance
+        # below is the *liquid* balance — it excludes anything already
+        # deployed to strategies — so the user's true total delegation
+        # is liquid + deployed. The AllocatorVault meta-capital cap
+        # (`userTotalDeployed + newAmount <= meta.maxCapital`) is also
+        # enforced against this, so `_compute_target` needs it for
+        # orphan headroom. None (stub / RPC failure) → treated as zero
+        # downstream.
         try:
             on_chain_deployed = await self._onchain.read_user_total_deployed_async(
                 user.meta.user_address
@@ -297,6 +280,35 @@ class AllocatorLoop:
                 err=str(exc),
             )
             on_chain_deployed = None
+
+        # Refresh `delegated_capital_usd` from the on-chain UserVault
+        # balance. `read_user_vault_balance` returns the *liquid*
+        # balance — it shrinks as capital is routed out to strategies —
+        # so the user's true total delegation is `liquid +
+        # userTotalDeployed`. Budgeting against the liquid remainder
+        # alone tears every funded allocation down the moment the RPC
+        # returns a consistent non-zero deployed read (target ≪ current
+        # → full-removal diff), then re-allocates next cadence: a
+        # defund/realloc churn loop that bleeds swap spread + gas and
+        # never durably deploys (a flaky RPC intermittently reading
+        # deployed=0 had been masking this). `_compute_target` gates on
+        # this value — without an RPC seed it stays zero (the upsert
+        # path doesn't write it) and no allocation ever fires. Reading
+        # every tick also handles deposit/withdraw transparently. RPC
+        # errors leave the prior value; stub mode (no UserVault address)
+        # returns None and we keep whatever the meta-strategy POST or a
+        # test fixture seeded (already the total there, not liquid).
+        try:
+            balance = await self._onchain.read_user_vault_balance_async(user.meta.user_address)
+        except Exception as exc:  # pragma: no cover — defensive RPC guard
+            _log.warning(
+                "allocator.user_vault_balance.error",
+                user=user.meta.user_address,
+                err=str(exc),
+            )
+            balance = None
+        if balance is not None:
+            user.delegated_capital_usd = balance + (on_chain_deployed or 0)
 
         _log.info(
             "allocator.tick_user",
@@ -402,14 +414,18 @@ class AllocatorLoop:
             return []
 
         # Fix #1 + #3 — size within the on-chain meta-capital headroom.
-        # `BaseAllocator.allocate` derives the per-strategy cap as
-        # `capital * maxPerStrategyBps / 1e4`; the on-chain check uses
-        # `maxCapital * maxPerStrategyBps / 1e4`. Passing the raw
-        # UserVault balance (which can exceed maxCapital) therefore
-        # breaches *both* the aggregate and per-strategy on-chain caps.
-        # Clamp to maxCapital, then subtract the orphaned on-chain
-        # principal (deployed under a prior onboard, untracked by this
-        # store) so `userTotalDeployed + sum(new) <= maxCapital` holds.
+        # `delegated_capital_usd` is the user's *total* delegation
+        # (`_tick_user` reconstitutes it as liquid UserVault balance +
+        # `userTotalDeployed`; on the stub/None path it is the seeded
+        # total). `BaseAllocator.allocate` derives the per-strategy cap
+        # as `capital * maxPerStrategyBps / 1e4`; the on-chain check
+        # uses `maxCapital * maxPerStrategyBps / 1e4`. Passing the raw
+        # UserVault balance (which can exceed maxCapital) would breach
+        # *both* the aggregate and per-strategy on-chain caps. Clamp to
+        # maxCapital, then subtract the orphaned on-chain principal
+        # (deployed under a prior onboard, untracked by this store —
+        # our own `managed` deployed capital is already inside the
+        # total) so `userTotalDeployed + sum(new) <= maxCapital` holds.
         # `maxCapital <= 0` means uncapped (mirrors the StrategyVault
         # capacity convention) → balance-only sizing.
         cap = user.meta.max_capital_usd * _USD_WEI_SCALE

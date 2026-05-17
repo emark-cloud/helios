@@ -1178,6 +1178,95 @@ async def test_orphaned_deployed_exhausts_cap_yields_no_target() -> None:
     assert sid not in user.allocations
 
 
+class _LiquidDeployedOnChain(AllocatorOnChain):
+    """Stub returning a *real* liquid UserVault balance AND a non-zero
+    `userTotalDeployed` — the consistent-read state the live churn bug
+    needs. `_DeployedOnChain` returns balance=None (keeps the seeded
+    total), so it never exercises `_tick_user`'s liquid+deployed
+    reconstitution; this one does."""
+
+    def __init__(self, *, liquid: int, deployed: int) -> None:
+        super().__init__(
+            rpc_url="",
+            operator_pk="",
+            allocator_vault_address="",
+            allocator_registry_address="",
+            chain_id=2368,
+        )
+        self._liquid = liquid
+        self._deployed = deployed
+
+    async def read_user_vault_balance_async(self, user: str) -> int | None:
+        return self._liquid
+
+    async def read_user_total_deployed_async(self, user: str) -> int | None:
+        return self._deployed
+
+
+@pytest.mark.asyncio
+async def test_fully_allocated_user_consistent_reads_no_mass_defund() -> None:
+    """Regression: a fully-allocated user must NOT have every allocation
+    torn down the moment the RPC returns a *consistent* non-zero
+    `userTotalDeployed`.
+
+    `read_user_vault_balance` is the UserVault's *liquid* balance — it
+    shrinks as capital is routed out. Pre-fix, `_tick_user` set
+    `delegated_capital_usd = liquid` alone, so `_compute_target`
+    budgeted against the liquid remainder (far below the current
+    allocation) and the diff defunded everything (mislabelled
+    `RANK_DROP`), then re-allocated next cadence — a churn loop that
+    bled swap spread + gas and never durably deployed. A flaky Kite RPC
+    intermittently reading `deployed=0` had masked it. Pins the live
+    incident (user 0x1cFCD4e1…, 2026-05-17): 1837.84 deployed, 162.16
+    liquid, all 3 defunded once the read went consistent.
+
+    Fix: `_tick_user` reconstitutes the true total =
+    `liquid + userTotalDeployed`. Setup: 9_000 deployed to one
+    strategy, 1_000 liquid, `userTotalDeployed == managed` (no orphan).
+    Fixed delegated = 1_000 + 9_000 = 10_000; budget = min(10_000, cap
+    10_000) − orphan(0) = 10_000 ⇒ the idle 1_000 is *added* to the
+    position (correct), nothing defunded. Pre-fix delegated = 1_000 ⇒
+    budget 1_000 ⇒ −8_000 decrease ⇒ STRATEGY_DEFUNDED."""
+    store = AllocatorStore()
+    user = store.upsert_user(_meta())  # max_capital_usd=10_000 → 1e22 wei cap
+    sid = "0x" + "11" * 20
+    deployed = 9_000 * 10**18
+    user.allocations[sid] = AllocationState(
+        strategy_id=sid,
+        chain_id=2368,
+        declared_class="momentum_v1",
+        capital_deployed_usd=deployed,
+        high_water_mark_usd=deployed,
+        nav_usd=deployed,
+        last_rebalance_ts=0,
+    )
+    user.last_rebalance_ts = 0
+
+    goldsky = _StubGoldsky([_row(sid)])
+    # Liquid UserVault balance = total delegation − the deployed bulk;
+    # userTotalDeployed == the seeded allocation (no untracked orphan).
+    onchain = _LiquidDeployedOnChain(liquid=1_000 * 10**18, deployed=deployed)
+    loop = AllocatorLoop(
+        store=store,
+        allocator=_AlwaysFirstAllocator(),
+        goldsky=goldsky,
+        onchain=onchain,
+    )
+
+    await loop.tick_once(now=now_ts())
+
+    # The allocation must survive — not torn down. Pre-fix this defunded.
+    assert sid in user.allocations
+    assert not user.allocations[sid].defunded
+    # delegated reconstituted to the true total (liquid + deployed).
+    assert user.delegated_capital_usd == 10_000 * 10**18
+    # Idle remainder deployed (grew to the full delegation), not removed.
+    assert user.allocations[sid].capital_deployed_usd == 10_000 * 10**18
+    kinds = [e.kind for e in store.recent_events(user.meta.user_address)]
+    assert "STRATEGY_DEFUNDED" not in kinds
+    assert "defundStrategy" not in [c.method for c in onchain.pending]
+
+
 @pytest.mark.asyncio
 async def test_onchain_rejected_allocate_not_mirrored_into_store() -> None:
     """Fix #2 — a reverted `allocateToStrategy` must NOT bump the
