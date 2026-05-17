@@ -35,6 +35,7 @@ from helios_allocator.runtime import (
     LoopConfig,
 )
 from helios_allocator.runtime.goldsky import MultiChainAllocatorGoldsky
+from helios_allocator.runtime.state import UserState
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
@@ -351,31 +352,9 @@ def _make_router(
     async def dashboard(user: str) -> DashboardPayload:
         state = store.get_user(user)
         if state is None:
-            # The store is in-process and is wiped on a Sentinel
-            # restart, but the on-chain UserVault still holds the
-            # user's signed meta-strategy + live delegation. Rehydrate
-            # from chain rather than 404'ing a delegation that is still
-            # active — the on-chain meta IS the user's authorization,
-            # so this needs no re-signature. Self-heals every onboarded
-            # user on their first post-restart dashboard hit, and
-            # re-arms the allocator loop (which skips users absent from
-            # the store).
-            meta = await onchain.read_user_meta_strategy_async(user)
-            if meta is None:
+            state = await _rehydrate_from_chain(user, store, onchain, loop)
+            if state is None:
                 raise HTTPException(status_code=404, detail=f"no meta-strategy for {user}")
-            store.upsert_user(meta)
-            store.emit_event(
-                AllocatorEvent(
-                    user_address=meta.user_address,
-                    kind="META_STRATEGY_SET",
-                    strategy_id=None,
-                    amount_usd=0,
-                    reason="rehydrated from on-chain UserVault",
-                    timestamp=int(time.time()),
-                )
-            )
-            state = store.get_user(user)
-            assert state is not None
         return _dashboard_for(state, cfg)
 
     @router.get("/strategies")
@@ -443,6 +422,62 @@ _BASE_ASSET_SCALE = 10**_BASE_ASSET_DECIMALS
 
 def _to_usd(wei: int) -> int:
     return int(wei) // _BASE_ASSET_SCALE
+
+
+async def _rehydrate_from_chain(
+    user: str,
+    store: AllocatorStore,
+    onchain: AllocatorOnChain,
+    loop: AllocatorLoop,
+) -> UserState | None:
+    """Rebuild a user's runtime state from chain after a store wipe.
+
+    The store is in-process and is lost on a Sentinel restart, but the
+    on-chain UserVault still holds the user's signed meta-strategy +
+    live delegation and the AllocatorVault still holds their deployed
+    positions. Rehydrate from chain rather than 404'ing a delegation
+    that is still active — the on-chain meta IS the user's
+    authorization, so this needs no re-signature. Self-heals every
+    onboarded user on their first post-restart dashboard hit and
+    re-arms the allocator loop (which skips users absent from the
+    store). Returns None when there is genuinely no on-chain meta (a
+    real 404).
+    """
+    meta = await onchain.read_user_meta_strategy_async(user)
+    if meta is None:
+        return None
+    store.upsert_user(meta)
+    # Restoring the meta tells us *what the user authorized*; it doesn't
+    # tell us *where their capital currently is*. Without this, every
+    # allocation row reads 0 capital until the next cadence-gated
+    # rebalance happens to rewrite the in-memory mirror (observed live
+    # on 0xF235F71…: ~999 mUSDC deployed on-chain, dashboard showing
+    # $0). Reconstruct the live positions from
+    # `AllocatorVault.allocationOf` so the dashboard is correct on the
+    # first post-restart hit. Only same-chain (Kite) strategies are
+    # queryable here — the canonical AllocatorVault doesn't hold
+    # cross-chain positions; the loop's multi-chain mirror handles those.
+    directory = await loop.directory()
+    local_rows = [r for r in directory if r.chain_id in (0, onchain.chain_id)]
+    rebuilt = await onchain.read_user_allocations_async(
+        meta.user_address, [r.strategy_id for r in local_rows]
+    )
+    if rebuilt:
+        class_by_id = {r.strategy_id: r.declared_class for r in local_rows}
+        for a in rebuilt:
+            a.declared_class = class_by_id.get(a.strategy_id, "")
+        store.replace_allocations(meta.user_address, rebuilt)
+    store.emit_event(
+        AllocatorEvent(
+            user_address=meta.user_address,
+            kind="META_STRATEGY_SET",
+            strategy_id=None,
+            amount_usd=0,
+            reason="rehydrated from on-chain UserVault",
+            timestamp=int(time.time()),
+        )
+    )
+    return store.get_user(user)
 
 
 def _dashboard_for(state, cfg: Settings) -> DashboardPayload:

@@ -695,6 +695,81 @@ class AllocatorOnChain:
     async def read_user_meta_strategy_async(self, user: str) -> MetaStrategy | None:
         return await asyncio.to_thread(self.read_user_meta_strategy, user)
 
+    def read_user_allocations(self, user: str, strategies: list[str]) -> list[AllocationState]:
+        """Reconstruct the user's live on-chain allocation set.
+
+        For each strategy address, reads `AllocatorVault.allocationOf(
+        user, strategy)` and keeps only the records the chain actually
+        holds — a non-zero `capitalDeployed`, or a non-zero `defundedAt`
+        (a defunded-but-still-recorded position). Empty slots (the user
+        never allocated there) are dropped so a rehydrated dashboard
+        doesn't render phantom 0-capital rows for every active strategy.
+
+        Paired with `read_user_meta_strategy` for the dashboard
+        rehydrate-on-404 path: the meta read restores *what the user
+        authorized*; this restores *where their capital actually is*, so
+        the dashboard shows real principal immediately after a Sentinel
+        restart instead of zeros until the next cadence-gated rebalance
+        rewrites the in-memory mirror.
+
+        `declared_class` is left "" — the SDK runner has no strategy
+        directory; the caller fills it from its candidate set.
+        `chain_id` is this runner's chain: `allocationOf` lives on the
+        local AllocatorVault, so only same-chain (Kite) positions are
+        in scope here — cross-chain positions are accounted on their
+        own chain's StrategyVault and are out of scope for this
+        canonical-side rehydrate. `nav_usd` is seeded to
+        `capitalDeployed` (the loop refreshes the true StrategyVault NAV
+        on its next tick); seeding to principal is a floor that never
+        over-reports. `high_water_mark_usd` mirrors the on-chain HWM,
+        falling back to `capitalDeployed` when the chain returns 0 —
+        matching how the loop itself seeds HWM at ALLOCATION_CREATED, so
+        drawdown math stays consistent across a rehydrate.
+
+        Per-strategy read failures are swallowed (return whatever
+        resolved) — a flaky RPC on one address must not abort the whole
+        rehydrate; the loop reconciles any gap on its next tick.
+        """
+        if not self._live or not self._allocator_vault:
+            return []
+        self._ensure_live()
+        assert self._vault_contract is not None
+        out: list[AllocationState] = []
+        for s in strategies:
+            try:
+                record = self._vault_contract.functions.allocationOf(
+                    Web3.to_checksum_address(user), Web3.to_checksum_address(s)
+                ).call()
+            except Exception as exc:
+                _log.warning("onchain.allocation.read_failed", user=user, strategy=s, err=str(exc))
+                continue
+            # Tuple matches IAllocatorVault.AllocationRecord:
+            # [0]=strategy, [1]=capitalDeployed, [2]=highWaterMark,
+            # [3]=defundedAt, [4]=lastUpdate.
+            capital_deployed = int(record[1])
+            hwm = int(record[2])
+            defunded_at = int(record[3])
+            if capital_deployed == 0 and defunded_at == 0:
+                # Slot the user never touched — skip the phantom row.
+                continue
+            out.append(
+                AllocationState(
+                    strategy_id=s,
+                    chain_id=self._chain_id,
+                    declared_class="",
+                    capital_deployed_usd=capital_deployed,
+                    high_water_mark_usd=hwm or capital_deployed,
+                    nav_usd=capital_deployed,
+                    defunded=defunded_at != 0,
+                )
+            )
+        return out
+
+    async def read_user_allocations_async(
+        self, user: str, strategies: list[str]
+    ) -> list[AllocationState]:
+        return await asyncio.to_thread(self.read_user_allocations, user, strategies)
+
     def read_user_total_deployed(self, user: str) -> int | None:
         """`AllocatorVault.userTotalDeployed(user)` in raw asset wei, or
         None in stub mode / when the allocator vault address is unset.

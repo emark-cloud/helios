@@ -196,6 +196,79 @@ def test_dashboard_rehydrates_user_from_chain_on_store_miss(
         assert store.get_user(user_addr) is not None
 
 
+def test_dashboard_rehydrate_reconstructs_allocations_from_chain(
+    app_client: tuple[object, TestClient],
+) -> None:
+    """Restoring the meta tells us *what* the user authorized but not
+    *where their capital is*. The rehydrate path must also rebuild the
+    live positions from `AllocatorVault.allocationOf`, so the dashboard
+    shows real principal on the first post-restart hit instead of $0
+    until the next cadence rebalance (the live 0xF235F71… symptom).
+    """
+    app, client = app_client
+    user_addr = "0x" + "7a" * 20
+    strat = "0x" + "11" * 20
+
+    async def _fake_meta(u: str) -> MetaStrategy:
+        return MetaStrategy(
+            user_address=u,
+            allowed_strategy_classes=["momentum_v1"],
+            allowed_assets=[],
+            allowed_chains=[2368],
+            max_capital_usd=2_000,
+            max_per_strategy_bps=3_500,
+            max_strategies_count=5,
+            drawdown_threshold_bps=1_500,
+            max_fee_rate_bps=500,
+            rebalance_cadence_sec=1_800,
+            valid_until=9_999_999_999,
+        )
+
+    async def _fake_directory() -> list[StrategyDirectoryRow]:
+        return [
+            StrategyDirectoryRow(
+                strategy_id=strat,
+                declared_class="momentum_v1",
+                chain_id=2368,
+                operator="0x" + "00" * 20,
+                fee_rate_bps=100,
+                stake_amount_usd=0,
+                max_capacity_usd=0,
+                current_allocations_usd=0,
+                reputation_score_e4=0,
+            )
+        ]
+
+    async def _fake_allocs(u: str, strategies: list[str]) -> list[AllocationState]:
+        assert strategies == [strat]  # only the Kite-local row was queried
+        return [
+            AllocationState(
+                strategy_id=strat,
+                chain_id=2368,
+                declared_class="",  # filled from the directory by the service
+                capital_deployed_usd=999 * 10**18,
+                high_water_mark_usd=999 * 10**18,
+                nav_usd=999 * 10**18,
+            )
+        ]
+
+    app.state.onchain.read_user_meta_strategy_async = _fake_meta  # type: ignore[attr-defined]
+    app.state.onchain.read_user_allocations_async = _fake_allocs  # type: ignore[attr-defined]
+    app.state.loop.directory = _fake_directory  # type: ignore[attr-defined]
+    with client:
+        store = app.state.store  # type: ignore[attr-defined]
+        assert store.get_user(user_addr) is None
+        r = client.get(f"/v1/users/{user_addr}/dashboard")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["total_capital_usd"] == 999  # not 0
+        assert len(body["allocations"]) == 1
+        row = body["allocations"][0]
+        assert row["strategy_id"] == strat
+        assert row["declared_class"] == "momentum_v1"  # backfilled from directory
+        assert row["capital_deployed_usd"] == 999
+
+
 def test_dashboard_returns_allocations(app_client: tuple[object, TestClient]) -> None:
     app, client = app_client
     user_addr = _TEST_USER
