@@ -1553,6 +1553,13 @@ IStrategyVault_ABI = [
   },
   {
     "type": "function",
+    "name": "unwindToBase",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "withdrawToAllocator",
     "inputs": [
       {
@@ -1581,6 +1588,37 @@ IStrategyVault_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AssetUnwound",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "baseReceived",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
   },
   {
     "type": "event",
@@ -1926,6 +1964,37 @@ IStrategyVault_ABI = [
   },
   {
     "type": "event",
+    "name": "UnwoundToBase",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "address",
+        "indexed": True,
+        "internalType": "address"
+      },
+      {
+        "name": "totalBaseReceived",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonBaseMarkedValue",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      },
+      {
+        "name": "assetsSwept",
+        "type": "uint256",
+        "indexed": False,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": False
+  },
+  {
+    "type": "event",
     "name": "YieldRotationAttested",
     "inputs": [
       {
@@ -2065,6 +2134,22 @@ IStrategyVault_ABI = [
     "type": "error",
     "name": "TradeCallSelectorNotAllowed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnwindSlippageExceeded",
+    "inputs": [
+      {
+        "name": "received",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "floor",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

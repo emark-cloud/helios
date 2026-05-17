@@ -534,6 +534,94 @@ contract StrategyVault is
         emit RealizedDistributed(address(this), allocator, realized);
     }
 
+    /// @notice Privileged, proof-less flatten of every non-base position
+    ///         back to `baseAsset`. A defund is an administrative
+    ///         capital-recovery action, not a strategy decision, so it
+    ///         carries no Groth16 proof — the ZK circuit's EXIT
+    ///         constraint (`is_exit = is_signal_flip + is_stop_loss`)
+    ///         makes an unconditional flatten unprovable, and a defund
+    ///         must succeed regardless of market signal.
+    /// @dev    Called by `AllocatorVault._unwindAndCredit` BEFORE the
+    ///         base-asset `distributeRealized` / `withdrawToAllocator`
+    ///         transfers, so a vault holding its NAV in traded assets
+    ///         (mWBTC/mSOL/…) no longer reverts `ERC20InsufficientBalance`.
+    ///         Idempotent: a flat / already-cashed vault is a no-op
+    ///         (every non-base balance is zero ⇒ nothing swept, and
+    ///         `nonBaseMarked ≈ 0` ⇒ floor trivially passes). No
+    ///         pause/halt gate — defunds must work even when the vault
+    ///         is paused or slashed, mirroring `withdrawToAllocator`.
+    ///         Slippage is bounded in aggregate against the
+    ///         reportNAV-attested mark (no per-asset price needed); a
+    ///         router that returns too little reverts the whole defund.
+    function unwindToBase() external onlyAllocatorVault nonReentrant {
+        address base = address(baseAsset);
+        uint256 baseBefore = baseAsset.balanceOf(address(this));
+        address[] memory uni = _manifest.assetUniverse;
+        uint256 totalReceived;
+        uint256 swept;
+        for (uint256 i = 0; i < uni.length; i++) {
+            address a = uni[i];
+            if (a == base) continue;
+            uint256 bal = IERC20(a).balanceOf(address(this));
+            if (bal == 0) continue;
+            uint256 got = _swapExactInToBase(a, bal);
+            totalReceived += got;
+            swept += 1;
+            emit AssetUnwound(address(this), a, bal, got);
+        }
+        // `_totalNAV` is the reportNAV-attested aggregate (cash +
+        // marked positions); under the long-only `NAV ≥ cashHeld`
+        // invariant, `_totalNAV − cash` is the marked value of the
+        // non-base positions. clampedSub avoids underflow on a
+        // stale-low NAV. The floor is enforced ONLY when at least one
+        // asset was actually swept: a vault holding zero non-base
+        // tokens has nothing to unwind (true no-op), and there
+        // `_totalNAV − cash` is marked PnL/markup, not a position — so
+        // applying the floor would wrongly revert an honest defund of a
+        // base-only vault that merely reported a gain.
+        uint256 nonBaseMarked = _totalNAV > baseBefore ? _totalNAV - baseBefore : 0;
+        if (swept != 0 && nonBaseMarked != 0) {
+            uint256 floor = (nonBaseMarked * (10_000 - MAX_UNWIND_SLIPPAGE_BPS)) / 10_000;
+            uint256 delta = baseAsset.balanceOf(address(this)) - baseBefore;
+            if (delta < floor) revert UnwindSlippageExceeded(delta, floor);
+        }
+        emit UnwoundToBase(address(this), totalReceived, nonBaseMarked, swept);
+    }
+
+    /// @dev exactInput swap of the full `amountIn` of `assetIn` →
+    ///      `baseAsset` via `allowedRouter`, using the same canonical
+    ///      Algebra/Uniswap `exactInputSingle` tuple the proven-trade
+    ///      path validates (`_EXACT_INPUT_SINGLE_SELECTOR`). `minOut`
+    ///      is 0 here — aggregate slippage is enforced once by the
+    ///      caller against the attested NAV, so a per-swap bound
+    ///      (which would need a per-asset signed price) is unnecessary.
+    ///      `forceApprove(...,0)` after the call keeps router allowance
+    ///      hygiene. Reverts `TradeCallFailed(0)` if the router call
+    ///      fails. Deliberately NOT shared with `_runSwapTrades` so the
+    ///      proof-bound trade path stays byte-for-byte unchanged.
+    function _swapExactInToBase(address assetIn, uint256 amountIn)
+        internal
+        returns (uint256 received)
+    {
+        address router = allowedRouter;
+        uint256 baseBal0 = baseAsset.balanceOf(address(this));
+        IERC20(assetIn).forceApprove(router, amountIn);
+        bytes memory data = abi.encodeWithSelector(
+            _EXACT_INPUT_SINGLE_SELECTOR,
+            assetIn,
+            address(baseAsset),
+            address(this),
+            block.timestamp,
+            amountIn,
+            uint256(0),
+            uint160(0)
+        );
+        (bool ok,) = router.call(data);
+        if (!ok) revert TradeCallFailed(0);
+        IERC20(assetIn).forceApprove(router, 0);
+        received = baseAsset.balanceOf(address(this)) - baseBal0;
+    }
+
     // ── Trade execution (ZK-gated) ──────────────────────────────────
 
     function executeWithProof(
@@ -856,6 +944,16 @@ contract StrategyVault is
     ///         are declared on `IStrategyVault` so the auto-generated
     ///         ABI bindings expose them to downstream services.
     uint16 internal constant _NAV_DIVERGENCE_THRESHOLD_BPS_DEFAULT = 500;
+
+    /// @notice Max tolerated slippage on the privileged defund-unwind
+    ///         (`unwindToBase`). Bounded against the reportNAV-attested
+    ///         aggregate (`_totalNAV` − cash) — NOT a per-asset signed
+    ///         price — so no oracle/allocator plumbing is needed. 5%
+    ///         mirrors the NAV-divergence tolerance under the long-only
+    ///         `NAV ≥ cashHeld` invariant. A swap that returns less
+    ///         reverts the whole defund (a partial unwind would just
+    ///         re-trigger ERC20InsufficientBalance downstream anyway).
+    uint256 internal constant MAX_UNWIND_SLIPPAGE_BPS = 500;
 
     function setNavDivergenceThresholdBps(uint16 bps) external onlyOwner {
         emit NavDivergenceThresholdUpdated(navDivergenceThresholdBps, bps);

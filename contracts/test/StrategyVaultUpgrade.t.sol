@@ -222,4 +222,31 @@ contract StrategyVaultUpgradeTest is Test {
         vault.slash("legit halt from new reg");
         assertTrue(vault.halted());
     }
+
+    /// @notice The defund-unwind UUPS upgrade is function-only (zero
+    ///         storage delta): re-deploying the impl preserves all
+    ///         state AND `unwindToBase` becomes callable by the
+    ///         allocator. The proxy's universe is `[usdc]` so the new
+    ///         function is a safe no-op here (proves availability +
+    ///         the AllocatorVault-only gate post-upgrade).
+    function test_UUPSUpgrade_AddsUnwindToBase_PreservesStorage() public {
+        address allocBefore = vault.allocatorVault();
+        address baseBefore = address(vault.baseAsset());
+
+        StrategyVault newImpl = new StrategyVault(priceAnchor, yieldAnchor);
+        vm.prank(owner);
+        vault.upgradeToAndCall(address(newImpl), "");
+
+        assertEq(vault.allocatorVault(), allocBefore, "allocatorVault drift");
+        assertEq(address(vault.baseAsset()), baseBefore, "baseAsset drift");
+
+        // Gate holds post-upgrade.
+        vm.prank(rando);
+        vm.expectRevert(StrategyVault.NotAllocatorVault.selector);
+        vault.unwindToBase();
+
+        // Allocator can call it; `[usdc]`-only universe → no-op.
+        vm.prank(allocVault);
+        vault.unwindToBase();
+    }
 }

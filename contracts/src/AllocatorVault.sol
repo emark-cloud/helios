@@ -749,6 +749,15 @@ contract AllocatorVault is
 
     function _unwindAndCredit(address user, address strategy) internal {
         AllocationRecord storage rec = _allocations[user][strategy];
+        // Flatten any non-base positions back to base FIRST so the
+        // NAV-sized base transfers below don't revert
+        // ERC20InsufficientBalance when the strategy holds its value in
+        // a traded asset (mWBTC/mSOL/…). A defund is an administrative
+        // capital-recovery action, not a strategy trade — it carries no
+        // proof; the circuit's EXIT constraint makes an unconditional
+        // flatten unprovable, and a defund must succeed regardless of
+        // market signal. No-op when the vault is already flat.
+        IStrategyVault(strategy).unwindToBase();
         // First sweep realized PnL.
         uint256 balBefore = baseAsset.balanceOf(address(this));
         IStrategyVault(strategy).distributeRealized(address(this));

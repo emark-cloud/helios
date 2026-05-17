@@ -108,6 +108,22 @@ interface IStrategyVault {
     ///         principal is already zero).
     event OrphanedAllocationRecovered(address indexed strategy, address indexed to, uint256 amount);
 
+    /// @notice Emitted per non-base asset swept back to base by the
+    ///         privileged defund-unwind (`unwindToBase`).
+    event AssetUnwound(
+        address indexed strategy, address indexed asset, uint256 amountIn, uint256 baseReceived
+    );
+
+    /// @notice Summary of a `unwindToBase` call: total base recovered,
+    ///         the reportNAV-attested non-base mark it was bounded
+    ///         against, and how many assets were swept (0 ⇒ no-op).
+    event UnwoundToBase(
+        address indexed strategy,
+        uint256 totalBaseReceived,
+        uint256 nonBaseMarkedValue,
+        uint256 assetsSwept
+    );
+
     error InvalidProof();
     error NotOperator();
     error NotRegistry();
@@ -138,6 +154,12 @@ interface IStrategyVault {
     error SwapRecipientMismatch();
     error SwapAmountInMismatch();
     error SwapMinOutMismatch();
+    /// @notice `unwindToBase` recovered less base than the
+    ///         reportNAV-attested non-base mark minus
+    ///         `MAX_UNWIND_SLIPPAGE_BPS`. Reverts the whole defund — a
+    ///         partial unwind would just re-trigger
+    ///         ERC20InsufficientBalance in `_unwindAndCredit`.
+    error UnwindSlippageExceeded(uint256 received, uint256 floor);
     /// @notice yield_rotation_v1 doesn't yet have a calldata-binding circuit
     ///         for cross-chain bridge calls, so the YR entry point requires
     ///         `trades.length == 0` until Phase 5 lands the bridge gadget.
@@ -161,6 +183,11 @@ interface IStrategyVault {
     function reportNAV(bytes calldata signedNAV) external;
     function distributeRealized(address allocator) external;
     function withdrawToAllocator(address allocator, uint256 amount) external;
+    /// @notice Privileged proof-less flatten of all non-base positions
+    ///         to `baseAsset`. AllocatorVault-only; called at the top
+    ///         of `_unwindAndCredit` so a defund of an in-position
+    ///         vault doesn't revert `ERC20InsufficientBalance`.
+    function unwindToBase() external;
     function slash(string calldata reason) external;
 
     function manifest() external view returns (StrategyManifest memory);
