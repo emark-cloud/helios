@@ -23,9 +23,11 @@ type Window = "24h" | "7d" | "30d";
 export function NavTimeline({
   snapshots,
   chainId,
+  tradesAttested,
 }: {
   snapshots: NavSnapshotRow[];
   chainId: number;
+  tradesAttested: number;
 }): JSX.Element {
   const [windowSel, setWindow] = useState<Window>("24h");
 
@@ -46,6 +48,11 @@ export function NavTimeline({
     );
   }
 
+  // The NAV line itself is always honest (it's what the vault is
+  // worth). But "Window P&L" is only meaningful once a trade exists:
+  // before the first attested trade the NAV delta is purely allocator
+  // capital in/out, so report no P&L rather than capital flow as profit.
+  const hasPnlBaseline = tradesAttested > 0;
   const headlinePnL = points[points.length - 1]!.nav - points[0]!.nav;
   const headlinePnLPct = points[0]!.nav > 0 ? (headlinePnL / points[0]!.nav) * 100 : 0;
 
@@ -64,9 +71,15 @@ export function NavTimeline({
             <p className="text-[12px] uppercase tracking-[0.16em] text-fg-muted">
               Window P&amp;L
             </p>
-            <Numeric tone={toneFor(headlinePnL)} className="font-mono text-lg">
-              {formatPct(headlinePnLPct, { signed: true })}
-            </Numeric>
+            {hasPnlBaseline ? (
+              <Numeric tone={toneFor(headlinePnL)} className="font-mono text-lg">
+                {formatPct(headlinePnLPct, { signed: true })}
+              </Numeric>
+            ) : (
+              <Numeric tone="muted" className="font-mono text-lg">
+                —
+              </Numeric>
+            )}
           </div>
         </div>
         <Chart points={points} />

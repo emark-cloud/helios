@@ -19,11 +19,34 @@ type Point = { ts: number; pnl: number; drawdownPct: number };
 export function PnLCurve({
   snapshots,
   chainId,
+  tradesAttested,
 }: {
   snapshots: NavSnapshotRow[];
   chainId: number;
+  tradesAttested: number;
 }): JSX.Element {
   const points = useMemo(() => buildPoints(snapshots, chainId), [snapshots, chainId]);
+
+  // With zero attested trades there is no realized-P&L baseline: every
+  // NAV move so far is the allocator funding/defunding the vault, not
+  // trading performance. `nav − firstSnapshot` would render that capital
+  // inflow as fake profit (the same class of bug fixed for the dashboard
+  // allocations table). Show no curve until a trade crystallizes a real
+  // baseline, mirroring the "No attested trades yet" trades panel.
+  if (tradesAttested <= 0) {
+    return (
+      <section data-testid="pnl-curve">
+        <h2 className="mb-2 text-[12px] uppercase tracking-[0.16em] text-fg-muted">
+          Cumulative P&amp;L
+        </h2>
+        <div className="rounded-md border border-surface-line bg-surface-panel p-8 text-center text-sm text-fg-muted">
+          No realized P&amp;L yet. NAV movement before the strategy&apos;s
+          first attested trade reflects allocator capital flows, not
+          trading performance.
+        </div>
+      </section>
+    );
+  }
 
   if (points.length < 2) {
     return (

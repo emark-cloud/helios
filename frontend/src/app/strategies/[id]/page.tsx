@@ -104,7 +104,11 @@ export default function StrategyDetailPage({
             error={auditQuery.error as Error | undefined}
           />
 
-          <PnLCurve snapshots={strategy.navSnapshots} chainId={strategy.chainId} />
+          <PnLCurve
+            snapshots={strategy.navSnapshots}
+            chainId={strategy.chainId}
+            tradesAttested={strategy.totalAttestedTrades}
+          />
 
           <RecentTrades
             strategyId={strategy.id}
@@ -119,7 +123,11 @@ export default function StrategyDetailPage({
             rotations={strategy.paramsRotations}
           />
 
-          <NavTimeline snapshots={strategy.navSnapshots} chainId={strategy.chainId} />
+          <NavTimeline
+            snapshots={strategy.navSnapshots}
+            chainId={strategy.chainId}
+            tradesAttested={strategy.totalAttestedTrades}
+          />
         </div>
       )}
     </AppShell>
