@@ -117,10 +117,10 @@ invariants the model cannot escape.
 
 Live as of `v1` (2026-05-14):
 
-- **12 strategy vaults** across three chains: 9 on Kite testnet
-  (momentum + mean-reversion + yield-rotation × 3 variants each), 2
-  on Base Sepolia (mom.base + mr.base on Uniswap V3), 1 on Arbitrum
-  Sepolia (yr.arb on an Aave-V3-shaped venue).
+- **6 active strategy vaults** across three chains: 3 on Kite
+  testnet (momentum + mean-reversion + yield-rotation), 2 on Base
+  Sepolia (mom.base + mr.base on Uniswap V3), 1 on Arbitrum Sepolia
+  (yr.arb on an Aave-V3-shaped venue).
 - **Real ZK-attested trades.** First 8 autonomous `TradeAttested`
   events fired from mr.kite on 2026-05-12. Each carries a 16-PI
   Groth16 proof, on-chain class-verified before settlement.
@@ -132,7 +132,7 @@ Live as of `v1` (2026-05-14):
   hop.
 - **Deployed end-to-end.** Frontend on Vercel; sentinel + reputation
   + oracle services on a Servarica Montreal VPS; Goldsky subgraphs
-  `helios/v0.9.0` + `helios-base/v0.8.0` + `helios-arbitrum/v0.8.0`
+  `helios/v0.9.0` + `helios-base/v0.9.0` + `helios-arbitrum/v0.9.0`
   index all three chains.
 - **LLM strategy reference — "Claude decides, the chain enforces."**
   `reference-strategies/llm_momentum_v1/` ships a Claude-driven
