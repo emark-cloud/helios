@@ -301,3 +301,41 @@ def test_seed_nav_from_chain_none_when_not_live() -> None:
     loop keeps its existing dry-run behaviour."""
     rt = _yr_rt(_LiveStubExecutor(_FakeW3({}), live=False))
     assert rt._seed_nav_from_chain() is None
+
+
+def _nav_rt(*, asset_decimals: dict[str, int] | None) -> YieldRotationRuntime:
+    strategy = YieldRotationStrategy(
+        allowlisted_markets=(1, 2), signal_threshold_bps=80, bridging_cost_bps=30
+    )
+    strategy.set_capital(10_000)
+    executor = TradeExecutor(
+        rpc_url="",  # ⇒ dry-run; submit_nav echoes total_nav_e18 into extras
+        operator_pk="",
+        strategy_vault_address="0x" + "ab" * 20,  # placeholder for NAV signing
+        chain_id=2368,
+    )
+    return YieldRotationRuntime(
+        strategy=strategy,
+        oracle=_FakeOracle({}),  # type: ignore[arg-type]
+        prover=_FakeProver(),  # type: ignore[arg-type]
+        executor=executor,
+        config=RuntimeConfig(declared_class_field=0x9ABC, asset_decimals=asset_decimals),
+        market_subscriptions=[("AAVE_USDC", 1), ("COMPOUND_USDC", 2)],
+        nav_oracle_pk="0x" + "33" * 32,
+    )
+
+
+def test_tick_nav_scales_by_base_decimals_when_configured() -> None:
+    """Arb mUSDC is 6-dec. NAV must be reported in native units so it
+    compares against the vault's 6-dec maxCapacity — eeb1326 fixed
+    mom/mr but skipped yr, so yr.arb reverted NavExceedsCap every tick."""
+    rt = _nav_rt(asset_decimals={"USDC": 6})
+    record = rt.tick_nav(10_000.0, timestamp=1_700_000_000)
+    assert record.extras["total_nav_e18"] == 10_000 * 10**6
+
+
+def test_tick_nav_defaults_to_18_decimals() -> None:
+    """No asset_decimals (Kite default) ⇒ legacy 1e18 encoding, bit-for-bit."""
+    rt = _nav_rt(asset_decimals=None)
+    record = rt.tick_nav(10_000.0, timestamp=1_700_000_000)
+    assert record.extras["total_nav_e18"] == 10_000 * 10**18

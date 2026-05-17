@@ -18,6 +18,7 @@ match the on-chain `markets_allowlist_root` set on the registry.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -67,6 +68,28 @@ class Settings(BaseServiceSettings):
     nav_interval_sec: int = 300
     http_port: int = 8007
     strategy_registry_address: str = Field(default="", validation_alias="STRATEGY_REGISTRY")
+    asset_decimals_json: str = Field(default="", validation_alias="YIELD_ROT_ASSET_DECIMALS_JSON")
+
+
+def _parse_asset_decimals(raw: str) -> dict[str, int] | None:
+    """Parse `YIELD_ROT_ASSET_DECIMALS_JSON` into the runtime's
+    `asset_decimals` mapping. Empty / whitespace input → None
+    (preserves the legacy USD*10^18 NAV encoding used on Kite).
+    Bad JSON or non-int values raise so a misconfigured deploy fails
+    loudly at startup rather than silently mis-scaling NAV on a
+    non-18-dec chain.
+    """
+    if not raw or not raw.strip():
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("YIELD_ROT_ASSET_DECIMALS_JSON must be a JSON object")
+    out: dict[str, int] = {}
+    for k, v in parsed.items():
+        if not isinstance(k, str) or not isinstance(v, int) or v < 0:
+            raise ValueError("YIELD_ROT_ASSET_DECIMALS_JSON entries must be {symbol: int>=0}")
+        out[k] = v
+    return out
 
 
 def build_app(settings: Settings | None = None) -> FastAPI:
@@ -112,6 +135,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 yield_interval_sec=cfg.yield_interval_sec,
                 nav_interval_sec=cfg.nav_interval_sec,
                 declared_class_field=cfg.declared_class_field,
+                asset_decimals=_parse_asset_decimals(cfg.asset_decimals_json),
             ),
             market_subscriptions=subs,
             nav_oracle_pk=cfg.nav_oracle_pk,

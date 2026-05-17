@@ -99,6 +99,9 @@ class RuntimeConfig:
     block_window_size: int = 50
     nonce_seed: int = 0
     declared_class_field: int = 0
+    # Base-asset decimals by symbol (e.g. {"USDC": 6} on Arb). None →
+    # legacy 18-dec NAV encoding (preserves Kite behavior bit-for-bit).
+    asset_decimals: dict[str, int] | None = None
 
 
 @dataclass
@@ -382,17 +385,24 @@ class YieldRotationRuntime:
         if self._nav_signer is None:
             raise RuntimeError("nav_oracle_pk required for tick_nav")
         ts = timestamp if timestamp is not None else int(time.time())
-        total_nav_e18 = int(total_nav_usd * 10**18)
+        # NAV is reported in the base asset's *native* units so it can be
+        # compared against `_manifest.maxCapacity`, which the deploy
+        # scripts denominate in those same units (1e18 on Kite for 18-dec
+        # mUSDC, 1e6 on Arb for 6-dec mUSDC). Always scaling by 1e18 here
+        # would inflate the Arb value by 1e12 and trip `NavExceedsCap`
+        # (`totalNAV_ > 10 * maxCapacity`).
+        base_decimals = self._cfg.asset_decimals.get("USDC", 18) if self._cfg.asset_decimals else 18
+        total_nav_native = int(total_nav_usd * 10**base_decimals)
         signature = _sign_nav_eip712(
             signer=self._nav_signer,
             chain_id=self._executor.chain_id,
             vault_address=self._executor.vault,
-            total_nav=total_nav_e18,
+            total_nav=total_nav_native,
             timestamp=ts,
         )
         self.stats.nav_reports += 1
         return self._executor.submit_nav(
-            total_nav_e18=total_nav_e18, timestamp=ts, nav_signature=signature
+            total_nav_e18=total_nav_native, timestamp=ts, nav_signature=signature
         )
 
 

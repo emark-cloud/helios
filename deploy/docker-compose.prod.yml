@@ -235,6 +235,11 @@ services:
       KITE_CHAIN_ID: 421614
       STRATEGY_REGISTRY: ${YIELD_ROTATION_ARB_STRATEGY_REGISTRY}
       STRATEGY_VAULT_ADDRESS: ${YIELD_ROTATION_ARB_STRATEGY_VAULT_ADDRESS}
+      # Arb mUSDC is 6-dec; report NAV in native units so it compares
+      # against the vault's 6-dec maxCapacity. Without this yr.arb
+      # inflates NAV 1e12x and reverts NavExceedsCap every tick. yr's
+      # universe is base-only (§12.1 carve-out) so just USDC.
+      YIELD_ROT_ASSET_DECIMALS_JSON: '{"USDC":6}'
       YIELD_ROT_VENUE_KIND: aave_v3
       YIELD_ROT_LENDING_POOL_ADDRESS: ${YIELD_ROTATION_ARB_LENDING_POOL_ADDRESS}
       ALLOCATOR_ADDRESS: ${YIELD_ROTATION_ARB_ALLOCATOR_ADDRESS}
