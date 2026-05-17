@@ -90,3 +90,84 @@ export function isPassportEnabled(): boolean {
  * `valid_until` replay window.
  */
 export type AuthMode = "passport" | "eip191";
+
+// ---------------------------------------------------------------------------
+// Session persistence
+//
+// Particle's auth SDK keeps the passkey session in IndexedDB, but the
+// React provider only held the derived {aa,eoa} pair in component state,
+// so a reload dropped it and the dashboard fell back to the onboard
+// prompt. We mirror the derived pair into localStorage so the provider
+// can rehydrate synchronously on mount (and confirm against the SDK in
+// the background). The AA address is a function of the salt, so the
+// record is salt-stamped — a NEXT_PUBLIC_AA_SALT rotation invalidates
+// any cached pair instead of pointing the UI at an abandoned account.
+// ---------------------------------------------------------------------------
+
+const PASSPORT_SESSION_KEY = "helios.passport.session.v1";
+
+export type PersistedPassportSession = {
+  aaAddress: Hex;
+  eoaAddress: Hex;
+};
+
+export function readPersistedSession(currentSalt: bigint): PersistedPassportSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(PASSPORT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      aaAddress?: unknown;
+      eoaAddress?: unknown;
+      aaSalt?: unknown;
+    };
+    if (
+      typeof parsed.aaAddress !== "string"
+      || typeof parsed.eoaAddress !== "string"
+      || typeof parsed.aaSalt !== "string"
+    ) {
+      return null;
+    }
+    if (parsed.aaSalt !== currentSalt.toString()) {
+      // Salt rotated since this was written — the cached AA address is
+      // for the old (abandoned) account. Drop it.
+      window.localStorage.removeItem(PASSPORT_SESSION_KEY);
+      return null;
+    }
+    return {
+      aaAddress: parsed.aaAddress as Hex,
+      eoaAddress: parsed.eoaAddress as Hex,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writePersistedSession(
+  session: PersistedPassportSession,
+  currentSalt: bigint,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      PASSPORT_SESSION_KEY,
+      JSON.stringify({
+        aaAddress: session.aaAddress,
+        eoaAddress: session.eoaAddress,
+        aaSalt: currentSalt.toString(),
+      }),
+    );
+  } catch {
+    // Private-mode / quota-exceeded — non-fatal, the session just
+    // won't survive a reload in this browser.
+  }
+}
+
+export function clearPersistedSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(PASSPORT_SESSION_KEY);
+  } catch {
+    // non-fatal
+  }
+}

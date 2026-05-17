@@ -17,13 +17,21 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import { isPassportEnabled, readPassportEnv, type AuthMode } from "@/lib/passport";
+import {
+  clearPersistedSession,
+  isPassportEnabled,
+  readPassportEnv,
+  readPersistedSession,
+  writePersistedSession,
+  type AuthMode,
+} from "@/lib/passport";
 
 // Note: the `process.stdout/stderr.isTTY` shim that Particle's pino
 // logger needs during passkey signing is installed by the synchronous
@@ -141,7 +149,10 @@ const DISABLED_VALUE: PassportContextValue = {
 
 export function PassportProvider({ children }: { children: ReactNode }): JSX.Element {
   const enabled = isPassportEnabled();
-  const env = readPassportEnv();
+  // `readPassportEnv` only reads build-time NEXT_PUBLIC_* constants, so
+  // it's stable for the app lifetime. Memoising it keeps `ensureBundle`
+  // / `login` / the rehydration effect from re-running on every render.
+  const env = useMemo(() => readPassportEnv(), []);
 
   const [session, setSession] = useState<PassportSession | null>(null);
   const bundleRef = useRef<PassportSdkBundle | null>(null);
@@ -276,11 +287,13 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
       env?.aaSalt,
     ) as `0x${string}`;
     const next: PassportSession = { aaAddress, eoaAddress };
+    if (env) writePersistedSession(next, env.aaSalt);
     setSession(next);
     return next;
-  }, [enabled, ensureBundle, env?.aaSalt]);
+  }, [enabled, ensureBundle, env]);
 
   const logout = useCallback(async (): Promise<void> => {
+    clearPersistedSession();
     if (bundleRef.current === null) {
       setSession(null);
       return;
@@ -290,6 +303,54 @@ export function PassportProvider({ children }: { children: ReactNode }): JSX.Ele
     ).logout();
     setSession(null);
   }, []);
+
+  // Rehydrate the session on mount/reload. The passkey itself lives in
+  // Particle's IndexedDB, so we never re-prompt — we restore the cached
+  // {aa,eoa} pair immediately (so the dashboard renders the user's data
+  // at once instead of the onboard prompt), then confirm against the SDK
+  // in the background. If Particle reports the session is genuinely gone
+  // (logged out elsewhere / expired), we clear the optimistic restore.
+  // Only runs when there's a persisted pair, so users who never
+  // onboarded don't pay the lazy-SDK import cost.
+  useEffect(() => {
+    if (!enabled || env === null) return;
+    const persisted = readPersistedSession(env.aaSalt);
+    if (persisted === null) return;
+    setSession(persisted);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const bundle = await ensureBundle();
+        if (cancelled) return;
+        if (!bundle.particleAuth.isLogin()) {
+          clearPersistedSession();
+          setSession(null);
+          return;
+        }
+        // Re-derive from the SDK's own user info so a salt rotation or
+        // an EOA change reconciles to the authoritative AA address.
+        const eoaInfo = bundle.particleAuth.getUserInfo();
+        const eoaAddress = (eoaInfo?.wallets?.[0]?.public_address
+          ?? persisted.eoaAddress) as `0x${string}`;
+        const aaAddress = bundle.aaSdk.getAccountAddress(
+          eoaAddress,
+          env.aaSalt,
+        ) as `0x${string}`;
+        if (cancelled) return;
+        const reconciled: PassportSession = { aaAddress, eoaAddress };
+        writePersistedSession(reconciled, env.aaSalt);
+        setSession(reconciled);
+      } catch {
+        // SDK failed to init (offline / chunk error). Keep the
+        // optimistic restore — the read-only dashboard still renders;
+        // any write path re-validates via `isLogin()` and re-prompts.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, env, ensureBundle]);
 
   const value = useMemo<PassportContextValue>(
     () => ({
