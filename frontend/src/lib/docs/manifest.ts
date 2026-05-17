@@ -64,6 +64,13 @@ export const DOCS_GROUPS: readonly DocGroup[] = [
         source: { kind: "helios-section", sections: ["4"] },
       },
       {
+        slug: ["concepts", "cross-chain"],
+        title: "Cross-chain architecture",
+        description:
+          "One identity, many execution chains: capital is chain-local (deposit per chain), Kite is the canonical identity + accounting layer, and LayerZero carries only reputation/attestations home — never principal. Why capital bridging is off, and the v2 direction.",
+        source: { kind: "helios-section", sections: ["12"] },
+      },
+      {
         slug: ["concepts", "personas"],
         title: "Personas & journeys",
         description:

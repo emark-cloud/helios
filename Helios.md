@@ -47,7 +47,7 @@ There is no middle ground. There's no market mechanism that:
 - Forces strategy agents to actually perform (instead of just marketing themselves)
 - Lets capital flow programmatically to good agents and away from bad ones, without a human middleman
 - Cryptographically constrains what an agent can do, so a compromised agent can't drain funds
-- Lets reputation be portable across chains, so a strategy that built a track record on Base can attract capital from Kite users
+- Lets reputation be portable across chains, so a strategy that built a track record on Base earns canonical reputation on Kite and can attract capital on its own chain without re-proving itself per chain (capital stays chain-local; only the track record travels)
 
 Existing AI trading products are either fully custodial or fully self-hosted. Neither matches the agentic-economy thesis: **autonomous agents transacting under cryptographic constraints, with capital flowing on the basis of verifiable performance, not promises.**
 
