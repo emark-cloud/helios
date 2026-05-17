@@ -36,6 +36,8 @@ const ROUTES: Array<{ name: string; path: string }> = [
   { name: "judge", path: "/judge" },
   { name: "strategies", path: "/strategies" },
   { name: "onboard", path: "/onboard" },
+  { name: "docs", path: "/docs" },
+  { name: "docs-entry", path: "/docs/concepts/mission" },
 ];
 
 test.describe("WCAG AA axe-core smoke", () => {
