@@ -297,6 +297,51 @@ def test_dashboard_returns_allocations(app_client: tuple[object, TestClient]) ->
         assert body["allocations"][0]["drawdown_bps"] == 200  # (5000-4900)/5000 = 2%
 
 
+def test_defunded_allocation_reports_zeroed_money_fields(
+    app_client: tuple[object, TestClient],
+) -> None:
+    """A defunded position has had its principal swept back to the
+    user's liquid balance, so it holds nothing. The loop's defund path
+    only flips `defunded=True` and leaves the pre-defund capital/NAV
+    in the store; the frontend ticks Capital to $0 for a defunded row
+    but renders NAV from the payload, so a stale non-zero NAV next to
+    $0 capital read as "capital and NAV don't tally" (live on
+    0xF235F71…). The payload must zero the money fields for a closed
+    position so every row is internally consistent."""
+    app, client = app_client
+    user_addr = _TEST_USER
+    with client:
+        client.post(
+            f"/v1/users/{user_addr}/meta-strategy",
+            json=_signed_payload(allowed_assets=["USDC"]),
+        )
+        store = app.state.store  # type: ignore[attr-defined]
+        store.update_allocation(
+            user_addr,
+            AllocationState(
+                strategy_id="0x" + "11" * 20,
+                chain_id=2368,
+                declared_class="momentum_v1",
+                capital_deployed_usd=349 * 10**18,
+                high_water_mark_usd=349 * 10**18,
+                nav_usd=349 * 10**18,
+                defunded=True,
+            ),
+        )
+        r = client.get(f"/v1/users/{user_addr}/dashboard")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        row = body["allocations"][0]
+        assert row["defunded"] is True
+        # Closed position → capital AND NAV both 0 (they tally).
+        assert row["capital_deployed_usd"] == 0
+        assert row["current_nav_usd"] == 0
+        assert row["high_water_mark_usd"] == 0
+        assert row["drawdown_bps"] == 0
+        assert body["total_capital_usd"] == 0
+        assert body["total_nav_usd"] == 0
+
+
 def test_dashboard_scales_18dec_wei_to_usd(app_client: tuple[object, TestClient]) -> None:
     """Sentinel keeps every USD-named field as raw 18-dec base-asset units
     so the on-chain `allocateToStrategy(amount)` round-trip stays

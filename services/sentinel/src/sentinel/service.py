@@ -484,21 +484,46 @@ async def _rehydrate_from_chain(
     return store.get_user(user)
 
 
-def _dashboard_for(state, cfg: Settings) -> DashboardPayload:
-    allocations = [
-        AllocationView(
+def _allocation_view(a) -> AllocationView:
+    # A defunded allocation has had its principal swept back to the
+    # user's liquid AllocatorVault balance (verified live on
+    # 0xF235F71…: on defund `on_chain_deployed` 999→0, liquid balance
+    # rose by the same amount). The loop's defund path only flips
+    # `defunded=True` — it never zeroes `capital_deployed_usd` /
+    # `nav_usd`, so the stale pre-defund figures linger in the store.
+    # The frontend already ticks the Capital column to $0 for a
+    # defunded row (DESIGN §10.2 auto-defund cascade) but renders NAV
+    # straight from this payload, so a closed position showed $0
+    # capital next to a phantom NAV ("capital and NAV don't tally").
+    # A closed position holds nothing for this user: report 0 across
+    # the money fields so every row is internally consistent.
+    if a.defunded:
+        return AllocationView(
             strategy_id=a.strategy_id,
             chain_id=a.chain_id,
             declared_class=a.declared_class,
-            capital_deployed_usd=_to_usd(a.capital_deployed_usd),
-            high_water_mark_usd=_to_usd(a.high_water_mark_usd),
-            current_nav_usd=_to_usd(a.nav_usd),
-            drawdown_bps=a.drawdown_bps,
-            defunded=a.defunded,
+            capital_deployed_usd=0,
+            high_water_mark_usd=0,
+            current_nav_usd=0,
+            drawdown_bps=0,
+            defunded=True,
             last_rebalance_ts=a.last_rebalance_ts,
         )
-        for a in state.allocations.values()
-    ]
+    return AllocationView(
+        strategy_id=a.strategy_id,
+        chain_id=a.chain_id,
+        declared_class=a.declared_class,
+        capital_deployed_usd=_to_usd(a.capital_deployed_usd),
+        high_water_mark_usd=_to_usd(a.high_water_mark_usd),
+        current_nav_usd=_to_usd(a.nav_usd),
+        drawdown_bps=a.drawdown_bps,
+        defunded=False,
+        last_rebalance_ts=a.last_rebalance_ts,
+    )
+
+
+def _dashboard_for(state, cfg: Settings) -> DashboardPayload:
+    allocations = [_allocation_view(a) for a in state.allocations.values()]
     active = [a for a in state.allocations.values() if not a.defunded]
     return DashboardPayload(
         user_address=state.meta.user_address,
