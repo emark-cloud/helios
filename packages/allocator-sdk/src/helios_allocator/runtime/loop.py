@@ -88,9 +88,12 @@ class LoopConfig:
     # OFT adapter is wired. This is a deliberate v1 product decision, not
     # a temporary mute: a practical cross-chain capital design is a
     # documented v2 item (see docs/cross-chain-cost-roadmap.md §"v2").
-    # Cross-chain *reputation* propagation is a separate, cheap path and
-    # is unaffected by this flag. Set True only to exercise the live send
-    # path (v2 work / targeted tests).
+    # Cross-chain *reputation* propagation is unaffected by this flag and
+    # is a separate KITE-free path: it only originates on Base/Arb (a
+    # hard no-op on Kite), so its LZ fee is paid in free Base/Arb
+    # Sepolia testnet ETH (~1e-4 ETH/msg, batched + low-cadence), never
+    # the scarce KITE the capital OFT.send burned. Set True only to
+    # exercise the live send path (v2 work / targeted tests).
     cross_chain_capital_enabled: bool = False
     # Cross-chain cost Tier 1 — minimum delta (18-dec USD wei) for a
     # cross-chain allocate to be worth burning the ~1 KITE LZ V2 fixed

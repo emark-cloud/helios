@@ -29,9 +29,28 @@ What this means concretely:
 - Base/Arb strategies still appear in the directory + candidate set
   (`/strategies`), and the Tier 1/Tier 2 levers below remain in the
   code — re-enabling is a single flag flip for v2 work / measurement.
-- **Cross-chain *reputation* propagation is unaffected.** That is a
-  separate, cheap LayerZero path (rep score hops Base/Arb → Kite) and
-  remains live — it is core to the Helios narrative.
+- **Cross-chain *reputation* propagation is unaffected and remains
+  live** — it is core to the Helios narrative. It is a *separate,
+  KITE-free* path, for a structural reason: rep messages
+  (`HeliosOApp.sendReputationUpdate` / batched `flushAttestations`)
+  only ever **originate on Base/Arb** —
+  `StrategyVault._forwardAttestationIfRemote` is a hard no-op when
+  `block.chainid == Kite`. Kite is purely the receiver
+  (`_lzReceive` → `postCrossChainUpdate`); receiving costs the operator
+  nothing. So the LZ `nativeFee` is paid in **Base/Arb Sepolia testnet
+  ETH** (free from faucets), not the scarce KITE that the capital
+  `OFT.send` burned. Live quotes (Base→Kite and Arb→Kite, single
+  update, 200k-gas lzReceive, measured 2026-05-17): **~9.9 × 10⁻⁵ ETH
+  per message** (`98_985_491_284_465` wei Base / `98_985_486_885_430`
+  wei Arb). Note the asymmetry: the same DVN+executor+protocol fee
+  *components* are priced ~4 orders of magnitude apart between the two
+  endpoints' configs — Kite's endpoint quoted ~1 KITE for the capital
+  send; Base/Arb→Kite quotes ~0.0001 (free) ETH. Reputation also
+  batches N attestations into one message and fires on a slow cadence
+  (rep changes slowly + skip-unchanged gating), so even that is
+  amortized. Net: negligible in both native amount and token scarcity.
+  (Quotes are current testnet values; LZ testnet DVN/executor pricing
+  and source gas price can drift.)
 
 ### v2 — making Helios useful cross-chain (the reframe, not just "turn it back on")
 

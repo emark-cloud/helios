@@ -129,8 +129,11 @@ class Settings(BaseServiceSettings):
     # `CROSS_CHAIN_ALLOCATION_DEFERRED` event. This is a deliberate v1
     # product decision — a practical cross-chain capital design is a
     # documented v2 item (docs/cross-chain-cost-roadmap.md §"v2").
-    # Cross-chain reputation propagation is a separate cheap path and is
-    # unaffected. Set true ONLY for v2 work / live-path testing.
+    # Cross-chain reputation propagation is unaffected and is a separate
+    # KITE-free path: originates on Base/Arb only (no-op on Kite), LZ fee
+    # paid in free Base/Arb Sepolia testnet ETH (~1e-4 ETH/msg, batched +
+    # low-cadence), never the scarce KITE the capital OFT.send burned.
+    # Set true ONLY for v2 work / live-path testing.
     cross_chain_capital_enabled: bool = Field(
         default=False, validation_alias="SENTINEL_CROSS_CHAIN_CAPITAL_ENABLED"
     )
