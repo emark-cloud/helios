@@ -13,7 +13,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi.testclient import TestClient
 from helios_allocator.runtime import AllocationState, AllocatorEvent, StrategyDirectoryRow
-from helios_allocator.types import StrategyCandidate
+from helios_allocator.types import MetaStrategy, StrategyCandidate
 from sentinel.auth import canonical_digest, ws_subscribe_digest
 from sentinel.schemas import MetaStrategyPayload
 from sentinel.service import Settings, build_app
@@ -156,6 +156,44 @@ def test_dashboard_404_for_unknown_user(app_client: tuple[object, TestClient]) -
     with client:
         r = client.get(f"/v1/users/{'0x' + '99' * 20}/dashboard")
         assert r.status_code == 404
+
+
+def test_dashboard_rehydrates_user_from_chain_on_store_miss(
+    app_client: tuple[object, TestClient],
+) -> None:
+    """A Sentinel restart wipes the in-process store, but the on-chain
+    UserVault still holds the user's signed meta + delegation. The
+    dashboard must rebuild from chain (no re-signature) rather than
+    404'ing a still-live delegation, and re-arm the allocator loop by
+    landing the user back in the store.
+    """
+    app, client = app_client
+    user_addr = "0x" + "5e" * 20
+
+    async def _fake_read(u: str) -> MetaStrategy:
+        return MetaStrategy(
+            user_address=u,
+            allowed_strategy_classes=["momentum_v1"],
+            allowed_assets=[],
+            allowed_chains=[2368],
+            max_capital_usd=2_000,
+            max_per_strategy_bps=3_500,
+            max_strategies_count=5,
+            drawdown_threshold_bps=1_500,
+            max_fee_rate_bps=500,
+            rebalance_cadence_sec=1_800,
+            valid_until=9_999_999_999,
+        )
+
+    app.state.onchain.read_user_meta_strategy_async = _fake_read  # type: ignore[attr-defined]
+    with client:
+        store = app.state.store  # type: ignore[attr-defined]
+        assert store.get_user(user_addr) is None  # wiped / never in store
+        r = client.get(f"/v1/users/{user_addr}/dashboard")
+        assert r.status_code == 200, r.text
+        # User is now back in the store → the allocator loop will manage
+        # them again on its next tick.
+        assert store.get_user(user_addr) is not None
 
 
 def test_dashboard_returns_allocations(app_client: tuple[object, TestClient]) -> None:

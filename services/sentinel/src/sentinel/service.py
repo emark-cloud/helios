@@ -351,7 +351,31 @@ def _make_router(
     async def dashboard(user: str) -> DashboardPayload:
         state = store.get_user(user)
         if state is None:
-            raise HTTPException(status_code=404, detail=f"no meta-strategy for {user}")
+            # The store is in-process and is wiped on a Sentinel
+            # restart, but the on-chain UserVault still holds the
+            # user's signed meta-strategy + live delegation. Rehydrate
+            # from chain rather than 404'ing a delegation that is still
+            # active — the on-chain meta IS the user's authorization,
+            # so this needs no re-signature. Self-heals every onboarded
+            # user on their first post-restart dashboard hit, and
+            # re-arms the allocator loop (which skips users absent from
+            # the store).
+            meta = await onchain.read_user_meta_strategy_async(user)
+            if meta is None:
+                raise HTTPException(status_code=404, detail=f"no meta-strategy for {user}")
+            store.upsert_user(meta)
+            store.emit_event(
+                AllocatorEvent(
+                    user_address=meta.user_address,
+                    kind="META_STRATEGY_SET",
+                    strategy_id=None,
+                    amount_usd=0,
+                    reason="rehydrated from on-chain UserVault",
+                    timestamp=int(time.time()),
+                )
+            )
+            state = store.get_user(user)
+            assert state is not None
         return _dashboard_for(state, cfg)
 
     @router.get("/strategies")

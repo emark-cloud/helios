@@ -32,6 +32,7 @@ from web3 import Web3
 from web3.types import TxReceipt
 
 from helios_allocator.runtime.state import AllocationState
+from helios_allocator.types import MetaStrategy
 
 # 30s mirrors `services/_template/src/_template/web3_consts.RECEIPT_TIMEOUT_SEC`.
 # Inlined here to keep the SDK free of workspace-only runtime dependencies
@@ -54,6 +55,60 @@ _USER_VAULT_BALANCE_ABI: tuple[dict[str, Any], ...] = (
         "outputs": [{"name": "", "type": "uint256"}],
     },
 )
+
+# `metaStrategyOf(user)` returns the full on-chain `MetaStrategy` struct
+# (`contracts/src/interfaces/IMetaStrategy.sol`). The chain is the source
+# of truth for the meta-strategy — Sentinel's user store is in-process
+# and is lost on restart, so the dashboard rehydrates from this read
+# rather than 404'ing a user whose on-chain delegation is still live.
+# Field order MUST match the Solidity struct exactly. Inlined for the
+# same reason as the balanceOf fragment above.
+_USER_VAULT_META_ABI: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "name": "metaStrategyOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "user", "type": "address"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "metaStrategyHash", "type": "bytes32"},
+                    {"name": "allowedStrategyClasses", "type": "bytes32[]"},
+                    {"name": "allowedAssets", "type": "address[]"},
+                    {"name": "allowedChains", "type": "uint32[]"},
+                    {"name": "maxCapital", "type": "uint256"},
+                    {"name": "maxPerStrategyBps", "type": "uint16"},
+                    {"name": "maxStrategiesCount", "type": "uint8"},
+                    {"name": "drawdownThresholdBps", "type": "uint16"},
+                    {"name": "maxFeeRateBps", "type": "uint16"},
+                    {"name": "rebalanceCadenceSec", "type": "uint256"},
+                    {"name": "validUntil", "type": "uint64"},
+                    {"name": "defundTwapBars", "type": "uint16"},
+                    {"name": "defundBondBps", "type": "uint16"},
+                    {"name": "defundConfirmBlocks", "type": "uint32"},
+                ],
+            }
+        ],
+    },
+)
+
+# On-chain `MetaStrategy.maxCapital` is `max_capital_usd * 1e18` (the
+# 18-dec Kite mUSDC scale); the SDK store keeps the human-USD figure
+# the user signed. Mirrors `loop._USD_WEI_SCALE` (loop.py:66) — the
+# inverse of the `cap = max_capital_usd * _USD_WEI_SCALE` lift there.
+_USD_WEI_SCALE = 10**18
+
+# Frontend POSTs `allowed_strategy_classes` as slugs; the on-chain
+# struct stores the Poseidon bytes32 class ids. Reuse the same reverse
+# map `goldsky._normalise_class` uses so a rehydrated meta's
+# `class_fit` matches directory candidates. Defensive import mirrors
+# goldsky.py's workspace-only fallback.
+try:
+    from helios_contracts_abi.class_ids import BYTES32_TO_SLUG as _BYTES32_TO_SLUG
+except ImportError:  # pragma: no cover — workspace-only fallback
+    _BYTES32_TO_SLUG: dict[bytes, str] = {}
 
 # `lastNAVTimestamp` is the unix-seconds timestamp of the most recent
 # NAV update accepted by `StrategyVault.reportNAV`. We read it directly
@@ -568,6 +623,77 @@ class AllocatorOnChain:
 
     async def read_user_vault_balance_async(self, user: str) -> int | None:
         return await asyncio.to_thread(self.read_user_vault_balance, user)
+
+    def read_user_meta_strategy(self, user: str) -> MetaStrategy | None:
+        """Rebuild the user's `MetaStrategy` from on-chain
+        `UserVault.metaStrategyOf(user)`.
+
+        The chain is the source of truth: the on-chain meta IS the
+        user's authorization (signed at onboard via the Passport userOp
+        / EIP-191 path). Sentinel's store is in-process and lost on
+        restart, so the dashboard rehydrates from this read instead of
+        404'ing a user whose delegation is still live on-chain.
+
+        Returns None in stub mode, when `user_vault_address` is unset,
+        on any read failure, or when the slot is the zero struct (a
+        genuinely never-onboarded user — `maxCapital == 0`, no classes,
+        `validUntil == 0`). `bootstrap_share_bps` / `min_attested_trades`
+        are not in the on-chain struct, so the SDK defaults apply (they
+        match the balanced template; only the cold-start knobs differ
+        from a re-onboard, never the bounds that gate capital).
+        """
+        if not self._live or not self._user_vault:
+            return None
+        self._ensure_live()
+        assert self._w3 is not None
+        try:
+            c = self._w3.eth.contract(
+                address=Web3.to_checksum_address(self._user_vault),
+                abi=list(_USER_VAULT_META_ABI),
+            )
+            m = c.functions.metaStrategyOf(Web3.to_checksum_address(user)).call()
+        except Exception as exc:
+            _log.warning("onchain.meta_strategy.read_failed", user=user, err=str(exc))
+            return None
+
+        # Positional decode — order matches `_USER_VAULT_META_ABI` /
+        # the Solidity struct. web3 returns a plain tuple for the
+        # struct output.
+        classes_raw = list(m[1])
+        max_capital = int(m[4])
+        valid_until = int(m[10])
+        if max_capital == 0 and not classes_raw and valid_until == 0:
+            # Zero struct → user never called setMetaStrategy.
+            return None
+
+        def _slug(b: object) -> str:
+            raw = (
+                bytes(b)
+                if isinstance(b, (bytes, bytearray))
+                else bytes.fromhex(str(b)[2:] if str(b).startswith("0x") else str(b))
+            )
+            return _BYTES32_TO_SLUG.get(raw, "0x" + raw.hex())
+
+        return MetaStrategy(
+            user_address=Web3.to_checksum_address(user),
+            allowed_strategy_classes=[_slug(b) for b in classes_raw],
+            # `allowed_assets` is unused by the allocator (the asset
+            # universe is enforced by the strategy/circuit, not the
+            # allocator) and the on-chain field is a count-only
+            # placeholder, so it can't be round-tripped — leave empty.
+            allowed_assets=[],
+            allowed_chains=[int(x) for x in m[3]],
+            max_capital_usd=max_capital // _USD_WEI_SCALE,
+            max_per_strategy_bps=int(m[5]),
+            max_strategies_count=int(m[6]),
+            drawdown_threshold_bps=int(m[7]),
+            max_fee_rate_bps=int(m[8]),
+            rebalance_cadence_sec=int(m[9]),
+            valid_until=valid_until,
+        )
+
+    async def read_user_meta_strategy_async(self, user: str) -> MetaStrategy | None:
+        return await asyncio.to_thread(self.read_user_meta_strategy, user)
 
     def read_user_total_deployed(self, user: str) -> int | None:
         """`AllocatorVault.userTotalDeployed(user)` in raw asset wei, or
