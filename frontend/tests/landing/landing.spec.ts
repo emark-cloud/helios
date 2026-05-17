@@ -8,10 +8,26 @@ import { test, expect } from "@playwright/test";
 
 const STATS = {
   data: {
+    // `declaredClass` is required: `fetchLandingStats` drops any
+    // strategy failing `isCanonicalStrategyClass(declaredClass)` (the
+    // phantom-EOA / legacy-registry gate), so a fixture row without a
+    // canonical class is filtered out and the band shows 0, not 3.
     strategies: [
-      { id: "0x1111111111111111111111111111111111111111", totalAttestedTrades: 12 },
-      { id: "0x2222222222222222222222222222222222222222", totalAttestedTrades: 7 },
-      { id: "0x3333333333333333333333333333333333333333", totalAttestedTrades: 5 },
+      {
+        id: "0x1111111111111111111111111111111111111111",
+        declaredClass: "momentum_v1",
+        totalAttestedTrades: 12,
+      },
+      {
+        id: "0x2222222222222222222222222222222222222222",
+        declaredClass: "mean_reversion_v1",
+        totalAttestedTrades: 7,
+      },
+      {
+        id: "0x3333333333333333333333333333333333333333",
+        declaredClass: "yield_rotation_v1",
+        totalAttestedTrades: 5,
+      },
     ],
     allocators: [
       { id: "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1" },
