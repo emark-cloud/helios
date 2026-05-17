@@ -558,6 +558,9 @@ async def test_remote_chain_with_cxr_wired_submits_live_allocate_to_remote() -> 
         # shape, not the Tier 1 cost suppression. The threshold gate
         # has dedicated coverage below.
         config=LoopConfig(
+            # v1 ships cross-chain capital OFF by default; these tests
+            # exercise the live OFT.send path so opt in explicitly.
+            cross_chain_capital_enabled=True,
             min_cross_chain_alloc_usd_wei=0,
             cross_chain_flush_cadence_sec=0,
         ),
@@ -775,6 +778,9 @@ async def test_cross_chain_below_threshold_skipped_silently() -> None:
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # Live-path test: opt in past the v1 capital kill-switch so
+            # the op reaches the Tier-1 threshold gate under test.
+            cross_chain_capital_enabled=True,
             # Threshold an order of magnitude above the stub delta so
             # the gate definitely catches.
             min_cross_chain_alloc_usd_wei=100_000,
@@ -814,6 +820,8 @@ async def test_cross_chain_above_threshold_submits_normally() -> None:
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # Live-path test: opt in past the v1 capital kill-switch.
+            cross_chain_capital_enabled=True,
             # Threshold well below the stub 10_000 delta so the gate is
             # a no-op.
             min_cross_chain_alloc_usd_wei=100,
@@ -866,6 +874,8 @@ async def test_cross_chain_flush_cadence_suppresses_repeat_fires() -> None:
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # Live-path test: opt in past the v1 capital kill-switch.
+            cross_chain_capital_enabled=True,
             min_cross_chain_alloc_usd_wei=0,  # disable threshold gate
             cross_chain_flush_cadence_sec=300,
         ),
@@ -963,6 +973,9 @@ async def test_cross_chain_two_strategies_same_chain_collapse_to_one_batch_send(
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # v1 ships cross-chain capital OFF by default; these tests
+            # exercise the live OFT.send path so opt in explicitly.
+            cross_chain_capital_enabled=True,
             min_cross_chain_alloc_usd_wei=0,
             cross_chain_flush_cadence_sec=0,
         ),
@@ -1020,6 +1033,9 @@ async def test_cross_chain_two_strategies_different_chains_fire_two_single_sends
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # v1 ships cross-chain capital OFF by default; these tests
+            # exercise the live OFT.send path so opt in explicitly.
+            cross_chain_capital_enabled=True,
             min_cross_chain_alloc_usd_wei=0,
             cross_chain_flush_cadence_sec=0,
         ),
@@ -1057,6 +1073,9 @@ async def test_cross_chain_threshold_zero_disables_gate() -> None:
         goldsky=goldsky,
         onchain=onchain,
         config=LoopConfig(
+            # v1 ships cross-chain capital OFF by default; these tests
+            # exercise the live OFT.send path so opt in explicitly.
+            cross_chain_capital_enabled=True,
             min_cross_chain_alloc_usd_wei=0,
             cross_chain_flush_cadence_sec=0,
         ),

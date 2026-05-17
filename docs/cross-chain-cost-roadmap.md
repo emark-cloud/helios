@@ -3,6 +3,57 @@
 Cost-reduction levers for Helios's §12.1 cross-chain capital routing.
 Tier 1 + Tier 2 shipped already; Tier 3 + Tier 4 are tracked here 
 
+## v1 status — cross-chain CAPITAL flow is OFF (decision, 2026-05-17)
+
+**v1 ships with live cross-chain capital movement disabled.** After
+Tier 1 + Tier 2, a single `OFT.send` still costs ~1.0–1.2 KITE in
+LayerZero V2 DVN + executor fees — a *fixed* cost independent of payload
+that the levers below can only amortize, never remove (see the fee
+breakdown: the DVN + executor floor is structural). At the testnet
+rebalance cadence this burns KITE faster than the capability is worth
+on a demo: ~35 KITE was spent before this call was made. Per-rebalance
+bridging is **not practical** under LZ V2 testnet fee economics, so it
+is a deliberate v1 cut rather than a bug to chase.
+
+What this means concretely:
+
+- The Sentinel loop never attempts `allocateToRemoteStrategy` /
+  `allocateToRemoteStrategyBatch`. Every remote-chain op deterministically
+  becomes a zero-cost `CROSS_CHAIN_ALLOCATION_DEFERRED` event — the
+  dashboard still shows cross-chain *intent*, no KITE is spent.
+- Gated by the master kill-switch `cross_chain_capital_enabled`
+  (`LoopConfig`, default `False`) wired from
+  `SENTINEL_CROSS_CHAIN_CAPITAL_ENABLED` (default `false`). It short-
+  circuits the live send even when the OFT adapter is fully wired, so
+  the off-state is fail-safe, not "blank env var by accident".
+- Base/Arb strategies still appear in the directory + candidate set
+  (`/strategies`), and the Tier 1/Tier 2 levers below remain in the
+  code — re-enabling is a single flag flip for v2 work / measurement.
+- **Cross-chain *reputation* propagation is unaffected.** That is a
+  separate, cheap LayerZero path (rep score hops Base/Arb → Kite) and
+  remains live — it is core to the Helios narrative.
+
+### v2 — making Helios useful cross-chain (the reframe, not just "turn it back on")
+
+The v1 lesson is that *per-rebalance capital bridging* is the wrong
+unit of work for LZ V2's fixed-fee shape. v2 should make the
+cross-chain story valuable without paying a ~1 KITE floor per
+allocation delta. Candidate directions, to be designed in v2:
+
+- **Settlement-only bridging (Tier 4 evolved).** Capital stays on its
+  home chain; only net realized PnL / reputation settles cross-chain on
+  a slow cadence. Per-allocation bridging disappears entirely.
+- **Multi-user / multi-strategy aggregation per (dst chain, epoch).**
+  One hop per chain per settlement window amortizes the fixed fee
+  across every user and strategy (see Tier 4 below — promoted from
+  "deferred lever" to the v2 design centre).
+- **Intent-based / off-chain-matched routing.** Express the
+  cross-chain target as a signed intent; bridge only when an aggregated
+  batch clears a fee-justifying size threshold.
+
+These are tracked, not committed, and explicitly out of v1 scope. Tier 3
+and Tier 4 below remain the cost-side groundwork they build on.
+
 ## Cost shape today (Kite testnet, post-Tier 1+2)
 
 LayerZero V2 charges a near-flat fee per `OFT.send` regardless of payload
