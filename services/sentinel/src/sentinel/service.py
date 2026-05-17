@@ -120,6 +120,23 @@ class Settings(BaseServiceSettings):
     kite_oft_adapter_address: str = Field(
         default="", validation_alias="SENTINEL_KITE_OFT_ADAPTER_ADDRESS"
     )
+    # v1 master kill-switch for live cross-chain *capital* movement.
+    # Default False: v1 ships with cross-chain capital flow OFF — the LZ
+    # V2 executor fee (~1–1.2 KITE per OFT.send, fixed-cost regardless of
+    # payload) makes per-rebalance bridging impractical on testnet. With
+    # this False the loop never attempts the live send even if the OFT
+    # adapter above is wired; every remote op becomes a zero-cost
+    # `CROSS_CHAIN_ALLOCATION_DEFERRED` event. This is a deliberate v1
+    # product decision — a practical cross-chain capital design is a
+    # documented v2 item (docs/cross-chain-cost-roadmap.md §"v2").
+    # Cross-chain reputation propagation is unaffected and is a separate
+    # KITE-free path: originates on Base/Arb only (no-op on Kite), LZ fee
+    # paid in free Base/Arb Sepolia testnet ETH (~1e-4 ETH/msg, batched +
+    # low-cadence), never the scarce KITE the capital OFT.send burned.
+    # Set true ONLY for v2 work / live-path testing.
+    cross_chain_capital_enabled: bool = Field(
+        default=False, validation_alias="SENTINEL_CROSS_CHAIN_CAPITAL_ENABLED"
+    )
     base_lz_eid: int = Field(default=40_245, validation_alias="BASE_LZ_EID")
     arbitrum_lz_eid: int = Field(default=40_231, validation_alias="ARBITRUM_LZ_EID")
     # Cross-chain cost Tier 1 — gates that suppress LZ V2 send waste.
@@ -187,6 +204,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             drawdown_check_interval_sec=cfg.drawdown_check_interval_sec,
             rank_update_interval_sec=cfg.rank_update_interval_sec,
             fee_check_interval_sec=cfg.fee_check_interval_sec,
+            cross_chain_capital_enabled=cfg.cross_chain_capital_enabled,
             min_cross_chain_alloc_usd_wei=cfg.min_cross_chain_alloc_usd_wei,
             cross_chain_flush_cadence_sec=cfg.cross_chain_flush_cadence_sec,
             min_local_alloc_usd_wei=cfg.min_local_alloc_usd_wei,

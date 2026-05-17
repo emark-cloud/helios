@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time as _time
+from typing import Any
 
 import pytest
 from helios_allocator.runtime import (
@@ -98,7 +99,7 @@ def _candidate(
 
 
 def _build(
-    candidates: list[StrategyCandidate], **cfg_overrides: int
+    candidates: list[StrategyCandidate], **cfg_overrides: Any
 ) -> tuple[AllocatorLoop, AllocatorStore, AllocatorOnChain]:
     store = AllocatorStore()
     allocator = SentinelAllocator()

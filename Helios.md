@@ -47,7 +47,7 @@ There is no middle ground. There's no market mechanism that:
 - Forces strategy agents to actually perform (instead of just marketing themselves)
 - Lets capital flow programmatically to good agents and away from bad ones, without a human middleman
 - Cryptographically constrains what an agent can do, so a compromised agent can't drain funds
-- Lets reputation be portable across chains, so a strategy that built a track record on Base can attract capital from Kite users
+- Lets reputation be portable across chains, so a strategy that built a track record on Base earns canonical reputation on Kite and can attract capital on its own chain without re-proving itself per chain (capital stays chain-local; only the track record travels)
 
 Existing AI trading products are either fully custodial or fully self-hosted. Neither matches the agentic-economy thesis: **autonomous agents transacting under cryptographic constraints, with capital flowing on the basis of verifiable performance, not promises.**
 
@@ -345,7 +345,7 @@ Helios's on-chain surface is intentionally minimal. The novelty is in the autono
 | `ReputationAnchor` | Kite | Receives reputation deltas from off-chain engine and from cross-chain LayerZero messages; canonical source of both strategy and allocator scores | ~280 |
 | `OraclePriceAnchor` | Kite, Base, Arbitrum | Receives EIP-712 signed price snapshots from the Helios oracle; publishes the canonical Poseidon `oracle_root` consumed by ZK proofs and the TWAP feed used by the auto-defund drawdown trigger (§6.3, §6.4) | ~220 |
 | `OracleYieldAnchor` | Kite, Arbitrum | Receives EIP-712 signed APY snapshots; publishes the Poseidon `yield_oracle_root` consumed by `yield_rotation_v1` proofs (§9.4). Deployed on Kite for the canonical YR registry and on Arbitrum for the execution-chain vault (§12.1) | ~180 |
-| `HeliosOApp` | Kite, Base, Arbitrum | LayerZero OApp for cross-chain reputation messages and capital bridging hooks | ~200 |
+| `HeliosOApp` | Kite, Base, Arbitrum | LayerZero OApp for cross-chain reputation/attestation messages (live, source-paid). Capital-bridging hooks exist but are **deactivated in v1** — capital is chain-local (§12.3) | ~200 |
 
 Total Solidity surface area: roughly 2,830 LoC, plus generated Groth16 verifiers (one per strategy class). Tight enough to be auditable in a hackathon timeframe.
 
@@ -819,7 +819,7 @@ A Python FastAPI service that wraps a strategy class. The Helios team ships refe
 
 - **`momentum_v1`** — long when 10-period return on a bar exceeds threshold, exit on opposite signal or stop-loss.
 - **`mean_reversion_v1`** — short on N-sigma upward deviation, long on N-sigma downward, exit on mean re-cross.
-- **`yield_rotation_v1`** — periodically scans allowlisted lending markets across chains; moves capital from lower-APY markets to higher-APY markets when the rate differential exceeds a threshold (net of bridging cost). Strategy-internal accounting tracks the realized yield earned per allocation.
+- **`yield_rotation_v1`** — periodically scans allowlisted lending markets; rotates capital from lower-APY markets to higher-APY markets when the rate differential exceeds a threshold (net of a conservative cost buffer carried as the circuit's `bridging_cost` term). Rotation is **within the strategy's own chain** — the v1/v2 yr vault lives on Arbitrum and rotates between Arbitrum lending markets; no principal crosses chains (§12.3). The `bridging_cost` parameter remains in the circuit as a conservative generalization of move cost, not an assertion of cross-chain principal movement. Strategy-internal accounting tracks the realized yield earned per allocation.
 
 **Core responsibilities.**
 
@@ -1494,11 +1494,15 @@ This makes Helios a *two-sided* reputation market: strategies compete to attract
 
 ## 12. Cross-chain architecture
 
-Cross-chain is not bolted on. It's central to the thesis: strategy agents should trade on whichever chain has the best venue for their asset class, while the Kite registry remains the canonical identity and accounting layer.
+Cross-chain is not bolted on, and it is not capital bridging. It's central to the thesis in a specific, honest way: **one identity, many execution chains, value stays where the venue is.** A strategy agent trades on whichever chain has the best venue for its asset class; capital lives natively on that chain; and the Kite registry remains the single canonical identity, reputation, and accounting layer. The only thing that crosses chains is *information* — attestations and accounting roll-up — over LayerZero V2, not principal.
+
+> **v1 reality → v2 direction.** v1 ships with cross-chain *capital flow deactivated by deliberate decision* (see §12.3): the LayerZero V2 fixed-fee economics make per-rebalance principal bridging impractical, and bridging principal was never the interesting part of the thesis. The cross-chain *story* is preserved and is in fact stronger without it — it is carried entirely by the cheap, KITE-free reputation/accounting propagation path (§12.4). The target architecture, where users deposit directly on each chain and Kite is a pure read-only accounting roll-up, is a **v2** implementation; v1 establishes the identity + reputation half of it for real and documents the rest as the committed direction. This section describes the target model and flags, per subsection, what is live in v1 versus deferred to v2.
 
 ### 12.1 Chain roles and function map
 
 The rule: **Kite is identity + accounting + small-position execution. Base is large-position spot. Arbitrum is yield + diversified spot.** Each chain has a job that the others can't do as well — which is what makes the cross-chain story honest rather than decorative.
+
+**Capital is chain-local.** A strategy's principal lives on the chain where that strategy executes and never leaves it. There is no protocol path that moves a user's principal from one chain to another. A user who wants Base spot exposure holds capital in the Base StrategyVault; Arbitrum yield exposure lives in the Arbitrum vault; Kite-local strategies on Kite. In v1 the deployed test cohort is funded per-chain by the operator; the v2 model exposes this directly as **per-chain user deposits** (you deposit on the chain whose venue you want), with the Kite UserVault holding the canonical meta-strategy identity and the cross-chain accounting view rather than the capital itself. The Kite allocator coordinates *identity, ranking, and accounting* across chains — it does not move principal between them.
 
 | Chain | Function in Helios | Why this chain |
 |---|---|---|
@@ -1535,30 +1539,30 @@ Note on env-var naming: Passport wallets are MPC-backed and are not exposed as r
 
 ### 12.2 Cross-chain lifecycle
 
-A strategy agent deployed on Base:
+The lifecycle has **no bridging step**. A strategy agent deployed on Base:
 
-1. Strategy is registered on the Kite StrategyRegistry. The manifest declares it as a Base-deployed strategy.
-2. A StrategyVault is deployed on Base (a parallel deployment of the same contract).
-3. The allocator allocates capital. The allocation flow is:
-   - On Kite: AllocatorVault tracks the allocation, emits `AllocationCreated` event.
-   - LayerZero OApp message sent: `BridgeAndDeploy(strategy, amount)` to Base.
-   - On Base: HeliosOApp receives the message, mints capital on Base's StrategyVault, executes via the bridge.
-   - Strategy agent on Base sees its capital arrive, begins trading.
-4. Trades execute on Base. Each trade carries a Groth16 proof. Verification is local on Base (per-chain TradeAttestationVerifier).
-5. NAV updates and trade attestations are batched and posted back to Kite via LayerZero OApp messages.
-6. ReputationAnchor on Kite consumes the cross-chain updates and updates the canonical reputation score.
+1. **Identity on Kite.** The strategy is registered on the Kite StrategyRegistry; the manifest declares it as a Base-deployed strategy. Its canonical identity, declared class, and reputation live on Kite for every chain.
+2. **Venue deployment.** A StrategyVault is deployed on Base (a parallel deployment of the same contract). Its `baseAsset` is Base-native USDC.
+3. **Capital arrives chain-locally — no cross-chain hop.**
+   - *v2 target:* the user deposits directly on Base into the Base StrategyVault (or a Base UserVault that delegates to the Base-side allocator). The Kite UserVault records the meta-strategy identity and the canonical accounting view; principal stays on Base.
+   - *v1 reality:* the per-chain test cohort is funded by the operator on each chain; the Kite allocator ranks and coordinates across chains by identity and reputation but performs **no `BridgeAndDeploy`** — the legacy LayerZero OFT capital path is deactivated by decision (§12.3). A would-be cross-chain allocation is recorded as intent (`CROSS_CHAIN_ALLOCATION_DEFERRED`) and never moves principal.
+4. **Local execution.** Trades execute on Base. Each trade carries a Groth16 proof; verification is local on Base (per-chain TradeAttestationVerifier). Capital never leaves Base.
+5. **Accounting + attestations roll up to Kite.** NAV updates and trade attestations are batched and posted back to Kite via LayerZero V2 OApp messages — *information only*, originated on Base, paid in Base-native gas (§12.4).
+6. **Canonical state on Kite.** ReputationAnchor consumes the cross-chain updates and updates the canonical reputation score; the Kite accounting view aggregates each chain's NAV/PnL as a read-only roll-up. No value settles back — principal and fees stay chain-local permanently.
 
-### 12.3 Capital bridging
+### 12.3 Why capital is chain-local (deactivated bridging — v1 decision)
 
-The v1 stack uses **LayerZero V2 OFT** for the underlying capital movement, with `MUsdcOFTAdapter` deployed across Kite testnet, Base Sepolia, and Arbitrum Sepolia (CXR-0 cohort, commit `638a91e`). Helios mints a test-USDC (mUSDC) instance on each chain; the adapter is a real OFT, not a mock — same `OFT.send` / `lzReceive` shape we'd use against canonical USDC on mainnet. Cross-chain `RemoteAllocationSent` flows from Kite-side AllocatorVault and is mirrored back to Goldsky for queryable batch grouping.
+v1 originally shipped a real LayerZero V2 OFT capital path: `MUsdcOFTAdapter` deployed across Kite testnet, Base Sepolia, and Arbitrum Sepolia (CXR-0 cohort, commit `638a91e`), a genuine OFT (not a mock) with the same `OFT.send` / `lzReceive` shape canonical USDC would use on mainnet. It was exercised end-to-end — three live cross-chain credits delivered on 2026-05-14. It is now **deactivated by deliberate decision**, and that is the right call, not a regression.
 
-For the demo, vaults are spread across all three chains: mom + mr have variants on Kite and Base, yr lives on Arbitrum (§12.1) — enough to demonstrate the cross-chain flow without complicating the demo physics.
+**Why.** Every `OFT.send` *originating on Kite* costs a near-flat LayerZero V2 fee — `OFT.quoteSend` returns ~0.995 KITE for Base and ~1.144 KITE for Arbitrum at 200k/200k options — dominated by the DVN + executor floor, **independent of payload size**. Per-rebalance principal bridging therefore burns ~1 KITE every time the allocator moves capital, regardless of how little it moves; a single cold-start broadcast cost 3.2 KITE, and operating the path burned ~35 KITE before it was cut. The cost-suppression levers in `docs/cross-chain-cost-roadmap.md` (threshold/flush gates, same-destination batching, the roadmapped receiver-fold and multi-user aggregation) can only *amortize* this floor — they cannot remove it. Bridging principal on every rebalance is structurally impractical under LZ V2 fee economics, and it was never the substantive part of the thesis.
 
-**Cost model + trajectory.** v1 ships per-(user, destination-chain) batching: a single `OFT.send` can carry N strategy allocations sharing the same destination, amortizing LZ V2's fixed executor + DVN fee across the batch. The shipped `OFT.quoteSend` on Kite testnet returns ~0.995 KITE for Base and ~1.144 KITE for Arbitrum at 200k/200k `lzReceive`/`lzCompose` options (mostly fixed-cost; per-call gas drift is small). The sentinel allocator EOA must hold ≥1.2 KITE per submit or the live submit fails with `insufficient funds for transfer` and falls back to a `cross_chain.deferred` event. The next layers — folding the `lzCompose` hop into the OFT adapter's `_credit` (saves ~30–40% per hop) and multi-user aggregation per (strategy, dst chain) (saves linearly with concurrent users) — are post-v1 roadmap items tracked in `docs/cross-chain-cost-roadmap.md`.
+**Mechanism of deactivation.** A master kill-switch — `LoopConfig.cross_chain_capital_enabled` (default `False`), fed by `SENTINEL_CROSS_CHAIN_CAPITAL_ENABLED` — short-circuits the live OFT send even when the adapter is fully wired. Every would-be cross-chain allocation deterministically becomes a zero-cost `CROSS_CHAIN_ALLOCATION_DEFERRED` event: the dashboard still shows cross-chain *intent*, Base/Arb strategies stay listed, and no KITE is spent. The OFT contracts remain deployed as inert substrate for the v2 design; they are not on any live path.
 
-### 12.4 Reputation propagation
+**v2 direction (committed, documented, not yet implemented): chain-local capital + Kite as a read-only accounting roll-up.** Capital is deposited directly on the chain whose venue the user wants and *never crosses a chain* — neither principal nor fees. Kite holds the canonical meta-strategy identity and an aggregated **accounting view** (per-chain NAV / PnL / positions / reputation), assembled purely from the cheap attestation→Kite propagation path of §12.4. There is no settlement leg back to Kite; value stays chain-local permanently. This eliminates the ~1 KITE/rebalance bridging cost entirely while making the cross-chain story *more* honest: LayerZero carries decision-relevant information home, not principal. Per-chain user deposit UX, a Base/Arb-side allocator delegation surface, and the unified Kite accounting view are the v2 build items.
 
-Reputation propagation is one-directional (other chains → Kite). On Base/Arbitrum:
+### 12.4 Reputation + accounting propagation
+
+This is the **only** cross-chain path that carries value-relevant state, and it is the mechanism that makes "Kite as the canonical identity + accounting layer" work without bridging principal. Propagation is one-directional (other chains → Kite) and information-only. On Base/Arbitrum:
 
 ```solidity
 function postCrossChainAttestation(
@@ -1578,11 +1582,14 @@ function postCrossChainAttestation(
 
 Kite is the source of truth. If a Base node reports inconsistent data, the LayerZero DVN setup detects it. (The MVP uses default DVN configuration; production should use a stricter DVN set.)
 
+**This path is structurally KITE-free, which is why it stays live while §12.3's capital path is off.** Reputation/attestation messages only ever *originate on Base/Arbitrum* — `StrategyVault._forwardAttestationIfRemote` is a hard no-op when `block.chainid == Kite`, and the Base/Arb HeliosOApp deployments carry `reputationAnchor == address(0)` (send-only) while Kite's is wired to receive. So the LayerZero `nativeFee` is paid in **free Base/Arbitrum Sepolia testnet ETH**, never the scarce KITE that the (now-deactivated) Kite-originated `OFT.send` burned. Measured live (single update, 200k-gas `lzReceive`, 2026-05-17): Base→Kite `98_985_491_284_465` wei and Arb→Kite `98_985_486_885_430` wei — **~9.9 × 10⁻⁵ ETH per message**, ~4 orders of magnitude below the Kite-side capital quote in native-token terms, and on free testnet gas. Updates also batch N attestations into one message (`flushAttestations`) and fire on a slow cadence (reputation changes slowly; the engine skips unchanged payloads), so even that is amortized. In the v2 model this same path additionally carries the per-chain NAV/PnL accounting roll-up — the cost characteristics are unchanged because it is the same batched, source-paid, information-only channel.
+
 ### 12.5 Why this design
 
-- **Single source of truth.** One canonical reputation score per strategy, on Kite. No syncing problem across registries.
-- **Venue flexibility.** Strategies aren't restricted to chains with shallow liquidity for their asset class.
-- **Honest LayerZero usage.** Reputation propagation is *meaningful* — it carries information that materially affects allocation decisions, not just "we use LayerZero" decoration.
+- **Single source of truth.** One canonical reputation score and one accounting view per strategy, on Kite. No syncing problem across registries; no per-chain identity duplication.
+- **Venue flexibility.** Strategies aren't restricted to chains with shallow liquidity for their asset class — they execute where the venue is best, with capital native to that chain.
+- **No impractical bridging.** Principal and fees never cross a chain, so the protocol never pays LZ V2's ~1 KITE-per-hop floor to move money. The expensive, structurally-impractical leg is removed rather than amortized.
+- **Honest LayerZero usage.** The only cross-chain traffic is *meaningful* information — attestations + reputation + (v2) accounting roll-up — that materially affects allocation decisions, paid in free source-chain gas. This is "we use LayerZero because the architecture needs exactly this message," not "we use LayerZero" decoration. The deactivation of capital bridging *strengthens* this claim: what remains is only the part that was ever load-bearing.
 
 ---
 

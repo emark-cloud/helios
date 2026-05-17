@@ -79,6 +79,22 @@ class LoopConfig:
     # 0 disables the filter (back-compat for backtests / scenario mode
     # that have no NAV snapshots).
     nav_freshness_sec: int = 3600
+    # Master switch for live cross-chain *capital* movement (the OFT.send
+    # path that burns ~1–1.2 KITE per submit in LZ V2 executor fees).
+    # Default False: v1 ships with cross-chain capital flow OFF — the LZ
+    # fixed-fee economics make per-rebalance bridging impractical on
+    # testnet, so the loop always falls back to the zero-cost
+    # `CROSS_CHAIN_ALLOCATION_DEFERRED` event regardless of whether the
+    # OFT adapter is wired. This is a deliberate v1 product decision, not
+    # a temporary mute: a practical cross-chain capital design is a
+    # documented v2 item (see docs/cross-chain-cost-roadmap.md §"v2").
+    # Cross-chain *reputation* propagation is unaffected by this flag and
+    # is a separate KITE-free path: it only originates on Base/Arb (a
+    # hard no-op on Kite), so its LZ fee is paid in free Base/Arb
+    # Sepolia testnet ETH (~1e-4 ETH/msg, batched + low-cadence), never
+    # the scarce KITE the capital OFT.send burned. Set True only to
+    # exercise the live send path (v2 work / targeted tests).
+    cross_chain_capital_enabled: bool = False
     # Cross-chain cost Tier 1 — minimum delta (18-dec USD wei) for a
     # cross-chain allocate to be worth burning the ~1 KITE LZ V2 fixed
     # fee. Smaller deltas get skipped silently and the op rolls into the
@@ -768,7 +784,18 @@ class AllocatorLoop:
             # bridge wired for this destination chain. Fall back to the
             # deferred event on any failure (mis-wired OFT, no LZ fee
             # native gas, revert) so the dashboard still shows intent.
-            if not (delta > 0 and self._onchain.supports_remote_chain(tgt.chain_id)):
+            #
+            # `cross_chain_capital_enabled` is the v1 master kill-switch:
+            # when False (the default / v1 ship state) the live OFT.send
+            # is never attempted even if the adapter is fully wired, so
+            # every remote op deterministically becomes a zero-cost
+            # DEFERRED event. v1 = cross-chain capital OFF by decision;
+            # practical cross-chain capital is a v2 item.
+            if not (
+                self._cfg.cross_chain_capital_enabled
+                and delta > 0
+                and self._onchain.supports_remote_chain(tgt.chain_id)
+            ):
                 deferred.append((sid, delta, tgt.chain_id))
                 continue
             # Cross-chain cost Tier 1 — threshold gate. The LZ V2 fee
