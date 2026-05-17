@@ -88,7 +88,7 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
     error MalformedComposeMsg();
     error InvalidBatchSize(uint256 size);
     error MismatchedBatchArrays();
-    error BatchAmountMismatch(uint256 sum, uint256 expected);
+    error ZeroBatchWeight();
 
     constructor(address usdc_, address endpoint_, address oftAdapter_, address owner_)
         Ownable(owner_)
@@ -207,13 +207,25 @@ contract HeliosBridgeReceiver is ILayerZeroComposer, Ownable {
         uint256 n = amounts.length;
         if (n == 0 || n > MAX_BATCH_SIZE) revert InvalidBatchSize(n);
         if (remoteVaults.length != n) revert MismatchedBatchArrays();
+        // `amounts` are the sender-chain split weights in *source*-chain
+        // units. The OFT delivers `totalAmountLD` in *this* chain's
+        // units, and across an 18→6-dec bridge the two never match, so
+        // an exact `sum == totalAmountLD` check is unsatisfiable.
+        // Distribute the real delivered total pro-rata by the weight
+        // ratios instead: floor each share, give the last entry the
+        // remainder so the split is exact (no dust stranded, no
+        // over-allocation) for any decimal pairing.
         uint256 sum;
         for (uint256 i; i < n; ++i) {
             sum += amounts[i];
         }
-        if (sum != totalAmountLD) revert BatchAmountMismatch(sum, totalAmountLD);
+        if (sum == 0) revert ZeroBatchWeight();
+        uint256 distributed;
         for (uint256 i; i < n; ++i) {
-            _allocateOne(srcEid, remoteVaults[i], user, amounts[i]);
+            uint256 share =
+                i == n - 1 ? totalAmountLD - distributed : (totalAmountLD * amounts[i]) / sum;
+            distributed += share;
+            _allocateOne(srcEid, remoteVaults[i], user, share);
         }
     }
 

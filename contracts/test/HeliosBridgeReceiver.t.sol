@@ -245,29 +245,83 @@ contract HeliosBridgeReceiverTest is Test {
         assertEq(receiver.recoverable(user), 250e6, "only B parked");
     }
 
-    function test_batchAllocate_revertsOnSumMismatch() public {
-        // Sum of per-entry amounts must equal the OFT-credited
-        // totalAmountLD. A mismatched payload could otherwise strand
-        // capital in the receiver — pin the revert.
+    function test_batchAllocate_proRataWhenSumNeqTotal() public {
+        // `amounts` are sender-chain weights; the OFT-credited
+        // totalAmountLD is authoritative. The delivered total is split
+        // pro-rata by the weight ratios, last entry takes the remainder
+        // so the split is exact — never reverts on sum != total.
+        MockStrategyVault vaultA = new MockStrategyVault();
+        MockStrategyVault vaultB = new MockStrategyVault();
         usdc.mint(address(receiver), 500e6);
         bytes32[] memory sids = new bytes32[](2);
         sids[0] = bytes32(uint256(0xAAAA));
         sids[1] = bytes32(uint256(0xBBBB));
         uint256[] memory amts = new uint256[](2);
         amts[0] = 100e6;
-        amts[1] = 200e6; // sum = 300, claimed = 500
+        amts[1] = 200e6; // weights 1:2 of a 500e6 delivered total
         address[] memory vaults = new address[](2);
-        vaults[0] = address(vault);
-        vaults[1] = address(vault);
+        vaults[0] = address(vaultA);
+        vaults[1] = address(vaultB);
 
         bytes memory msgData = _composeBatchMessage(1, 40_231, 500e6, sids, amts, vaults, user);
 
         vm.prank(endpoint);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                HeliosBridgeReceiver.BatchAmountMismatch.selector, uint256(300e6), uint256(500e6)
-            )
+        receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
+
+        // 500e6 * 100/300 = 166666666 (floored); last takes remainder.
+        assertEq(usdc.balanceOf(address(vaultA)), 166_666_666, "A pro-rata floor");
+        assertEq(usdc.balanceOf(address(vaultB)), 333_333_334, "B remainder");
+        assertEq(
+            usdc.balanceOf(address(vaultA)) + usdc.balanceOf(address(vaultB)),
+            500e6,
+            "split is exact"
         );
+        assertEq(receiver.recoverable(user), 0, "no recoverable on happy path");
+    }
+
+    function test_batchAllocate_crossDecimalProRata() public {
+        // The live §12.1 failure: AllocatorVault encodes amounts in
+        // Kite 18-dec but the OFT delivers 6-dec on Base. Equal 18-dec
+        // weights must split the 6-dec delivered total evenly.
+        MockStrategyVault vaultA = new MockStrategyVault();
+        MockStrategyVault vaultB = new MockStrategyVault();
+        usdc.mint(address(receiver), 80e6);
+        bytes32[] memory sids = new bytes32[](2);
+        sids[0] = bytes32(uint256(0xAAAA));
+        sids[1] = bytes32(uint256(0xBBBB));
+        uint256[] memory amts = new uint256[](2);
+        amts[0] = 40e18; // Kite 18-dec weights
+        amts[1] = 40e18;
+        address[] memory vaults = new address[](2);
+        vaults[0] = address(vaultA);
+        vaults[1] = address(vaultB);
+
+        bytes memory msgData = _composeBatchMessage(1, 40_245, 80e6, sids, amts, vaults, user);
+
+        vm.prank(endpoint);
+        receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
+
+        assertEq(usdc.balanceOf(address(vaultA)), 40e6, "A gets half the 6-dec total");
+        assertEq(usdc.balanceOf(address(vaultB)), 40e6, "B gets half the 6-dec total");
+        assertEq(receiver.recoverable(user), 0, "no recoverable");
+    }
+
+    function test_batchAllocate_revertsOnZeroWeight() public {
+        usdc.mint(address(receiver), 100e6);
+        bytes32[] memory sids = new bytes32[](2);
+        sids[0] = bytes32(uint256(0xAAAA));
+        sids[1] = bytes32(uint256(0xBBBB));
+        uint256[] memory amts = new uint256[](2);
+        amts[0] = 0;
+        amts[1] = 0;
+        address[] memory vaults = new address[](2);
+        vaults[0] = address(vault);
+        vaults[1] = address(vault);
+
+        bytes memory msgData = _composeBatchMessage(1, 40_231, 100e6, sids, amts, vaults, user);
+
+        vm.prank(endpoint);
+        vm.expectRevert(HeliosBridgeReceiver.ZeroBatchWeight.selector);
         receiver.lzCompose(oftAdapter, bytes32(0), msgData, address(0), "");
     }
 
