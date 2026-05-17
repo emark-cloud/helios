@@ -699,11 +699,18 @@ class AllocatorOnChain:
         """Reconstruct the user's live on-chain allocation set.
 
         For each strategy address, reads `AllocatorVault.allocationOf(
-        user, strategy)` and keeps only the records the chain actually
-        holds — a non-zero `capitalDeployed`, or a non-zero `defundedAt`
-        (a defunded-but-still-recorded position). Empty slots (the user
-        never allocated there) are dropped so a rehydrated dashboard
-        doesn't render phantom 0-capital rows for every active strategy.
+        user, strategy)` and keeps only the records with live principal
+        (`capitalDeployed > 0`). The on-chain `defundedAt` field is
+        deliberately NOT used as a liveness signal: it is observably
+        unreliable — live on 0xF235F71… the per-strategy records carried
+        `defundedAt != 0` while `userTotalDeployed` still counted ~999
+        mUSDC as deployed, so honouring `defundedAt` would have excluded
+        genuinely-live capital from the dashboard (the exact bug this
+        path exists to kill). Gating purely on `capitalDeployed`
+        reconciles the reconstructed set with the on-chain capacity
+        accounting. Zero-capital slots — never allocated, or fully
+        unwound — are dropped: a ghost row adds nothing and the loop
+        recreates a fresh record if it re-allocates.
 
         Paired with `read_user_meta_strategy` for the dashboard
         rehydrate-on-404 path: the meta read restores *what the user
@@ -718,13 +725,16 @@ class AllocatorOnChain:
         local AllocatorVault, so only same-chain (Kite) positions are
         in scope here — cross-chain positions are accounted on their
         own chain's StrategyVault and are out of scope for this
-        canonical-side rehydrate. `nav_usd` is seeded to
-        `capitalDeployed` (the loop refreshes the true StrategyVault NAV
-        on its next tick); seeding to principal is a floor that never
-        over-reports. `high_water_mark_usd` mirrors the on-chain HWM,
-        falling back to `capitalDeployed` when the chain returns 0 —
-        matching how the loop itself seeds HWM at ALLOCATION_CREATED, so
-        drawdown math stays consistent across a rehydrate.
+        canonical-side rehydrate. Reconstructed positions are always
+        `defunded=False` — only live principal is kept, so by
+        construction there is no defunded row to surface. `nav_usd` is
+        seeded to `capitalDeployed` (the loop refreshes the true
+        StrategyVault NAV on its next tick); seeding to principal is a
+        floor that never over-reports. `high_water_mark_usd` mirrors the
+        on-chain HWM, falling back to `capitalDeployed` when the chain
+        returns 0 — matching how the loop itself seeds HWM at
+        ALLOCATION_CREATED, so drawdown math stays consistent across a
+        rehydrate.
 
         Per-strategy read failures are swallowed (return whatever
         resolved) — a flaky RPC on one address must not abort the whole
@@ -745,12 +755,14 @@ class AllocatorOnChain:
                 continue
             # Tuple matches IAllocatorVault.AllocationRecord:
             # [0]=strategy, [1]=capitalDeployed, [2]=highWaterMark,
-            # [3]=defundedAt, [4]=lastUpdate.
+            # [3]=defundedAt, [4]=lastUpdate. record[3] (defundedAt) is
+            # intentionally ignored — see the docstring; it is not a
+            # trustworthy liveness signal.
             capital_deployed = int(record[1])
             hwm = int(record[2])
-            defunded_at = int(record[3])
-            if capital_deployed == 0 and defunded_at == 0:
-                # Slot the user never touched — skip the phantom row.
+            if capital_deployed == 0:
+                # Never allocated here, or fully unwound — no live
+                # principal, so nothing to reconstruct for this slot.
                 continue
             out.append(
                 AllocationState(
@@ -760,7 +772,7 @@ class AllocatorOnChain:
                     capital_deployed_usd=capital_deployed,
                     high_water_mark_usd=hwm or capital_deployed,
                     nav_usd=capital_deployed,
-                    defunded=defunded_at != 0,
+                    defunded=False,
                 )
             )
         return out

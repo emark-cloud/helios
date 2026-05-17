@@ -117,16 +117,37 @@ def test_skips_empty_slots_and_keeps_funded() -> None:
     assert by_id[_S1].defunded is False
 
 
-def test_defunded_position_is_kept_and_flagged() -> None:
+def test_zero_capital_record_is_dropped_even_when_defunded_at_set() -> None:
+    """`defundedAt` is NOT a liveness signal — observed live on
+    0xF235F71…, per-strategy records carried `defundedAt != 0` while
+    `userTotalDeployed` still counted the principal as deployed. The
+    reconstruction gates purely on `capitalDeployed`; a slot with no
+    live principal is dropped regardless of `defundedAt`, so it never
+    suppresses real capital from the dashboard total."""
     r = _live_runner()
     r._vault_contract = _Contract(  # type: ignore[assignment]
         {_S1.lower(): _record(_S1, capital=0, hwm=400 * 10**18, defunded_at=1_777_000_000)}
     )
+    assert r.read_user_allocations(_USER, [_S1]) == []
+
+
+def test_defunded_at_set_but_capital_live_is_kept_active() -> None:
+    """The 0xF235F71… invariant: a record can carry a stale
+    `defundedAt` while its principal is still deployed. Such a position
+    must be reconstructed as active (`defunded=False`) so its capital
+    counts toward the dashboard total."""
+    r = _live_runner()
+    r._vault_contract = _Contract(  # type: ignore[assignment]
+        {
+            _S1.lower(): _record(
+                _S1, capital=349 * 10**18, hwm=349 * 10**18, defunded_at=1_777_000_000
+            )
+        }
+    )
     out = r.read_user_allocations(_USER, [_S1])
     assert len(out) == 1
-    assert out[0].defunded is True
-    # capital==0 but defundedAt!=0 → still a real record, not a phantom row.
-    assert out[0].strategy_id == _S1
+    assert out[0].defunded is False
+    assert out[0].capital_deployed_usd == 349 * 10**18
 
 
 def test_hwm_zero_falls_back_to_capital() -> None:
@@ -139,6 +160,7 @@ def test_hwm_zero_falls_back_to_capital() -> None:
     # Matches how the loop seeds HWM at ALLOCATION_CREATED so drawdown
     # math stays consistent across a rehydrate.
     assert out[0].high_water_mark_usd == 250 * 10**18
+    assert out[0].defunded is False
 
 
 def test_per_strategy_read_failure_is_swallowed() -> None:

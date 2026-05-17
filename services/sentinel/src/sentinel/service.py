@@ -34,7 +34,7 @@ from helios_allocator.runtime import (
     AllocatorStore,
     LoopConfig,
 )
-from helios_allocator.runtime.goldsky import MultiChainAllocatorGoldsky
+from helios_allocator.runtime.goldsky import MultiChainAllocatorGoldsky, _normalise_class
 from helios_allocator.runtime.state import UserState
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
@@ -463,7 +463,11 @@ async def _rehydrate_from_chain(
         meta.user_address, [r.strategy_id for r in local_rows]
     )
     if rebuilt:
-        class_by_id = {r.strategy_id: r.declared_class for r in local_rows}
+        # Directory rows carry the raw on-chain `declaredClass` bytes32
+        # (unlike candidates, which `goldsky.to_candidate` already
+        # normalises). Run it through the same reverse map so the
+        # dashboard shows "momentum_v1", not a 0x… Poseidon id.
+        class_by_id = {r.strategy_id: _normalise_class(r.declared_class) for r in local_rows}
         for a in rebuilt:
             a.declared_class = class_by_id.get(a.strategy_id, "")
         store.replace_allocations(meta.user_address, rebuilt)
