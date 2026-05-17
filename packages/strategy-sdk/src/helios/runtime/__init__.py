@@ -20,6 +20,7 @@ installs from public PyPI; tests stub the deployment dir via the
 `deployments_dir` argument.
 """
 
+from helios.runtime.chain_client import build_resilient_web3
 from helios.runtime.config import (
     ChainSurface,
     ChainTarget,
@@ -40,6 +41,7 @@ __all__ = [
     "DeploymentNotFoundError",
     "ParamsHashMismatchError",
     "VenueMode",
+    "build_resilient_web3",
     "ensure_params_committed",
     "load_chain_surface",
 ]

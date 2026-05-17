@@ -24,6 +24,7 @@ import structlog
 from eth_abi.abi import encode as abi_encode
 from eth_account import Account
 from eth_utils.crypto import keccak
+from helios.runtime import build_resilient_web3
 from helios_contracts_abi.abis import IStrategyVault_ABI
 from web3 import Web3
 from web3.types import TxReceipt
@@ -364,7 +365,7 @@ class TradeExecutor:
     def _ensure_live(self) -> None:
         if self._w3 is not None:
             return
-        self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+        self._w3 = build_resilient_web3(self._rpc_url)
         self._account = Account.from_key(self._operator_pk)
         self._vault_contract = self._w3.eth.contract(
             address=Web3.to_checksum_address(self._vault),

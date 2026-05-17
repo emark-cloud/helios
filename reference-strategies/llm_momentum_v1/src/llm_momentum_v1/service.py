@@ -19,6 +19,7 @@ from _template import BaseServiceSettings, create_app
 from fastapi import APIRouter, FastAPI
 from helios.runtime import (
     ParamsHashMismatchError,
+    build_resilient_web3,
     ensure_params_committed,
 )
 from pydantic import Field
@@ -205,7 +206,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     w3: Web3 | None = None
     block_provider: Web3BlockProvider | None = None
     if cfg.kite_rpc_url:
-        w3 = Web3(Web3.HTTPProvider(cfg.kite_rpc_url))
+        w3 = build_resilient_web3(cfg.kite_rpc_url)
         block_provider = Web3BlockProvider(w3)
 
     runtime = (
