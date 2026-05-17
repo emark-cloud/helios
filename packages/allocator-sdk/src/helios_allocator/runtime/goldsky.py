@@ -228,8 +228,9 @@ class MultiChainAllocatorGoldsky:
     and merge the rows. Per Helios.md §12.1, strategies execute on the
     chain whose venue best fits their class (mom/mr on Base for deep
     Uniswap V3 liquidity, yr on Arbitrum for Aave). Each chain has its
-    own subgraph deployment (`helios/v0.9.0`, `helios-base/v0.8.0`,
-    `helios-arbitrum/v0.8.0` at the time of CXR-cost Tier 2) — Sentinel/Helix
+    own subgraph deployment (`helios/v0.9.0`, `helios-base/v0.9.0`,
+    `helios-arbitrum/v0.9.0` — venue subgraphs redeployed to v0.9.0
+    2026-05-17 after the v0.8.0 deployments 404'd) — Sentinel/Helix
     need to see all three to rank the full multi-chain candidate set.
 
     Each constituent `AllocatorGoldsky` keeps its own `chain_id`. The
