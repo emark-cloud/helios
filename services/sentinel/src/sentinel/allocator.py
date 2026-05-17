@@ -12,11 +12,18 @@ user's `max_per_strategy_bps`.
 WS7.B splits `allocate` into a main pool and a reputation-cold-start
 bootstrap pool (`Helios.md §8.7`). `user.bootstrap_share_bps` of total
 capital is reserved for strategies with `trades_attested <
-user.min_attested_trades`, allocated stake-weighted with a flat
-performance prior. The main pool keeps the existing rank product over
-the remaining capital. Both pools' outputs are merged per strategy and
-re-capped at `max_per_strategy_bps` so a strategy that wins both pools
-does not exceed the user's stated risk envelope.
+max(user.min_attested_trades, _COLD_START_TRADE_FLOOR)`, allocated
+stake-weighted with a flat performance prior. The `_COLD_START_TRADE_FLOOR`
+makes a *never-traded* strategy bootstrap-eligible regardless of the
+user's `min_attested_trades` knob (or its absence): without it a
+strategy with zero attested trades can never out-rank an equally-rated
+*funded* peer — the main-pool tie-break rewards incumbency, so it is
+defunded RANK_DROP before it can trade and earn the reputation that
+would let it win (the cold-start starvation loop). The main pool keeps
+the existing rank product over the remaining capital. Both pools'
+outputs are merged per strategy and re-capped at `max_per_strategy_bps`
+so a strategy that wins both pools does not exceed the user's stated
+risk envelope.
 
 The point of Sentinel is *not* to be sophisticated — Helix and any
 third-party allocator will compete to outperform it. Sentinel proves
@@ -29,6 +36,18 @@ from collections.abc import Sequence
 
 from helios_allocator import BaseAllocator
 from helios_allocator.types import AllocationTarget, MetaStrategy, StrategyCandidate
+
+# A strategy with zero attested trades is structurally cold-start and
+# MUST get a bootstrap slice regardless of the user's
+# `min_attested_trades` value (including 0 / unset). The main-pool sort
+# key breaks score ties by incumbency, so a never-funded, never-traded
+# strategy loses every tie to an already-funded peer and is RANK_DROP'd
+# before it can trade — permanent starvation. Flooring the cold-start
+# threshold at 1 guarantees `trades_attested == 0` always clears
+# `trades_attested < max(min_attested_trades, _COLD_START_TRADE_FLOOR)`.
+# `bootstrap_share_bps == 0` still fully opts out (capital split gate),
+# so this does not override a user who explicitly disabled bootstrap.
+_COLD_START_TRADE_FLOOR = 1
 
 
 class SentinelAllocator(BaseAllocator):
@@ -97,17 +116,22 @@ class SentinelAllocator(BaseAllocator):
         ranked: list[StrategyCandidate],
         capital: int,
     ) -> list[AllocationTarget]:
-        if capital <= 0 or user.min_attested_trades <= 0:
+        if capital <= 0:
             return []
         # Cold-start eligibility: declared class + fee fit (user's hard
         # constraints) AND the trades_attested gate. We deliberately do
         # *not* require non-zero reputation here — that's what the
         # bootstrap pool is for. Capacity factor still applies so a
-        # full-capacity strategy isn't oversubscribed.
+        # full-capacity strategy isn't oversubscribed. The threshold is
+        # floored at `_COLD_START_TRADE_FLOOR` so a never-traded
+        # strategy (0 trades) is eligible even when the user left
+        # `min_attested_trades` at 0 — the previous `<= 0` early-return
+        # was the structural cause of cold-start starvation.
+        cold_start_max = max(user.min_attested_trades, _COLD_START_TRADE_FLOOR)
         eligible = [
             c
             for c in ranked
-            if c.trades_attested < user.min_attested_trades
+            if c.trades_attested < cold_start_max
             and c.class_fit(user.allowed_strategy_classes) > 0
             and c.fee_fit(user.max_fee_rate_bps) > 0
             and c.capacity_factor() > 0

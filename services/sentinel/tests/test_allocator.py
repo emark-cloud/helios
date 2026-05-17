@@ -222,6 +222,67 @@ def test_bootstrap_share_bps_zero_disables_pool() -> None:
     assert targets[warm.strategy_id].capital_usd == 10_000
 
 
+def test_bootstrap_floor_funds_never_traded_when_min_attested_zero() -> None:
+    # The cold-start-starvation config: the live onboard payload left
+    # min_attested_trades=0, so the OLD `min_attested_trades <= 0`
+    # early-return killed the bootstrap pool entirely. A never-traded
+    # strategy then got nothing here, lost every main-pool score tie to
+    # an incumbent, and was RANK_DROP'd forever (it can't earn the
+    # reputation to win without first holding capital to trade). The
+    # trade floor makes a 0-trade strategy bootstrap-eligible regardless
+    # of the knob. Regression for project_allocator_coldstart_starvation.
+    a = SentinelAllocator()
+    user = _meta(
+        min_attested_trades=0,
+        max_per_strategy_bps=10_000,
+        max_strategies_count=2,
+    )
+    warm = _candidate("0x" + "11" * 20, rep=0.8, trades_attested=200)
+    never = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0, stake=10_000)
+    targets = {t.strategy_id: t for t in a.allocate(user, [warm, never], capital=10_000)}
+    assert never.strategy_id in targets
+    # Default bootstrap_share_bps=1000 → 10% reserved, fully claimed by
+    # the only never-traded candidate; warm keeps the 90% main pool.
+    assert targets[never.strategy_id].capital_usd == 1_000
+    assert targets[warm.strategy_id].capital_usd == 9_000
+
+
+def test_bootstrap_floor_two_never_traded_stake_weighted_min_zero() -> None:
+    # Two never-traded strategies, min_attested_trades=0. The pool must
+    # still run (gate no longer short-circuits) and split stake-weighted.
+    a = SentinelAllocator()
+    user = _meta(
+        min_attested_trades=0,
+        bootstrap_share_bps=10_000,  # 100% bootstrap isolates the split
+        max_per_strategy_bps=10_000,
+        max_strategies_count=2,
+    )
+    big = _candidate("0x" + "11" * 20, rep=0.0, trades_attested=0, stake=7_000)
+    small = _candidate("0x" + "22" * 20, rep=0.0, trades_attested=0, stake=3_000)
+    targets = {t.strategy_id: t for t in a.allocate(user, [big, small], capital=10_000)}
+    assert targets[big.strategy_id].capital_usd == 7_000
+    assert targets[small.strategy_id].capital_usd == 3_000
+
+
+def test_bootstrap_floor_excludes_strategy_with_any_trades_when_min_zero() -> None:
+    # The floor is exactly 1: a strategy that landed even a single
+    # attested trade is no longer "never-traded" and, with
+    # min_attested_trades=0, is NOT bootstrap-eligible — it must earn
+    # capital through the main rank pool like any graduated strategy.
+    a = SentinelAllocator()
+    user = _meta(
+        min_attested_trades=0,
+        bootstrap_share_bps=10_000,  # 100% bootstrap to isolate eligibility
+        max_per_strategy_bps=10_000,
+        max_strategies_count=2,
+    )
+    traded_once = _candidate("0x" + "11" * 20, rep=0.0, trades_attested=1, stake=5_000)
+    targets = {t.strategy_id: t for t in a.allocate(user, [traded_once], capital=10_000)}
+    # 1 trade, floor=1 → `1 < max(0, 1)` is False → not bootstrap-eligible;
+    # rep=0 zeroes the main rank product → nothing allocated.
+    assert traded_once.strategy_id not in targets
+
+
 def test_per_strategy_cap_applies_after_pool_merge() -> None:
     # A strategy that is bootstrap-eligible AND wins the main pool should
     # not exceed `max_per_strategy_bps` after the pools are merged.
