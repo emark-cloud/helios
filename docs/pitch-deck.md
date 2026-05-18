@@ -383,7 +383,7 @@ market."
 moment):** *Live on Kite. Verify everything yourself.*
 
 **Three mono links, fg-secondary:**
-- Live deploy: `<vercel-url>`
+- Live deploy: `https://helios-frontend-steel.vercel.app/`
 - Code: `github.com/emark-cloud/helios`
 - Verify a trade: `node scripts/verify-trade.js <tx>`
 
