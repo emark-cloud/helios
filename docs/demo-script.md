@@ -20,7 +20,7 @@
 |---|---|---|---|---|
 | 0 | Preamble — the problem | 0:00 | 0:35 | 35s |
 | 1 | One-passkey onboarding | 0:35 | 1:15 | 40s |
-| 2 | Autonomous multi-chain allocation | 1:15 | 2:10 | 55s |
+| 2 | Autonomous allocation (multi-chain aware) | 1:15 | 2:10 | 55s |
 | 3 | The ZK guarantee | 2:10 | 2:55 | 45s |
 | 4 | Cross-chain reputation | 2:55 | 3:25 | 30s |
 | 5 | Auto-defund (headline) | 3:25 | 3:55 | 30s |
@@ -89,46 +89,59 @@ in post.
 
 ---
 
-## Beat 2 — Autonomous multi-chain allocation (1:15–2:10, 55s)
+## Beat 2 — Autonomous allocation, multi-chain aware (1:15–2:10, 55s)
+
+> **v1 boundary (honest framing).** Cross-chain *capital* flow is
+> deliberately OFF in v1 — per-rebalance LayerZero bridging burns a
+> fixed fee that doesn't pencil out on testnet (decision logged in
+> `docs/cross-chain-cost-roadmap.md`, spec'd in `Helios.md §12`).
+> Capital is chain-local; the *identity + reputation* layer is
+> already cross-chain (Beat 4). This beat shows that boundary as a
+> feature, not a gap.
 
 **On-screen.**
-1. `/strategies` directory: 12 rows visible — 9 Kite + 2 Base
-   (mom.base + mr.base) + 1 Arb (yr.arb). Each row shows class chip
-   + chain badge + reputation score.
+1. `/strategies` directory: 6 canonical rows — 3 Kite (mom / mr /
+   yr) + 2 Base (mom.base + mr.base) + 1 Arb (yr.arb). Each row
+   shows class chip + chain badge + reputation score.
 2. Scroll-tease one Kite row, one Base row, one Arb row to make the
-   class × chain matrix legible.
+   class × chain matrix legible — the market spans chains even
+   though v1 capital does not.
 3. Cut to `/dashboard`. The activity rail (streaming from the
    Sentinel WebSocket) prints entries as Sentinel ticks:
-   - `ALLOCATION` — Kite-local allocates
-   - `REMOTE_ALLOCATION_SENT` — Base + Arb hops
-4. Picture-in-picture: Kitescan tab showing the AllocatorVault tx
-   fan — same-chain `allocateToStrategy` calls + one batched
-   `allocateToRemoteStrategyBatch` cross-chain send.
-5. LZScan tab: in-flight → delivered status on the Base + Arb hops;
-   destination StrategyVault balance increment visible.
+   - `Allocation` — Sentinel deploys Kite-local capital to the
+     top-ranked Kite candidate
+   - `Topped up` / `Trimmed` — subsequent Kite-local rebalances
+4. Cross-chain candidates surface as a deterministic, zero-cost
+   `CROSS_CHAIN_ALLOCATION_DEFERRED` intent marker — the dashboard
+   still shows the cross-chain *intent*, it just doesn't bridge.
+5. Picture-in-picture: Kitescan tab showing the AllocatorVault tx
+   fan — Kite-local `allocateToStrategy` calls only. No `OFT.send`,
+   no LZScan tab for this beat.
 
-**Voiceover (85 words, ~93 wpm).**
+**Voiceover (86 words, ~94 wpm).**
 
-> *"Sentinel ranks all twelve strategies — three classes across
-> three chains — by realized performance and stake. It splits the
-> deposit across the top candidates. Kite-local allocates land
-> directly. Cross-chain allocates ride LayerZero V2 — to Base for
-> spot pairs against deep liquidity on Uniswap, to Arbitrum for
-> yield on Aave. Same-destination strategies batch into one
-> message to cut cost. The user never picks a chain. They picked a
-> meta-strategy. The allocator does the rest."*
+> *"Sentinel ranks every strategy in the market — three classes
+> across three chains — by realized performance and stake. In v1,
+> capital is chain-local: a Kite deposit funds Kite strategies
+> directly, on-chain, no bridge. Cross-chain candidates still rank
+> and still surface — as a zero-cost deferred intent — because
+> per-rebalance bridging burns a fixed LayerZero fee that doesn't
+> pencil out on testnet. Identity and reputation are already
+> cross-chain; chain-local capital with a Kite accounting roll-up
+> is the documented v2 design. The user never picks a chain. They
+> picked a meta-strategy."*
 
 **Capture notes.**
 - Stage a fresh deposit large enough to clear the Tier-1 threshold
-  gate ($10 / strategy) so cross-chain submits actually fire.
-- Sentinel allocator EOA must hold ≥ 3.5 KITE before the take
-  (~1.08 KITE per LZ V2 hop on testnet).
-- Canonical fallback material if a fresh take doesn't land: the
-  three verified hops from 2026-05-14
-  (`docs/helios-v1-acceptance.md §2.2`):
-  - mr.base — tx `0x6ef584a1…` (Kite block 21392016)
-  - mom.base — tx `0xfee792dc…` (Kite block 21392017)
-  - yr.arb — tx `0xcda2e6bd…` (Kite block 21392018)
+  gate ($10 / strategy) so the Kite-local allocates actually fire.
+- No KITE funding gate for this beat — cross-chain capital is OFF,
+  so the `OFT.send` path never runs (no ~1 KITE-per-hop burn).
+  Deployer KITE is still needed for paymaster sponsorship and the
+  Kite-local `allocateToStrategy` gas.
+- The `CROSS_CHAIN_ALLOCATION_DEFERRED` event is deterministic and
+  instant — no LZ-delivery flakiness, no fallback material needed.
+  If asked "why deferred?", the on-camera answer is the v2 roadmap
+  in `docs/cross-chain-cost-roadmap.md §"v2"`.
 
 ---
 
@@ -204,14 +217,14 @@ in post.
 4. Visual cue: the chain-badge pulse animation on the activity
    rail (`CROSS_CHAIN_REP_UPDATE_INFLIGHT` → `_RESOLVED`).
 
-**Voiceover (55 words, ~110 wpm).**
+**Voiceover (58 words, ~116 wpm).**
 
 > *"Reputation lives canonically on Kite, but strategies trade
 > where the venue is best. A Base strategy earns its track record
-> on Uniswap. LayerZero V2 stitches it across — the same pipe the
-> protocol uses for capital, it uses for trust. An update from
-> Base lands on Kite as one signed message. Sentinel's next pass
-> sees it."*
+> on Uniswap. LayerZero V2 carries that reputation back to Kite as
+> one signed message. Capital stays chain-local in v1 — but trust
+> is portable. An update from Base lands on Kite, and Sentinel's
+> next pass sees the new score."*
 
 **Capture notes.**
 - Canonical evidence: the WS10 verification hop — Base→Kite GUID
@@ -239,8 +252,8 @@ in post.
    - `DEFUND_TRIGGERED` — threshold breached; on-chain
      `defundStrategy` fires
    - `STRATEGY_DEACTIVATED` — `StrategyRegistry.active` flips false
-   - `REMOTE_ALLOCATION_SENT` — capital rerouted to the next-best
-     candidate
+   - `Allocation` — capital rerouted to the next-best Kite-local
+     candidate (chain-local in v1)
 3. Kitescan picture-in-picture: the actual `slash` +
    `defundStrategy` transactions.
 
@@ -305,14 +318,15 @@ Before opening the screen recorder:
 - [ ] Vercel frontend is on latest `main`.
 - [ ] `NEXT_PUBLIC_USE_PASSPORT=1` and Particle / Kite AA env vars
       are populated on Vercel.
-- [ ] Sentinel allocator EOA `0x0A7d0343…` holds ≥ 3.5 KITE.
+- [ ] No KITE funding gate for Beat 2 — cross-chain capital is OFF
+      in v1, so the `OFT.send` path never runs.
 - [ ] Deployer EOA holds ≥ 10 KITE for paymaster sponsorship +
-      scenario-mode top-ups.
+      Kite-local `allocateToStrategy` gas + scenario-mode top-ups.
 - [ ] mr.kite still has live `TradeAttested` events queryable on
       Goldsky `helios/v0.9.0` — one verify-trade.js dry run before
       the session passes.
 - [ ] Goldsky subgraphs healthy: `helios/v0.9.0`,
-      `helios-base/v0.8.0`, `helios-arbitrum/v0.8.0`.
+      `helios-base/v0.9.0`, `helios-arbitrum/v0.9.0`.
 - [ ] Browser tabs pre-arranged in order:
       (1) frontend, (2) Goldsky GraphQL, (3) Kitescan,
       (4) LZScan, (5) terminal.
@@ -353,8 +367,8 @@ For the video editor preparing assets in advance:
 | mr.kite vault | `0x1717640c4f9cd9f84b028bc8dfdcea3fb0572c6a` (Kite) |
 | AllocatorVault | `0xf3e4452fe17edbfa6833022b9c186aa14b98955d` (Kite) |
 | ReputationAnchor V2-bis | `0x2b6c5f3648Ae2aA27c80CB871590D1Ef1346938D` (Kite) |
-| Cross-chain hop txs (fallback) | `0x6ef584a1…`, `0xfee792dc…`, `0xcda2e6bd…` |
-| Cross-chain reputation evidence | LZ GUID `0x24fd5344…` (Base → Kite) |
+| Cross-chain capital v1-off rationale | `docs/cross-chain-cost-roadmap.md`, `Helios.md §12` |
+| Cross-chain reputation evidence (still live) | LZ GUID `0x24fd5344…` (Base → Kite) |
 | LLM strategy reference (source) | `reference-strategies/llm_momentum_v1/src/llm_momentum_v1/strategy.py` |
 | LLM strategy deep-dive (judge-facing) | `docs/agentic-workflow.md` |
 | LLM strategy deploy script (compiles, not yet broadcast) | `contracts/script/DeployLLMMomentumVault.s.sol` |

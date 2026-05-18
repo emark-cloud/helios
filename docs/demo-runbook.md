@@ -32,8 +32,8 @@ unchecked item is a known failure mode for one of the beats.
       `ssh -i ~/.ssh/helios_vps helios@38.49.216.27 \
        'docker images helios/sentinel --format "{{.CreatedSince}}"'`
 - [ ] All three Goldsky subgraphs return ≥ 1 row each:
-      `helios/v0.9.0`, `helios-base/v0.8.0`,
-      `helios-arbitrum/v0.8.0`.
+      `helios/v0.9.0`, `helios-base/v0.9.0`,
+      `helios-arbitrum/v0.9.0`.
 - [ ] mr.kite (`0x1717640c…`) has a `TradeAttested` event with a
       timestamp within the last 24 h. Dry-run check:
       `node scripts/verify-trade.js <tx-hash>` → exit 0.
@@ -42,10 +42,13 @@ unchecked item is a known failure mode for one of the beats.
 
 ### Funding
 
-- [ ] Sentinel allocator EOA `0x0A7d0343…` holds ≥ 3.5 KITE
-      (~1.08 KITE per LZ V2 hop × 3 hops + buffer).
+- [ ] No Sentinel-allocator KITE gate for Beat 2 — cross-chain
+      capital is OFF in v1, so the `OFT.send` bridge path (which
+      burned ~1 KITE per LZ V2 hop) never runs. Beat 2 is now
+      Kite-local allocation only.
 - [ ] Deployer EOA holds ≥ 10 KITE for paymaster sponsorship of the
-      onboarding userOp + scenario-mode top-ups.
+      onboarding userOp + Kite-local `allocateToStrategy` gas +
+      scenario-mode top-ups.
 - [ ] Fresh demo wallet for Beat 1 has zero balance and zero
       transaction history (Passport flow shows from zero state).
 
@@ -85,8 +88,9 @@ unchecked item is a known failure mode for one of the beats.
 Per `docs/demo-script.md`, take this order — fragile beats first:
 
 1. **Beat 5 — scenario defund.** Largest setup, easiest to break.
-2. **Beat 2 — multi-chain allocation.** Needs a fresh deposit timed
-   against Tier-1 flush cadence (~ 5 min).
+2. **Beat 2 — allocation (multi-chain directory, Kite-local
+   capital).** Needs a fresh deposit timed against Tier-1 flush
+   cadence (~ 5 min). No cross-chain bridge step in v1.
 3. **Beat 1 — onboarding.** Fresh browser state, ~ 45 s take.
 4. **Beat 3 — verify-trade.js.** Fully deterministic, re-takable.
 5. **Beat 4 — cross-chain rep.** Historical evidence, no live action.
@@ -185,9 +189,12 @@ In either case, target the per-beat word rates from
   signal from the market), Beat 3 needs a fallback source.
   mom.base and mr.base on Base Sepolia are the next candidates,
   but verify-trade.js needs a Base RPC env override for those.
-- **LZ V2 testnet executor delays.** Cross-chain delivery on
-  Beat 2 is usually 30–90 s but can spike to several minutes on
-  testnet. Build retake budget in.
+- **No LZ delivery dependency on Beat 2 (v1).** Cross-chain
+  *capital* is OFF, so Beat 2 never waits on a LayerZero hop — the
+  `CROSS_CHAIN_ALLOCATION_DEFERRED` event is deterministic and
+  instant. LZ executor latency only matters for Beat 4
+  (cross-chain reputation), and that beat is captured cold from
+  historical on-chain evidence, so no live retake budget needed.
 - **Public clone has missing local docs.** `TODO.md` and
   `DESIGN.md` are gitignored. CLAUDE.md still references them. A
   judge cloning the repo cold will see broken links — point them
